@@ -50,9 +50,9 @@ inline void LOG_ERROR(const std::string_view fmt, const Ts&... args)
     #endif
 
     #ifndef DCHECK
-        #define DCHECK1(condition)      if(!condition) LOG_ERROR("{}", #condition)
-        #define DCHECK2(condition, msg) if(!condition) LOG_ERROR("{}", msg)
-        #define DCHECK3(condition, ...) if(!condition) LOG_ERROR(__VA_ARGS__)
+        #define DCHECK1(condition)      if(!(condition)) LOG_ERROR("{}", #condition)
+        #define DCHECK2(condition, msg) if(!(condition)) LOG_ERROR("{}", msg)
+        #define DCHECK3(condition, ...) if(!(condition)) LOG_ERROR(__VA_ARGS__)
 
         #define GET_MACRO_(_1, _2, _3, NAME, ...) NAME
         #define DCHECK(...) GET_MACRO_(__VA_ARGS__, DCHECK3, DCHECK2, DCHECK1, UNUSED)(__VA_ARGS__)
@@ -107,13 +107,17 @@ struct vec3_t
 
     vec3_t(Float x = 0, Float y = 0, Float z = 0) { this->x = x; this->y = y; this->z = z; }
 
+    Float operator[](int i) const { DCHECK(i >= 0 && i < 3); return (&x)[i]; }
     vec3_t operator+(const vec3_t& vec3) const { return vec3_t(x + vec3.x, y + vec3.y, z + vec3.z); }
     vec3_t operator-(const vec3_t& vec3) const { return vec3_t(x - vec3.x, y - vec3.y, z - vec3.z); }
     vec3_t operator*(Float scalar) const { return vec3_t(x * scalar, y * scalar, z * scalar); }
+    friend vec3_t operator*(Float scalar, vec3_t vec3) { return vec3_t(vec3.x * scalar, vec3.y * scalar, vec3.z * scalar); }
+
 
     // ???
     vec3_t multiply(const vec3_t& vec3) const { return vec3_t(x * vec3.x, y * vec3.y, z * vec3.z); }
 
+    friend Float dot(const vec3_t& u, const vec3_t& v) { return u.x * v.x + u.y * v.y + u.z * v.z; }
     Float dot(const vec3_t& vec3) const { return x * vec3.x + y * vec3.y + z * vec3.z; }
     vec3_t cross(const vec3_t& v) 
     {
@@ -143,16 +147,17 @@ using direction_t = unit_vector_t;
 using normal_t = unit_vector_t
 */
 
-using point3_t = vec3_t;
+using point3_t = vec3_t; // object_point, world_point... we need a frame
 using normal_t = vec3_t;
 using color_t = vec3_t;
+using unit_vec3_t = vec3_t;
 
 struct ray_t
 {
     point3_t origin_;
-    vec3_t direction_; // confirm it is Unit Vector
+    unit_vec3_t direction_; // confirm it is Unit Vector
 
-    ray_t(const point3_t& origin, const vec3_t& direction) : 
+    ray_t(const point3_t& origin, const unit_vec3_t& direction) : 
         origin_(origin), 
         direction_(direction) 
     {
@@ -165,6 +170,15 @@ struct ray_t
         GET_MACRO_(direction_.is_unit(), "aabb", DCHECK3, DCHECK2, DCHECK1) (direction_.is_unit(), "aabb");
         GET_MACRO_(__VA_ARGS__, DCHECK3, DCHECK2, DCHECK1, UNUSED)(__VA_ARGS__);
         */
+    }
+
+    vec3_t origin() const { return origin_; }
+    vec3_t direction() const { return direction_; }
+
+    vec3_t operator()(Float t) const
+    {
+        DCHECK(t >= 0);
+        return origin_ + t * direction_;
     }
 };
 
@@ -182,6 +196,12 @@ struct RandomLCG {
 #define RANDOM(Xi) Xi()
 #define RANDOM_INIT(Xi) RandomLCG Xi;
 #define RANDOM_PARAM(Xi) RandomLCG& Xi
+
+// TODO: Pseudo or Quasi
+struct RNG
+{
+
+};
 
 #pragma endregion
 
@@ -205,18 +225,18 @@ struct intersection_t
 
 struct sphere_t
 {
-    vec3_t position_;
+    vec3_t center_;
     Float radius_;
-    Float sq_radius_;
+    Float radius_sq_;
 
     color_t emission_;
     color_t color_;
     surface_scattering_e surface_scattering_;
 
-    sphere_t(Float radius, vec3_t position, vec3_t e_, vec3_t c_, surface_scattering_e refl_) :
-        position_(position),
+    sphere_t(Float radius, vec3_t center, vec3_t e_, vec3_t c_, surface_scattering_e refl_) :
+        center_(center),
         radius_(radius),
-        sq_radius_(radius* radius),
+        radius_sq_(radius * radius),
         emission_(e_),
         color_(c_),
         surface_scattering_(refl_)
@@ -227,22 +247,62 @@ struct sphere_t
     { 
         // returns distance, 0 if nohit
 
-        // 
-        // Solve t^2*d.d + 2*t*(o-p).d + (o-p).(o-p)-R^2 = 0
-        vec3_t op = position_ - r.origin_; 
-        Float t = 0;
-        Float eps = 1e-4;
-        Float b = op.dot(r.direction_);
-        Float det = b * b - op.dot(op) + sq_radius_; // MILO
+        /*
+            ||o + t*d - c||^2 = r^2
+            (t*d + o - c).(t*d + o - c) = r^2
 
-        if (det < 0) 
-            return 0; 
-        else 
-            det = sqrt(det);
+            t^2*d.d + 2t*d.(o-c) + (o-c).(o-c)-r^2 = 0
+            at^2 + bt + c = 0
 
-        return (t = b - det) > eps ? t : ((t = b + det) > eps ? t : 0);
+            oc = o - c
+            a = dot(d, d) = 1;
+            b = 2 * dot(d, oc);
+            c = dot(oc, oc) - r^2;
+
+            t = (-b +/- sqrt(b^2 - 4ac)) / 2a
+              = (-b +/- sqrt(b^2 - 4c)) / 2
+              = ((-2 * dot(d, oc) +/- sqrt(4 * dot(d, oc)^2 - 4 * (dot(oc, oc) - r^2))) / 2
+              = -dot(d, oc) +/- sqrt( dot(d, oc)^2 - dot(oc, oc) + r^2 )
+              = -b' +/- sqrt(det)
+        */
+
+        vec3_t co = center_ - r.origin();
+        Float neg_b = dot(co, r.direction());
+        Float discr = neg_b * neg_b - dot(co, co) + radius_sq_;
+
+        if (discr >= 0)
+         {
+            Float sqrt_discr = sqrt(discr);
+
+            Float t = 0;
+            Float eps = 1e-4;
+
+            if (t = neg_b - sqrt_discr; t > eps)
+            {
+                return t;
+            }
+            else if (t = neg_b + sqrt_discr; t > eps)
+            {
+                return t;
+            }
+        }
+
+        return 0;
     }
 };
+
+#pragma endregion
+
+
+
+#pragma region accelerator(optional)
+
+enum class accelerator_e
+{
+    none,
+};
+
+// accel_t
 
 #pragma endregion
 
@@ -252,7 +312,7 @@ struct sphere_t
 
 // TODO: std::vector<std::function<intersect(ray_t ray), result_t> primitives_;
 
-sphere_t scene[] = {//Scene: radius, position, emission, color, material
+sphere_t scene[] = {//Scene: radius, center, emission, color, material
   sphere_t(1e5, vec3_t(1e5 + 1,40.8,81.6), vec3_t(),vec3_t(.75,.25,.25),surface_scattering_e::diffuse),//Left
   sphere_t(1e5, vec3_t(-1e5 + 99,40.8,81.6),vec3_t(),vec3_t(.25,.25,.75),surface_scattering_e::diffuse),//Rght
   sphere_t(1e5, vec3_t(50,40.8, 1e5),     vec3_t(),vec3_t(.75,.75,.75),surface_scattering_e::diffuse),//Back
@@ -448,5 +508,14 @@ int main(int argc, char* argv[])
         fprintf(file, "%d %d %d ", gamma_encoding(color_[i].x), gamma_encoding(color_[i].y), gamma_encoding(color_[i].z));
     fclose(file);
 }
+
+#pragma endregion
+
+
+
+
+
+
+#pragma region assert io
 
 #pragma endregion
