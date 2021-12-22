@@ -6,6 +6,7 @@
 #include <ctime>
 #include <exception>
 #include <format>
+#include <memory>
 #include <numbers>
 #include <string>
 #include <string_view>
@@ -13,6 +14,24 @@
 
 
 #pragma region macro
+
+#if defined(_DEBUG)
+    #define KY_DEBUG
+#endif
+
+#if defined(_WIN32) || defined(_WIN64)
+    #define KY_WINDOWS
+
+    #if defined(_MSC_VER)
+        #define KY_MSVC
+    #elif defined(__MINGW32__)  
+        #define KY_MINGW
+    #endif
+#elif defined(__linux__)
+    #define KY_LINUX
+#elif defined(__APPLE__)
+    #define KY_MACOS
+#endif
 
 #pragma endregion
 
@@ -25,9 +44,18 @@ constexpr Float Pi = std::numbers::pi;
 
 #pragma endregion
 
-
-
 #pragma region utility
+
+class reference_type_t
+{
+protected:
+    constexpr reference_type_t() = default;
+
+    reference_type_t(const reference_type_t&) = delete;
+    reference_type_t& operator=(const reference_type_t&) = delete;
+};
+
+
 
 template <typename... Ts>
 inline void LOG(const std::string_view fmt, const Ts&... args)
@@ -44,7 +72,7 @@ inline void LOG_ERROR(const std::string_view fmt, const Ts&... args)
     throw std::exception(msg.c_str());
 }
 
-#ifdef _DEBUG
+#ifdef KY_DEBUG
     #ifndef LOG_DEBUG
         #define LOG_DEBUG(...) LOG(__VA_ARGS__)
     #endif
@@ -112,7 +140,6 @@ struct vec3_t
     vec3_t operator-(const vec3_t& vec3) const { return vec3_t(x - vec3.x, y - vec3.y, z - vec3.z); }
     vec3_t operator*(Float scalar) const { return vec3_t(x * scalar, y * scalar, z * scalar); }
     friend vec3_t operator*(Float scalar, vec3_t vec3) { return vec3_t(vec3.x * scalar, vec3.y * scalar, vec3.z * scalar); }
-
 
     // ???
     vec3_t multiply(const vec3_t& vec3) const { return vec3_t(x * vec3.x, y * vec3.y, z * vec3.z); }
@@ -184,29 +211,6 @@ struct ray_t
 
 #pragma endregion
 
-
-
-#pragma region sampling
-
-struct RandomLCG {
-    unsigned mSeed;
-    RandomLCG(unsigned seed = 0) : mSeed(seed) {}
-    double operator()() { mSeed = 214013 * mSeed + 2531011; return mSeed * (1.0 / 4294967296); }
-};
-#define RANDOM(Xi) Xi()
-#define RANDOM_INIT(Xi) RandomLCG Xi;
-#define RANDOM_PARAM(Xi) RandomLCG& Xi
-
-// TODO: Pseudo or Quasi
-struct RNG
-{
-
-};
-
-#pragma endregion
-
-
-
 #pragma region shape
 
 enum class surface_scattering_e { diffuse, specular, refractive };  // material types, used in radiance()
@@ -248,22 +252,22 @@ struct sphere_t
         // returns distance, 0 if nohit
 
         /*
-            ||o + t*d - c||^2 = r^2
-            (t*d + o - c).(t*d + o - c) = r^2
+          ||o + t*d - c||^2 = r^2
+          (t*d + o - c).(t*d + o - c) = r^2
 
-            t^2*d.d + 2t*d.(o-c) + (o-c).(o-c)-r^2 = 0
-            at^2 + bt + c = 0
+          t^2*d.d + 2t*d.(o-c) + (o-c).(o-c)-r^2 = 0
+          at^2 + bt + c = 0
 
-            oc = o - c
-            a = dot(d, d) = 1;
-            b = 2 * dot(d, oc);
-            c = dot(oc, oc) - r^2;
+          oc = o - c
+          a = dot(d, d) = 1;
+          b = 2 * dot(d, oc);
+          c = dot(oc, oc) - r^2;
 
-            t = (-b +/- sqrt(b^2 - 4ac)) / 2a
-              = (-b +/- sqrt(b^2 - 4c)) / 2
-              = ((-2 * dot(d, oc) +/- sqrt(4 * dot(d, oc)^2 - 4 * (dot(oc, oc) - r^2))) / 2
-              = -dot(d, oc) +/- sqrt( dot(d, oc)^2 - dot(oc, oc) + r^2 )
-              = -b' +/- sqrt(det)
+          t = (-b +/- sqrt(b^2 - 4ac)) / 2a
+            = (-b +/- sqrt(b^2 - 4c)) / 2
+            = ((-2 * dot(d, oc) +/- sqrt(4 * dot(d, oc)^2 - 4 * (dot(oc, oc) - r^2))) / 2
+            = -dot(d, oc) +/- sqrt( dot(d, oc)^2 - dot(oc, oc) + r^2 )
+            = -b' +/- sqrt(discr)
         */
 
         vec3_t co = center_ - r.origin();
@@ -293,8 +297,6 @@ struct sphere_t
 
 #pragma endregion
 
-
-
 #pragma region accelerator(optional)
 
 enum class accelerator_e
@@ -305,8 +307,6 @@ enum class accelerator_e
 // accel_t
 
 #pragma endregion
-
-
 
 #pragma region scene
 
@@ -341,20 +341,140 @@ bool intersect(const ray_t& r, double& t, int& id)
 
 
 
-#pragma region camera, image
+#pragma region film
 
-constexpr double clamp01(double x) { return std::clamp(x, 0., 1.); }
-int gamma_encoding(double x) { return int(pow(clamp01(x), 1 / 2.2) * 255 + .5); }
+constexpr double clamp01(Float x) { return std::clamp(x, 0., 1.); }
+std::byte gamma_encoding(Float x) { return std::byte(pow(clamp01(x), 1 / 2.2) * 255 + .5); }
 
-class image_t
+/*
+  warpper of `color_t pixels[]`
+  * get/set color
+  * save image
+*/
+class film_t : public reference_type_t
 {
+public:
+    film_t(int width, int height) :
+        width_{ width },
+        height_{ height },
+        pixels_{ std::make_unique<color_t[]>(width_ * height_) }
+    {
+    }
 
+public:
+    int get_width() const { return width_; }
+    int get_height() const { return height_; }
+    int get_channels() const { return 3; }
+
+    color_t& operator()(int x, int y)
+    {
+        DCHECK(x >= 0 && x < width_&& y >= 0 && y < height_);
+        return *(pixels_.get() + get_width() * y + x);
+    }
+
+    void add_color(int x, int y, const color_t& delta)
+    {
+        auto& color_ = operator()(x, y);
+        color_ = color_ + delta;
+    }
+
+public:
+    bool store_bmp(const char* filename, bool with_alpha = false) const
+    {
+        return store_bmp_impl(filename, get_width(), get_height(), get_channels(), (Float*)pixels_.get());
+    }
+    
+    // https://github.com/skywind3000/RenderHelp/blob/master/RenderHelp.h#L937-L1018
+    static bool store_bmp_impl(const char* filename, int width, int height, int channel, const Float* floats)
+    {
+        FILE* file = fopen(filename, "wb");
+        if (file == nullptr) return false;
+
+
+        uint32_t padding_line_bytes = (width * channel + 3) & (~3);
+        uint32_t padding_image_bytes = padding_line_bytes * height;
+
+        // write file header
+        struct BITMAP_FILE_HEADER
+        {
+            char8_t padding[2]{};
+
+            char8_t type[2]{ 'B', 'M' };
+            uint32_t file_size{};
+            uint32_t reserved{ 0 };
+            uint32_t databody_offset{};
+        }
+        file_header{ .file_size{ 54 + padding_image_bytes} };
+
+        static_assert(sizeof(file_header) == 16);
+        fwrite(&file_header.type, 14, 1, file);
+
+
+        // write info header
+        struct BITMAP_INFO_HEADER
+        {
+            uint32_t	info_header_size{ 40 };
+
+            uint32_t	width{};
+            int32_t		height{};
+            uint16_t	planes{ 1 };
+            uint16_t	per_pixel_bits{};
+            uint32_t	compression{ 0 };
+            uint32_t	image_bytes{};
+
+            uint32_t	x_pixels_per_meter{ 0xb12 };
+            uint32_t	y_pixels_per_meter{ 0xb12 };
+            uint32_t	color_used{ 0 };
+            uint32_t	color_important{ 0 };
+        }
+        info_header{ 
+            .width{ (uint32_t)width },
+            .height{ (uint16_t)height },
+            .per_pixel_bits{ (uint16_t)(channel * 8) },
+            .image_bytes{ uint32_t(padding_image_bytes) }
+        };
+
+        static_assert(sizeof(info_header) == 40);
+        fwrite(&info_header, sizeof(info_header), 1, file);
+
+        
+        // without color table
+
+
+        // gamma encoding
+        int byte_num = width * height * channel;
+        auto bytes = std::make_unique<std::byte[]>(byte_num);
+        for (int i = 0; i < byte_num; i += 3)
+        {
+            // BGR
+            bytes[i]     = gamma_encoding(floats[i + 2]);
+            bytes[i + 1] = gamma_encoding(floats[i + 1]);
+            bytes[i + 2] = gamma_encoding(floats[i]);
+        }
+
+        // write data body 
+        fwrite(bytes.get(), byte_num, 1, file);
+
+
+        fclose(file);
+        return true;
+    }
+
+private:
+    int32_t width_;
+    int32_t height_;
+
+    std::unique_ptr<color_t[]> pixels_;
 };
 
-void save_bmp()
-{
 
-}
+#pragma endregion
+
+#pragma region filter
+
+#pragma endregion
+
+#pragma region camera
 
 class camera_t
 {
@@ -365,17 +485,32 @@ class camera_t
 
 
 
+#pragma region sampling
+
+struct RandomLCG {
+    unsigned mSeed;
+    RandomLCG(unsigned seed = 0) : mSeed(seed) {}
+    double operator()() { mSeed = 214013 * mSeed + 2531011; return mSeed * (1.0 / 4294967296); }
+};
+#define RANDOM(Xi) Xi()
+#define RANDOM_INIT(Xi) RandomLCG Xi;
+#define RANDOM_PARAM(Xi) RandomLCG& Xi
+
+// TODO: Pseudo or Quasi
+struct RNG
+{
+
+};
+
+#pragma endregion
+
 #pragma region material, bsdf
 
 #pragma endregion
 
-
-
 #pragma region light
 
 #pragma endregion
-
-
 
 #pragma region integrater
 
@@ -410,7 +545,7 @@ vec3_t radiance(const ray_t& r, int depth, RANDOM_PARAM(Xi))
         return vec3_t(); // if miss, return black
 
     const sphere_t& obj = scene[id];        // the hit object
-    vec3_t x = r.origin_ + r.direction_ * t, n = (x - obj.position_).normlize(), nl = n.dot(r.direction_) < 0 ? n : n * -1, f = obj.color_;
+    vec3_t x = r.origin_ + r.direction_ * t, n = (x - obj.center_).normlize(), nl = n.dot(r.direction_) < 0 ? n : n * -1, f = obj.color_;
     double position_ = f.x > f.y && f.x > f.z ? f.x : f.y > f.z ? f.y : f.z; // max refl
 
     if (++depth > 5)
@@ -461,8 +596,12 @@ vec3_t radiance(const ray_t& r, int depth, RANDOM_PARAM(Xi))
 
 #pragma endregion
 
-
 #pragma region main
+
+class option_t
+{
+
+};
 
 int main(int argc, char* argv[])
 {
@@ -476,7 +615,7 @@ int main(int argc, char* argv[])
     vec3_t cy = (cx.cross(cam.direction_)).normlize() * .5135;
 
     vec3_t Li;
-    vec3_t* color_ = new vec3_t[w * h];
+    film_t image(w, h);
 
 #pragma omp parallel for schedule(dynamic, 1) private(Li)       // OpenMP
     for (int y = 0; y < h; y++) 
@@ -496,26 +635,26 @@ int main(int argc, char* argv[])
                             cy * (((sy + .5 + dy) / 2 + y) / h - .5) + cam.direction_;
                         Li = Li + radiance(ray_t(cam.origin_ + direction_ * 140, direction_.normlize()), 0, Xi) * (1. / samps);
                     } // Camera rays are pushed ^^^^^ forward to start in interior
-                    color_[i] = color_[i] + vec3_t(clamp01(Li.x), clamp01(Li.y), clamp01(Li.z)) * .25;
+
+                    auto clamp_Li = vec3_t(clamp01(Li.x), clamp01(Li.y), clamp01(Li.z));
+                    image.add_color(x, y, clamp_Li * 0.25);
                 }
     }
 
     LOG("\n{} sec\n", (float)(clock() - start) / CLOCKS_PER_SEC); // MILO
 
-    FILE* file = fopen("image.ppm", "w");         // Write image to PPM file.
-    fprintf(file, "P3\n%d %d\n%d\n", w, h, 255);
-    for (int i = 0; i < w * h; i++)
-        fprintf(file, "%d %d %d ", gamma_encoding(color_[i].x), gamma_encoding(color_[i].y), gamma_encoding(color_[i].z));
-    fclose(file);
+    image.store_bmp("image.bmp");
+#ifdef KY_WINDOWS
+    system("mspaint image.bmp");
+#endif
+    return 0;
 }
 
 #pragma endregion
 
 
 
-
-
-
-#pragma region assert io
+#pragma region window/input
 
 #pragma endregion
+

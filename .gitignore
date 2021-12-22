@@ -33,17 +33,9 @@
 
 # Other
 .vs
-cpu
-gpu
 ky
-langs
 out
 style
-third
 tmp
-unity
-unreal
-vcm
-web
 *.lnk
 CMakeSettings.json
