@@ -310,6 +310,11 @@ enum class accelerator_e
 
 #pragma region scene
 
+class scene_t
+{
+
+};
+
 // TODO: std::vector<std::function<intersect(ray_t ray), result_t> primitives_;
 
 sphere_t scene[] = {//Scene: radius, center, emission, color, material
@@ -379,7 +384,7 @@ public:
     }
 
 public:
-    bool store_bmp(const char* filename, bool with_alpha = false) const
+    virtual bool store_image(const char* filename, bool with_alpha = false) const
     {
         return store_bmp_impl(filename, get_width(), get_height(), get_channels(), (Float*)pixels_.get());
     }
@@ -394,6 +399,9 @@ public:
         uint32_t padding_line_bytes = (width * channel + 3) & (~3);
         uint32_t padding_image_bytes = padding_line_bytes * height;
 
+        const uint32_t FILE_HEADER_SIZE = 14;
+        const uint32_t INFO_HEADER_SIZE = 40; 
+
         // write file header
         struct BITMAP_FILE_HEADER
         {
@@ -404,16 +412,16 @@ public:
             uint32_t reserved{ 0 };
             uint32_t databody_offset{};
         }
-        file_header{ .file_size{ 54 + padding_image_bytes} };
+        file_header{ .file_size{ FILE_HEADER_SIZE + INFO_HEADER_SIZE + padding_image_bytes } };
 
-        static_assert(sizeof(file_header) == 16);
-        fwrite(&file_header.type, 14, 1, file);
+        static_assert(sizeof(file_header) == FILE_HEADER_SIZE + 2);
+        fwrite(&file_header.type, FILE_HEADER_SIZE, 1, file);
 
 
         // write info header
         struct BITMAP_INFO_HEADER
         {
-            uint32_t	info_header_size{ 40 };
+            uint32_t	info_header_size{ INFO_HEADER_SIZE };
 
             uint32_t	width{};
             int32_t		height{};
@@ -427,15 +435,16 @@ public:
             uint32_t	color_used{ 0 };
             uint32_t	color_important{ 0 };
         }
-        info_header{ 
+        info_header
+        { 
             .width{ (uint32_t)width },
             .height{ (uint16_t)height },
             .per_pixel_bits{ (uint16_t)(channel * 8) },
             .image_bytes{ uint32_t(padding_image_bytes) }
         };
 
-        static_assert(sizeof(info_header) == 40);
-        fwrite(&info_header, sizeof(info_header), 1, file);
+        static_assert(sizeof(info_header) == INFO_HEADER_SIZE);
+        fwrite(&info_header, INFO_HEADER_SIZE, 1, file);
 
         
         // without color table
@@ -478,6 +487,7 @@ private:
 
 class camera_t
 {
+public:
 
 };
 
@@ -536,6 +546,21 @@ enum class integrater_e
     path_tracing_iteration
 };
 
+class integrater_t
+{
+public:
+    
+    void render(const scene_t scene)
+    {
+
+    }
+
+    virtual color_t Li()
+    {
+
+    }
+};
+
 vec3_t radiance(const ray_t& r, int depth, RANDOM_PARAM(Xi))
 {
     double t;                               // distance to intersection
@@ -545,7 +570,10 @@ vec3_t radiance(const ray_t& r, int depth, RANDOM_PARAM(Xi))
         return vec3_t(); // if miss, return black
 
     const sphere_t& obj = scene[id];        // the hit object
-    vec3_t x = r.origin_ + r.direction_ * t, n = (x - obj.center_).normlize(), nl = n.dot(r.direction_) < 0 ? n : n * -1, f = obj.color_;
+    vec3_t x = r.origin_ + r.direction_ * t, 
+        n = (x - obj.center_).normlize(), 
+        nl = n.dot(r.direction_) < 0 ? n : n * -1, 
+        f = obj.color_;
     double position_ = f.x > f.y && f.x > f.z ? f.x : f.y > f.z ? f.y : f.z; // max refl
 
     if (++depth > 5)
@@ -600,7 +628,14 @@ vec3_t radiance(const ray_t& r, int depth, RANDOM_PARAM(Xi))
 
 class option_t
 {
+    int image_width;
+    int image_height;
+    int sample_per_pixel;
 
+    point3_t camera_positon;
+    vec3_t camera_direction;
+
+    std::string filename;
 };
 
 int main(int argc, char* argv[])
@@ -615,7 +650,7 @@ int main(int argc, char* argv[])
     vec3_t cy = (cx.cross(cam.direction_)).normlize() * .5135;
 
     vec3_t Li;
-    film_t image(w, h);
+    film_t film(w, h);
 
 #pragma omp parallel for schedule(dynamic, 1) private(Li)       // OpenMP
     for (int y = 0; y < h; y++) 
@@ -637,13 +672,13 @@ int main(int argc, char* argv[])
                     } // Camera rays are pushed ^^^^^ forward to start in interior
 
                     auto clamp_Li = vec3_t(clamp01(Li.x), clamp01(Li.y), clamp01(Li.z));
-                    image.add_color(x, y, clamp_Li * 0.25);
+                    film.add_color(x, y, clamp_Li * 0.25);
                 }
     }
 
     LOG("\n{} sec\n", (float)(clock() - start) / CLOCKS_PER_SEC); // MILO
 
-    image.store_bmp("image.bmp");
+    film.store_image("image.bmp");
 #ifdef KY_WINDOWS
     system("mspaint image.bmp");
 #endif
