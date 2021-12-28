@@ -6,7 +6,7 @@ single file pathtracing renderer, 2000 lines of C++20, PBRT-like architecture, s
 
 ## feature
 
-
+ky is based on smallpt at first, gradually rewritten into a PBRT style
 
 ## milestone
 
