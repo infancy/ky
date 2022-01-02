@@ -8,9 +8,10 @@
 #include <format>
 #include <memory>
 #include <numbers>
+#include <random>
 #include <string>
 #include <string_view>
-
+using namespace std::literals::string_literals;
 
 
 #pragma region macro
@@ -39,8 +40,11 @@
 
 #pragma region using/cosntant
 
+using uint = uint32_t;
 using Float = double;
-constexpr Float Pi = std::numbers::pi;
+
+constexpr Float k_pi = std::numbers::pi;
+constexpr Float k_inv_pi = std::numbers::inv_pi;
 
 #pragma endregion
 
@@ -124,6 +128,22 @@ constexpr bool is_equal(T x, T y, T epsilon = equal_epsilon<T>::absolute_epsilon
 
 
 
+struct vec2_t
+{
+    union
+    {
+        struct { Float x, y; };
+    };
+
+    vec2_t(Float x = 0, Float y = 0) { this->x = x; this->y = y; }
+
+    vec2_t operator+(const vec2_t& vec2) const { return vec2_t(x + vec2.x, y + vec2.y); }
+};
+
+using point2_t = vec2_t;
+
+
+
 struct vec3_t
 {        // Usage: time ./smallpt 5000 && xv image.ppm
     union
@@ -135,10 +155,10 @@ struct vec3_t
 
     vec3_t(Float x = 0, Float y = 0, Float z = 0) { this->x = x; this->y = y; this->z = z; }
 
-    Float operator[](int i) const { DCHECK(i >= 0 && i < 3); return (&x)[i]; }
+    Float operator[](int i)              const { DCHECK(i >= 0 && i < 3); return (&x)[i]; }
     vec3_t operator+(const vec3_t& vec3) const { return vec3_t(x + vec3.x, y + vec3.y, z + vec3.z); }
     vec3_t operator-(const vec3_t& vec3) const { return vec3_t(x - vec3.x, y - vec3.y, z - vec3.z); }
-    vec3_t operator*(Float scalar) const { return vec3_t(x * scalar, y * scalar, z * scalar); }
+    vec3_t operator*(Float scalar)       const { return vec3_t(x * scalar, y * scalar, z * scalar); }
     friend vec3_t operator*(Float scalar, vec3_t vec3) { return vec3_t(vec3.x * scalar, vec3.y * scalar, vec3.z * scalar); }
 
     // ???
@@ -160,11 +180,11 @@ struct vec3_t
     }
 
     // or length(), abs(), absolute_value()
-    Float magnitude() const { return sqrt(magnitude_sq()); }
+    Float magnitude()    const { return sqrt(magnitude_sq()); }
     Float magnitude_sq() const { return x * x + y * y + z * z; }
 
     // unit_vec3_t& normlize() const { return *this * (1 / sqrt(x * x + y * y + z * z)); }
-    vec3_t& normlize() { return *this = *this * (1 / sqrt(x * x + y * y + z * z)); } // TODO: const
+    vec3_t& normlize()   { return *this = *this * (1 / sqrt(x * x + y * y + z * z)); } // TODO: const
     bool is_unit() const { return is_equal(magnitude(), 1.); }
 };
 
@@ -178,6 +198,15 @@ using point3_t = vec3_t; // object_point, world_point... we need a frame
 using normal_t = vec3_t;
 using color_t = vec3_t;
 using unit_vec3_t = vec3_t;
+
+
+
+struct mat4_t
+{
+
+};
+
+
 
 struct ray_t
 {
@@ -215,16 +244,20 @@ struct ray_t
 
 enum class surface_scattering_e { diffuse, specular, refractive };  // material types, used in radiance()
 
-struct shape_t
-{
-    color_t color_;
-    surface_scattering_e surface_scattering_;
-};
-
 struct intersection_t
 {
     point3_t position; // world position
 
+};
+
+struct shape_t
+{
+public:
+    virtual bool intersect(const ray_t ray, intersection_t& out_intersec) = 0;
+
+private:
+    color_t color_;
+    surface_scattering_e surface_scattering_;
 };
 
 struct sphere_t
@@ -297,23 +330,22 @@ struct sphere_t
 
 #pragma endregion
 
-#pragma region accelerator(optional)
+#pragma region accelerator
 
-enum class accelerator_e
+enum class accel_e
 {
-    none,
+    trivial
+    // bvh
 };
 
-// accel_t
+class accel_t
+{
+
+};
 
 #pragma endregion
 
 #pragma region scene
-
-class scene_t
-{
-
-};
 
 // TODO: std::vector<std::function<intersect(ray_t ray), result_t> primitives_;
 
@@ -324,6 +356,7 @@ sphere_t scene[] = {//Scene: radius, center, emission, color, material
   sphere_t(1e5, vec3_t(50,40.8,-1e5 + 170), vec3_t(),vec3_t(),           surface_scattering_e::diffuse),//Frnt
   sphere_t(1e5, vec3_t(50, 1e5, 81.6),    vec3_t(),vec3_t(.75,.75,.75),surface_scattering_e::diffuse),//Botm
   sphere_t(1e5, vec3_t(50,-1e5 + 81.6,81.6),vec3_t(),vec3_t(.75,.75,.75),surface_scattering_e::diffuse),//Top
+
   sphere_t(16.5,vec3_t(27,16.5,47),       vec3_t(),vec3_t(1,1,1) * .999, surface_scattering_e::specular),//Mirr
   sphere_t(16.5,vec3_t(73,16.5,78),       vec3_t(),vec3_t(1,1,1) * .999, surface_scattering_e::refractive),//Glas
   sphere_t(600, vec3_t(50,681.6 - .27,81.6),vec3_t(12,12,12),  vec3_t(), surface_scattering_e::diffuse) //Lite
@@ -346,7 +379,18 @@ bool intersect(const ray_t& r, double& t, int& id)
 
 
 
+#pragma region filter
+
+#pragma endregion
+
 #pragma region film
+
+// film_option_t
+struct film_desc_t
+{
+    int width;
+    int height;
+};
 
 constexpr double clamp01(Float x) { return std::clamp(x, 0., 1.); }
 std::byte gamma_encoding(Float x) { return std::byte(pow(clamp01(x), 1 / 2.2) * 255 + .5); }
@@ -384,15 +428,17 @@ public:
     }
 
 public:
-    virtual bool store_image(const char* filename, bool with_alpha = false) const
+    //virtual bool store_image(bool with_alpha);
+    virtual bool store_image(std::string filename, bool with_alpha = false) const
     {
         return store_bmp_impl(filename, get_width(), get_height(), get_channels(), (Float*)pixels_.get());
     }
-    
+   
+    // https://github.com/SmallVCM/SmallVCM/blob/master/src/framebuffer.hxx#L149-L215
     // https://github.com/skywind3000/RenderHelp/blob/master/RenderHelp.h#L937-L1018
-    static bool store_bmp_impl(const char* filename, int width, int height, int channel, const Float* floats)
+    static bool store_bmp_impl(const std::string& filename, int width, int height, int channel, const Float* floats)
     {
-        FILE* file = fopen(filename, "wb");
+        FILE* file = fopen(filename.c_str(), "wb");
         if (file == nullptr) return false;
 
 
@@ -479,16 +525,38 @@ private:
 
 #pragma endregion
 
-#pragma region filter
-
-#pragma endregion
-
 #pragma region camera
 
+struct camera_sample_t
+{
+    point2_t film_sample_point{};
+};
+
+/*
+ * generate ray
+ * 
+ *
+ */
 class camera_t
 {
 public:
+    virtual ~camera_t() {}
+    camera_t(const vec3_t& position, const unit_vec3_t& direction, float focal_length):
+        position_{ position },
+        direction_{ direction }
+    {
 
+    }
+
+public:
+    virtual ray_t generate_ray(const camera_sample_t& sample) const
+    {
+
+    }
+
+private:
+    vec3_t position_;
+    unit_vec3_t direction_;
 };
 
 #pragma endregion
@@ -496,6 +564,10 @@ public:
 
 
 #pragma region sampling
+
+#pragma endregion
+
+#pragma region sampler
 
 struct RandomLCG {
     unsigned mSeed;
@@ -506,19 +578,215 @@ struct RandomLCG {
 #define RANDOM_INIT(Xi) RandomLCG Xi;
 #define RANDOM_PARAM(Xi) RandomLCG& Xi
 
+
+
 // TODO: Pseudo or Quasi
-struct RNG
+// random number generator
+// https://github.com/SmallVCM/SmallVCM/blob/master/src/rng.hxx
+class rng_t
+{
+public:
+    rng_t(int seed = 1234) : rng_engine_(seed)
+    {
+    }
+
+    // [0, int_max]
+    int uniform_int() 
+    {
+        return int_dist_(rng_engine_); 
+    }
+
+    // [0, uint_max]
+    uint32_t uniform_uint()
+    {
+        return uint_dist_(rng_engine_);
+    }
+
+    // [0, 1)
+    Float uniform_float01() 
+    { 
+        return float_dist_(rng_engine_);
+    }
+
+    // TODO
+    vec2_t vec2()
+    {
+        return vec2_t(uniform_float01(), uniform_float01());
+    }
+
+    vec3_t vec3()
+    {
+        return vec3_t(uniform_float01(), uniform_float01(), uniform_float01()); 
+    }
+
+private:
+    std::mt19937_64 rng_engine_;
+
+    std::uniform_int_distribution<int> int_dist_;
+    std::uniform_int_distribution<uint32_t> uint_dist_;
+    std::uniform_real_distribution<Float> float_dist_{ (Float)0, (Float)1 };
+};
+
+
+
+struct light_sample_t
+{
+};
+
+struct bsdf_sample_t
+{
+};
+
+
+
+class sampler_t
+{
+public:
+    virtual ~sampler_t() {}
+    sampler_t(int samples_per_pixel) :
+        samples_per_pixel_{ samples_per_pixel }
+    {
+    }
+
+    virtual int ge_samples_per_pixel()
+    {
+        return samples_per_pixel_;
+    }
+
+    virtual void start_sample()
+    {
+        current_sample_index_ = 0;
+    }
+
+    virtual bool next_sample()
+    {
+        current_sample_index_ += 1;
+        return current_sample_index_ < samples_per_pixel_;
+    }
+
+    // TODO: coroutine
+    virtual camera_sample_t get_camera_sample(point2_t p_film)
+    {
+        return { p_film + rng_.vec2() };
+    }
+
+protected:
+    rng_t rng_{};
+
+    int samples_per_pixel_{};
+    int current_sample_index_{};
+};
+
+// for smallpt
+// https://computergraphics.stackexchange.com/questions/3868/why-use-a-tent-filter-in-path-tracing
+class trapezoidal_sampler_t : public sampler_t
+{
+public:
+    trapezoidal_sampler_t(int samples_per_pixel) : sampler_t(samples_per_pixel)
+    {
+    }
+
+    int ge_samples_per_pixel() override
+    {
+        return samples_per_pixel_ * k_sub_pixel_num;
+    }
+
+    void start_sample() override
+    {
+        sampler_t::start_sample();
+        current_sub_pixel_index_ = 0;
+    }
+
+    bool next_sample() override
+    {
+        current_sample_index_ += 1;
+        if (current_sample_index_ < samples_per_pixel_)
+        {
+            return true;
+        }
+        else if (current_sample_index_ == samples_per_pixel_)
+        {
+            current_sample_index_ = 0;
+            current_sub_pixel_index_ += 1;
+
+            return current_sub_pixel_index_ < k_sub_pixel_num;
+        }
+        else
+        {
+            LOG_ERROR("shouldn't be there");
+            return false;
+        }
+    }
+
+    camera_sample_t get_camera_sample(point2_t p_film) override
+    {
+        int sub_pixel_x = current_sub_pixel_index_ % 2;
+        int sub_pixel_y = current_sub_pixel_index_ / 2;
+
+        Float random1 = 2 * rng_.uniform_float01();
+        Float random2 = 2 * rng_.uniform_float01();
+
+        // uniform dist [0, 1) => triangle dist [-1, 1)
+        Float delta_x = random1 < 1 ? sqrt(random1) - 1 : 1 - sqrt(2 - random1);
+        Float delta_y = random2 < 1 ? sqrt(random2) - 1 : 1 - sqrt(2 - random2);
+
+        point2_t sample_point
+        {
+            (sub_pixel_x + delta_x + 0.5) / 2,
+            (sub_pixel_y + delta_y + 0.5) / 2
+        };
+
+        return { p_film + sample_point };
+    }
+
+private:
+    static constexpr int k_sub_pixel_num = 4;
+
+    int current_sub_pixel_index_{};
+};
+
+class stratified_sampler_t : public sampler_t
+{
+public:
+    camera_sample_t get_camera_sample(point2_t p_film) override
+    {
+        return { p_film + rng_.vec2() };
+    }
+};
+
+#pragma endregion
+
+
+#pragma region material, bsdf
+
+class material_t
 {
 
 };
 
 #pragma endregion
 
-#pragma region material, bsdf
+#pragma region light
 
 #pragma endregion
 
-#pragma region light
+
+
+#pragma region scene
+
+class scene_t : public reference_type_t
+{
+public:
+
+    const camera_t camera() const { return camera_; }
+
+    intersection_t intersect() const { }
+
+private:
+    camera_t camera_;
+
+    accel_t accel_;
+};
 
 #pragma endregion
 
@@ -588,7 +856,7 @@ vec3_t radiance(const ray_t& r, int depth, RANDOM_PARAM(Xi))
 
     if (obj.surface_scattering_ == surface_scattering_e::diffuse)
     {                  // Ideal DIFFUSE reflection
-        double r1 = 2 * Pi * RANDOM(Xi), r2 = RANDOM(Xi), r2s = sqrt(r2);
+        double r1 = 2 * k_pi * RANDOM(Xi), r2 = RANDOM(Xi), r2s = sqrt(r2);
         vec3_t w = nl;
         vec3_t u = ((fabs(w.x) > .1 ? vec3_t(0, 1) : vec3_t(1)).cross(w)).normlize();
         vec3_t v = w.cross(u);
@@ -628,57 +896,54 @@ vec3_t radiance(const ray_t& r, int depth, RANDOM_PARAM(Xi))
 
 class option_t
 {
-    int image_width;
-    int image_height;
-    int sample_per_pixel;
 
-    point3_t camera_positon;
-    vec3_t camera_direction;
-
-    std::string filename;
 };
 
 int main(int argc, char* argv[])
 {
     clock_t start = clock(); // MILO
 
-    int w = 256, h = 256, samps = argc == 2 ? atoi(argv[1]) / 4 : 10; // # samples
+    int width = 256, height = 256, samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 10; // # samples
 
-    ray_t cam(vec3_t(50, 52, 295.6), vec3_t(0, -0.042612, -1).normlize()); // cam pos, dir
+    film_t film(width, height);
+    ray_t camera(vec3_t(50, 52, 295.6), vec3_t(0, -0.042612, -1).normlize());
 
-    vec3_t cx = vec3_t(w * .5135 / h);
-    vec3_t cy = (cx.cross(cam.direction_)).normlize() * .5135;
+    vec3_t cx = vec3_t(width * .5135 / height);
+    vec3_t cy = (cx.cross(camera.direction_)).normlize() * .5135;
 
-    vec3_t Li;
-    film_t film(w, h);
+    std::unique_ptr<sampler_t> sampler = std::make_unique<trapezoidal_sampler_t>(samples_per_pixel);
+//#pragma omp parallel for schedule(dynamic, 1) private(sampler)       // OpenMP
+    for (int y = 0; y < height; y += 1) 
+    {
+        // TODO
+        LOG("\rRendering ({} spp) {}", sampler->ge_samples_per_pixel(), 100. * y / (height - 1));
 
-#pragma omp parallel for schedule(dynamic, 1) private(Li)       // OpenMP
-    for (int y = 0; y < h; y++) 
-    {                       // Loop over image rows
-        LOG("\rRendering ({} spp) {}", samps * 4, 100. * y / (h - 1));
+        RandomLCG Xi;
+        for (int x = 0; x < width; x += 1)
+        {
+            color_t Li{};
+            sampler->start_sample();
 
-        RANDOM_INIT(Xi);// MILO
-        for (unsigned short x = 0; x < w; x++)   // Loop cols
+            do
+            {
+                auto camera_sample = sampler->get_camera_sample({ (Float)x, (Float)y });
+                vec3_t direction_ =
+                    cx * (camera_sample.film_sample_point.x / width - .5) +
+                    cy * (camera_sample.film_sample_point.y / height - .5) + camera.direction_;
 
-            for (int sy = 0, i = (h - y - 1) * w + x; sy < 2; sy++)     // 2x2 subpixel rows
-                for (int sx = 0; sx < 2; sx++, Li = vec3_t())
-                {        // 2x2 subpixel cols
-                    for (int s = 0; s < samps; s++) {
-                        double r1 = 2 * RANDOM(Xi), dx = r1 < 1 ? sqrt(r1) - 1 : 1 - sqrt(2 - r1);
-                        double r2 = 2 * RANDOM(Xi), dy = r2 < 1 ? sqrt(r2) - 1 : 1 - sqrt(2 - r2);
-                        vec3_t direction_ = cx * (((sx + .5 + dx) / 2 + x) / w - .5) +
-                            cy * (((sy + .5 + dy) / 2 + y) / h - .5) + cam.direction_;
-                        Li = Li + radiance(ray_t(cam.origin_ + direction_ * 140, direction_.normlize()), 0, Xi) * (1. / samps);
-                    } // Camera rays are pushed ^^^^^ forward to start in interior
+                auto ray = ray_t(camera.origin_ + direction_ * 140, direction_.normlize());
+                Li = Li + radiance(ray, 0, Xi) * (1. / sampler->ge_samples_per_pixel());
+            }
+            while (sampler->next_sample());
 
-                    auto clamp_Li = vec3_t(clamp01(Li.x), clamp01(Li.y), clamp01(Li.z));
-                    film.add_color(x, y, clamp_Li * 0.25);
-                }
+            auto clamp_Li = vec3_t(clamp01(Li.x), clamp01(Li.y), clamp01(Li.z));
+            film.add_color(x, y, clamp_Li * 0.25);
+        }
     }
 
     LOG("\n{} sec\n", (float)(clock() - start) / CLOCKS_PER_SEC); // MILO
 
-    film.store_image("image.bmp");
+    film.store_image("image.bmp"s);
 #ifdef KY_WINDOWS
     system("mspaint image.bmp");
 #endif
