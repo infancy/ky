@@ -162,6 +162,7 @@ struct vec3_t
     vec3_t(Float x = 0, Float y = 0, Float z = 0) { this->x = x; this->y = y; this->z = z; }
 
     Float operator[](int i)              const { DCHECK(i >= 0 && i < 3); return (&x)[i]; }
+    vec3_t operator-() const { return vec3_t(-x, -y, -z); }
     vec3_t operator+(const vec3_t& vec3) const { return vec3_t(x + vec3.x, y + vec3.y, z + vec3.z); }
     vec3_t operator-(const vec3_t& vec3) const { return vec3_t(x - vec3.x, y - vec3.y, z - vec3.z); }
     vec3_t operator*(Float scalar)       const { return vec3_t(x * scalar, y * scalar, z * scalar); }
@@ -540,6 +541,7 @@ struct camera_sample_t
 };
 
 /*
+ * OpenGL-style
  * generate ray
  * 
  *
@@ -597,17 +599,6 @@ private:
 
 #pragma region sampler
 
-struct RandomLCG {
-    unsigned mSeed;
-    RandomLCG(unsigned seed = 0) : mSeed(seed) {}
-    double operator()() { mSeed = 214013 * mSeed + 2531011; return mSeed * (1.0 / 4294967296); }
-};
-#define RANDOM(Xi) Xi()
-#define RANDOM_INIT(Xi) RandomLCG Xi;
-#define RANDOM_PARAM(Xi) RandomLCG& Xi
-
-
-
 // TODO: Pseudo or Quasi
 // random number generator
 // https://github.com/SmallVCM/SmallVCM/blob/master/src/rng.hxx
@@ -636,15 +627,10 @@ public:
         return float_dist_(rng_engine_);
     }
 
-    // TODO
-    vec2_t vec2()
+    // [0, 1) * [0, 1)
+    vec2_t uniform_vec2()
     {
         return vec2_t(uniform_float01(), uniform_float01());
-    }
-
-    vec3_t vec3()
-    {
-        return vec3_t(uniform_float01(), uniform_float01(), uniform_float01()); 
     }
 
 private:
@@ -681,6 +667,7 @@ public:
         return samples_per_pixel_;
     }
 
+
     virtual void start_sample()
     {
         current_sample_index_ = 0;
@@ -692,10 +679,21 @@ public:
         return current_sample_index_ < samples_per_pixel_;
     }
 
+
+    virtual Float get_float()
+    {
+        return rng_.uniform_float01();
+    }
+
+    virtual vec2_t get_vec2()
+    {
+        return rng_.uniform_vec2();
+    }
+
     // TODO: coroutine
     virtual camera_sample_t get_camera_sample(point2_t p_film)
     {
-        return { p_film + rng_.vec2() };
+        return { p_film + rng_.uniform_vec2() };
     }
 
 protected:
@@ -778,19 +776,59 @@ class stratified_sampler_t : public sampler_t
 public:
     camera_sample_t get_camera_sample(point2_t p_film) override
     {
-        return { p_film + rng_.vec2() };
+        return { p_film + rng_.uniform_vec2() };
     }
 };
 
 #pragma endregion
 
 
-#pragma region material, bsdf
+#pragma region bsdf, material
 
-class material_t
+inline vec3_t reflect(const vec3_t& wo, const normal_t& normal)
+{
+    return -wo + 2 * dot(wo, normal) * normal;
+}
+
+// eta = etaI/etaT
+inline bool refract(const vec3_t& wi, const normal_t& normal, Float eta,
+    vec3_t* wt)
+{
+    // Compute $\cos \theta_\roman{t}$ using Snell's law
+    Float cosThetaI = dot(normal, wi);
+    Float sin2ThetaI = std::max(Float(0), Float(1 - cosThetaI * cosThetaI));
+    Float sin2ThetaT = eta * eta * sin2ThetaI;
+
+    // Handle total internal reflection for transmission
+    if (sin2ThetaT >= 1)
+        return false;
+
+    Float cosThetaT = std::sqrt(1 - sin2ThetaT);
+    *wt = eta * -wi + (eta * cosThetaI - cosThetaT) * vec3_t(normal);
+
+    return true;
+}
+
+class bsdf_t
 {
 
 };
+
+
+
+// class texture_t
+
+class material_t
+{
+public:
+    virtual ~material_t() = default;
+
+    virtual std::unique_ptr<bsdf_t> scattering(intersection_t interse) const
+    {
+
+    }
+};
+
 
 #pragma endregion
 
@@ -856,7 +894,7 @@ public:
     }
 };
 
-vec3_t radiance(const ray_t& r, int depth, RANDOM_PARAM(Xi))
+vec3_t radiance(const ray_t& r, int depth, sampler_t* sampler)
 {
     double t;                               // distance to intersection
     int id = 0;                               // id of intersected object
@@ -866,47 +904,51 @@ vec3_t radiance(const ray_t& r, int depth, RANDOM_PARAM(Xi))
 
     const sphere_t& obj = scene[id];        // the hit object
     vec3_t x = r.origin_ + r.direction_ * t, 
-        n = (x - obj.center_).normlize(), 
-        nl = n.dot(r.direction_) < 0 ? n : n * -1, 
-        f = obj.color_;
-    double position_ = f.x > f.y && f.x > f.z ? f.x : f.y > f.z ? f.y : f.z; // max refl
+        normal = (x - obj.center_).normlize(), 
+        nl = normal.dot(r.direction_) < 0 ? normal : normal * -1, 
+        bsdf = obj.color_;
+    double position_ = std::max({ bsdf.x, bsdf.y, bsdf.z }); // max refl
 
     if (++depth > 5)
     {
-        if (RANDOM(Xi) < position_)
-            f = f * (1 / position_);
+        if(sampler->get_float() < position_)
+            bsdf = bsdf * (1 / position_);
         else
-            return obj.emission_; //R.R.
+            return obj.emission_; //Russian Roulette
     }
 
-    if (depth > 100) return obj.emission_; // MILO
+    if (depth > 100) 
+        return obj.emission_; // MILO
 
     if (obj.surface_scattering_ == surface_scattering_e::diffuse)
     {                  // Ideal DIFFUSE reflection
-        double r1 = 2 * k_pi * RANDOM(Xi), r2 = RANDOM(Xi), r2s = sqrt(r2);
+        double r1 = 2 * k_pi *  sampler->get_float(), r2 =  sampler->get_float(), r2s = sqrt(r2);
         vec3_t w = nl;
         vec3_t u = ((fabs(w.x) > .1 ? vec3_t(0, 1) : vec3_t(1)).cross(w)).normlize();
         vec3_t v = w.cross(u);
 
         vec3_t direction_ = (u * cos(r1) * r2s + v * sin(r1) * r2s + w * sqrt(1 - r2)).normlize();
-        return obj.emission_ + f.multiply(radiance(ray_t(x, direction_), depth, Xi));
+        return obj.emission_ + bsdf.multiply(
+            radiance(ray_t(x, direction_), depth, sampler));
     }
     else if (obj.surface_scattering_ == surface_scattering_e::specular)            // Ideal SPECULAR reflection
-        return obj.emission_ + f.multiply(radiance(ray_t(x, r.direction_ - n * 2 * n.dot(r.direction_)), depth, Xi));
+        return obj.emission_ + bsdf.multiply(
+            radiance(ray_t(x, r.direction_ - normal * 2 * normal.dot(r.direction_)), depth, sampler));
 
-    ray_t reflRay(x, r.direction_ - n * 2 * n.dot(r.direction_));     // Ideal dielectric REFRACTION
-    bool into = n.dot(nl) > 0;                // Ray from outside going in?
+    ray_t reflRay(x, r.direction_ - normal * 2 * normal.dot(r.direction_));     // Ideal dielectric REFRACTION
+    bool into = normal.dot(nl) > 0;                // Ray from outside going in?
     double nc = 1, nt = 1.5, nnt = into ? nc / nt : nt / nc, ddn = r.direction_.dot(nl), cos2t;
     if ((cos2t = 1 - nnt * nnt * (1 - ddn * ddn)) < 0)    // Total internal reflection
-        return obj.emission_ + f.multiply(radiance(reflRay, depth, Xi));
+        return obj.emission_ + bsdf.multiply(
+            radiance(reflRay, depth, sampler));
 
-    vec3_t tdir = (r.direction_ * nnt - n * ((into ? 1 : -1) * (ddn * nnt + sqrt(cos2t)))).normlize();
-    double a = nt - nc, b = nt + nc, R0 = a * a / (b * b), color_ = 1 - (into ? -ddn : tdir.dot(n));
+    vec3_t tdir = (r.direction_ * nnt - normal * ((into ? 1 : -1) * (ddn * nnt + sqrt(cos2t)))).normlize();
+    double a = nt - nc, b = nt + nc, R0 = a * a / (b * b), color_ = 1 - (into ? -ddn : tdir.dot(normal));
     double Re = R0 + (1 - R0) * color_ * color_ * color_ * color_ * color_, Tr = 1 - Re, P = .25 + .5 * Re, RP = Re / P, TP = Tr / (1 - P);
 
-    return obj.emission_ + f.multiply(depth > 2 ? (RANDOM(Xi) < P ?   // Russian roulette
-        radiance(reflRay, depth, Xi) * RP : radiance(ray_t(x, tdir), depth, Xi) * TP) :
-        radiance(reflRay, depth, Xi) * Re + radiance(ray_t(x, tdir), depth, Xi) * Tr);
+    return obj.emission_ + bsdf.multiply(depth > 2 ? (sampler->get_float() < P ?   // Russian roulette
+        radiance(reflRay, depth, sampler) * RP : radiance(ray_t(x, tdir), depth, sampler) * TP) :
+        radiance(reflRay, depth, sampler) * Re + radiance(ray_t(x, tdir), depth, sampler) * Tr);
 }
 
 #pragma endregion
@@ -942,7 +984,6 @@ int main(int argc, char* argv[])
         std::unique_ptr<sampler_t> sampler = std::make_unique<trapezoidal_sampler_t>(samples_per_pixel);
         LOG("\rRendering ({} spp) {}", sampler->ge_samples_per_pixel(), 100. * y / (height - 1));
 
-        RandomLCG Xi;
         for (int x = 0; x < width; x += 1)
         {
             color_t Li{};
@@ -953,7 +994,7 @@ int main(int argc, char* argv[])
                 auto sample = sampler->get_camera_sample({ (Float)x, (Float)y });
                 auto ray = camera->generate_ray(sample);
 
-                Li = Li + radiance(ray, 0, Xi) * (1. / sampler->ge_samples_per_pixel());
+                Li = Li + radiance(ray, 0, sampler.get()) * (1. / sampler->ge_samples_per_pixel());
             }
             while (sampler->next_sample());
 
