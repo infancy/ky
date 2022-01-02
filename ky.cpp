@@ -366,7 +366,8 @@ sphere_t scene[] = {//Scene: radius, center, emission, color, material
 
   sphere_t(16.5,vec3_t(27,16.5,47),       vec3_t(),vec3_t(1,1,1) * .999, surface_scattering_e::specular),//Mirr
   sphere_t(16.5,vec3_t(73,16.5,78),       vec3_t(),vec3_t(1,1,1) * .999, surface_scattering_e::refractive),//Glas
-  sphere_t(600, vec3_t(50,681.6 - .27,81.6),vec3_t(12,12,12),  vec3_t(), surface_scattering_e::diffuse) //Lite
+
+  sphere_t(600, vec3_t(50,681.6 - .27,81.6),vec3_t(12,12,12),  vec3_t(), surface_scattering_e::diffuse) //Light
 };
 
 bool intersect(const ray_t& r, Float& t, int& id)
@@ -829,6 +830,20 @@ public:
     }
 };
 
+class matte_material_t
+{
+
+};
+
+class mirror_material_t
+{
+
+};
+
+class glass_material_t
+{
+
+};
 
 #pragma endregion
 
@@ -876,7 +891,10 @@ enum class integrater_e
     stochastic_ray_tracing,
 
     // path tracing
-    path_tracing_recursion,
+    path_tracing_recursion_bsdf,
+    path_tracing_recursion_light,
+
+    path_tracing_recursion_mis,
     path_tracing_iteration
 };
 
@@ -888,11 +906,36 @@ public:
 
     }
 
-    virtual color_t Li()
-    {
-
-    }
+    virtual color_t Li() = 0;
 };
+
+
+
+class path_integrater_t : public integrater_t
+{
+public:
+    path_integrater_t(int max_path_depth):
+        max_path_depth_{ max_path_depth }
+    {
+    }
+
+private:
+    int max_path_depth_;
+};
+
+class path_tracing_recursion_bsdf_t : public path_integrater_t
+{
+public:
+
+};
+
+/*
+class path_tracing_recursion_light_t : public path_integrater_t
+{
+public:
+    vec3_t Li(const ray_t& r, int depth, sampler_t* sampler, Float include_le = 1);
+};
+*/
 
 vec3_t radiance(const ray_t& r, int depth, sampler_t* sampler)
 {
@@ -902,25 +945,25 @@ vec3_t radiance(const ray_t& r, int depth, sampler_t* sampler)
     if (!intersect(r, t, id))
         return vec3_t(); // if miss, return black
 
-    const sphere_t& obj = scene[id];        // the hit object
+    const sphere_t& shape = scene[id];        // the hit object
     vec3_t x = r.origin_ + r.direction_ * t, 
-        normal = (x - obj.center_).normlize(), 
-        nl = normal.dot(r.direction_) < 0 ? normal : normal * -1, 
-        bsdf = obj.color_;
-    Float position_ = std::max({ bsdf.x, bsdf.y, bsdf.z }); // max refl
+    normal = (x - shape.center_).normlize(), 
+    nl = normal.dot(r.direction_) < 0 ? normal : normal * -1, 
+    bsdf = shape.color_;
 
     if (++depth > 5)
     {
-        if(sampler->get_float() < position_)
-            bsdf = bsdf * (1 / position_);
+        Float bsdf_max = std::max({ bsdf.x, bsdf.y, bsdf.z }); // max refl
+        if(sampler->get_float() < bsdf_max)
+            bsdf = bsdf * (1 / bsdf_max);
         else
-            return obj.emission_; //Russian Roulette
+            return shape.emission_; //Russian Roulette
     }
 
     if (depth > 100) 
-        return obj.emission_; // MILO
+        return shape.emission_; // MILO
 
-    if (obj.surface_scattering_ == surface_scattering_e::diffuse)
+    if (shape.surface_scattering_ == surface_scattering_e::diffuse)
     {                  // Ideal DIFFUSE reflection
         Float r1 = 2 * k_pi *  sampler->get_float(), r2 =  sampler->get_float(), r2s = sqrt(r2);
         vec3_t w = nl;
@@ -928,28 +971,40 @@ vec3_t radiance(const ray_t& r, int depth, sampler_t* sampler)
         vec3_t v = w.cross(u);
 
         vec3_t direction_ = (u * cos(r1) * r2s + v * sin(r1) * r2s + w * sqrt(1 - r2)).normlize();
-        return obj.emission_ + bsdf.multiply(
+        return shape.emission_ + bsdf.multiply(
             radiance(ray_t(x, direction_), depth, sampler));
     }
-    else if (obj.surface_scattering_ == surface_scattering_e::specular)            // Ideal SPECULAR reflection
-        return obj.emission_ + bsdf.multiply(
+    else if (shape.surface_scattering_ == surface_scattering_e::specular)            // Ideal SPECULAR reflection
+        return shape.emission_ + bsdf.multiply(
             radiance(ray_t(x, r.direction_ - normal * 2 * normal.dot(r.direction_)), depth, sampler));
+    else
+    {
+        ray_t reflRay(x, r.direction_ - normal * 2 * normal.dot(r.direction_));     // Ideal dielectric REFRACTION
+        bool into = normal.dot(nl) > 0;                // Ray from outside going in?
+        Float nc = 1;
+        Float nt = 1.5;
+        Float nnt = into ? nc / nt : nt / nc;
+        Float ddn = r.direction_.dot(nl);
+        Float cos2t;
+        if ((cos2t = 1 - nnt * nnt * (1 - ddn * ddn)) < 0)    // Total internal reflection
+            return shape.emission_ + bsdf.multiply(
+                radiance(reflRay, depth, sampler));
 
-    ray_t reflRay(x, r.direction_ - normal * 2 * normal.dot(r.direction_));     // Ideal dielectric REFRACTION
-    bool into = normal.dot(nl) > 0;                // Ray from outside going in?
-    Float nc = 1, nt = 1.5, nnt = into ? nc / nt : nt / nc, ddn = r.direction_.dot(nl), cos2t;
-    if ((cos2t = 1 - nnt * nnt * (1 - ddn * ddn)) < 0)    // Total internal reflection
-        return obj.emission_ + bsdf.multiply(
-            radiance(reflRay, depth, sampler));
+        vec3_t tdir = (r.direction_ * nnt - normal * ((into ? 1 : -1) * (ddn * nnt + sqrt(cos2t)))).normlize();
+        Float a = nt - nc, b = nt + nc;
+        Float R0 = a * a / (b * b);
+        Float color_ = 1 - (into ? -ddn : tdir.dot(normal));
+        Float Re = R0 + (1 - R0) * color_ * color_ * color_ * color_ * color_;
+        Float Tr = 1 - Re;
+        Float P = .25 + .5 * Re;
+        Float RP = Re / P;
+        Float TP = Tr / (1 - P);
 
-    vec3_t tdir = (r.direction_ * nnt - normal * ((into ? 1 : -1) * (ddn * nnt + sqrt(cos2t)))).normlize();
-    Float a = nt - nc, b = nt + nc, R0 = a * a / (b * b), color_ = 1 - (into ? -ddn : tdir.dot(normal));
-    Float Re = R0 + (1 - R0) * color_ * color_ * color_ * color_ * color_;
-    Float Tr = 1 - Re, P = .25 + .5 * Re, RP = Re / P, TP = Tr / (1 - P);
-
-    return obj.emission_ + bsdf.multiply(depth > 2 ? (sampler->get_float() < P ?   // Russian roulette
-        radiance(reflRay, depth, sampler) * RP : radiance(ray_t(x, tdir), depth, sampler) * TP) :
-        radiance(reflRay, depth, sampler) * Re + radiance(ray_t(x, tdir), depth, sampler) * Tr);
+        // Russian roulette
+        return shape.emission_ + bsdf.multiply(depth > 2 ?
+            (sampler->get_float() < P ? radiance(reflRay, depth, sampler) * RP : radiance(ray_t(x, tdir), depth, sampler) * TP) :
+            radiance(reflRay, depth, sampler) * Re + radiance(ray_t(x, tdir), depth, sampler) * Tr);
+    }
 }
 
 #pragma endregion
@@ -969,6 +1024,11 @@ class option_t
 
 };
 
+class build_t_
+{
+
+};
+
 int main(int argc, char* argv[])
 {
     clock_t start = clock(); // MILO
@@ -979,7 +1039,9 @@ int main(int argc, char* argv[])
     std::unique_ptr<const camera_t> camera = 
         std::make_unique<camera_t>(vec3_t{ 50, 52, 295.6 }, vec3_t{ 0, -0.042612, -1 }.normlize(), 53, film.get_resolution());
 
-#pragma omp parallel for schedule(dynamic, 1) // OpenMP
+#ifndef KY_DEBUG
+    #pragma omp parallel for schedule(dynamic, 1) // OpenMP
+#endif // !KY_DEBUG
     for (int y = 0; y < height; y += 1) 
     {
         std::unique_ptr<sampler_t> sampler = std::make_unique<trapezoidal_sampler_t>(samples_per_pixel);
