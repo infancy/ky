@@ -369,7 +369,7 @@ sphere_t scene[] = {//Scene: radius, center, emission, color, material
   sphere_t(600, vec3_t(50,681.6 - .27,81.6),vec3_t(12,12,12),  vec3_t(), surface_scattering_e::diffuse) //Lite
 };
 
-bool intersect(const ray_t& r, double& t, int& id)
+bool intersect(const ray_t& r, Float& t, int& id)
 {
     int n = sizeof(scene) / sizeof(sphere_t);
     Float direction_, inf = t = 1e20;
@@ -399,7 +399,7 @@ struct film_desc_t
     int height;
 };
 
-constexpr double clamp01(Float x) { return std::clamp(x, 0., 1.); }
+constexpr Float clamp01(Float x) { return std::clamp(x, 0., 1.); }
 std::byte gamma_encoding(Float x) { return std::byte(pow(clamp01(x), 1 / 2.2) * 255 + .5); }
 
 /*
@@ -896,7 +896,7 @@ public:
 
 vec3_t radiance(const ray_t& r, int depth, sampler_t* sampler)
 {
-    double t;                               // distance to intersection
+    Float t;                               // distance to intersection
     int id = 0;                               // id of intersected object
 
     if (!intersect(r, t, id))
@@ -907,7 +907,7 @@ vec3_t radiance(const ray_t& r, int depth, sampler_t* sampler)
         normal = (x - obj.center_).normlize(), 
         nl = normal.dot(r.direction_) < 0 ? normal : normal * -1, 
         bsdf = obj.color_;
-    double position_ = std::max({ bsdf.x, bsdf.y, bsdf.z }); // max refl
+    Float position_ = std::max({ bsdf.x, bsdf.y, bsdf.z }); // max refl
 
     if (++depth > 5)
     {
@@ -922,7 +922,7 @@ vec3_t radiance(const ray_t& r, int depth, sampler_t* sampler)
 
     if (obj.surface_scattering_ == surface_scattering_e::diffuse)
     {                  // Ideal DIFFUSE reflection
-        double r1 = 2 * k_pi *  sampler->get_float(), r2 =  sampler->get_float(), r2s = sqrt(r2);
+        Float r1 = 2 * k_pi *  sampler->get_float(), r2 =  sampler->get_float(), r2s = sqrt(r2);
         vec3_t w = nl;
         vec3_t u = ((fabs(w.x) > .1 ? vec3_t(0, 1) : vec3_t(1)).cross(w)).normlize();
         vec3_t v = w.cross(u);
@@ -937,14 +937,15 @@ vec3_t radiance(const ray_t& r, int depth, sampler_t* sampler)
 
     ray_t reflRay(x, r.direction_ - normal * 2 * normal.dot(r.direction_));     // Ideal dielectric REFRACTION
     bool into = normal.dot(nl) > 0;                // Ray from outside going in?
-    double nc = 1, nt = 1.5, nnt = into ? nc / nt : nt / nc, ddn = r.direction_.dot(nl), cos2t;
+    Float nc = 1, nt = 1.5, nnt = into ? nc / nt : nt / nc, ddn = r.direction_.dot(nl), cos2t;
     if ((cos2t = 1 - nnt * nnt * (1 - ddn * ddn)) < 0)    // Total internal reflection
         return obj.emission_ + bsdf.multiply(
             radiance(reflRay, depth, sampler));
 
     vec3_t tdir = (r.direction_ * nnt - normal * ((into ? 1 : -1) * (ddn * nnt + sqrt(cos2t)))).normlize();
-    double a = nt - nc, b = nt + nc, R0 = a * a / (b * b), color_ = 1 - (into ? -ddn : tdir.dot(normal));
-    double Re = R0 + (1 - R0) * color_ * color_ * color_ * color_ * color_, Tr = 1 - Re, P = .25 + .5 * Re, RP = Re / P, TP = Tr / (1 - P);
+    Float a = nt - nc, b = nt + nc, R0 = a * a / (b * b), color_ = 1 - (into ? -ddn : tdir.dot(normal));
+    Float Re = R0 + (1 - R0) * color_ * color_ * color_ * color_ * color_;
+    Float Tr = 1 - Re, P = .25 + .5 * Re, RP = Re / P, TP = Tr / (1 - P);
 
     return obj.emission_ + bsdf.multiply(depth > 2 ? (sampler->get_float() < P ?   // Russian roulette
         radiance(reflRay, depth, sampler) * RP : radiance(ray_t(x, tdir), depth, sampler) * TP) :
