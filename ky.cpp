@@ -911,11 +911,10 @@ int main(int argc, char* argv[])
     vec3_t cx = vec3_t(width * .5135 / height);
     vec3_t cy = (cx.cross(camera.direction_)).normlize() * .5135;
 
-    std::unique_ptr<sampler_t> sampler = std::make_unique<trapezoidal_sampler_t>(samples_per_pixel);
-//#pragma omp parallel for schedule(dynamic, 1) private(sampler)       // OpenMP
+#pragma omp parallel for schedule(dynamic, 1) // OpenMP
     for (int y = 0; y < height; y += 1) 
     {
-        // TODO
+        std::unique_ptr<sampler_t> sampler = std::make_unique<trapezoidal_sampler_t>(samples_per_pixel);
         LOG("\rRendering ({} spp) {}", sampler->ge_samples_per_pixel(), 100. * y / (height - 1));
 
         RandomLCG Xi;
@@ -937,7 +936,7 @@ int main(int argc, char* argv[])
             while (sampler->next_sample());
 
             auto clamp_Li = vec3_t(clamp01(Li.x), clamp01(Li.y), clamp01(Li.z));
-            film.add_color(x, y, clamp_Li * 0.25);
+            film.add_color(x, y, clamp_Li);
         }
     }
 
