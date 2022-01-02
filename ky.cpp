@@ -38,13 +38,19 @@ using namespace std::literals::string_literals;
 
 // namespace ky
 
-#pragma region using/cosntant
+#pragma region using/cosntant/math
 
 using uint = uint32_t;
 using Float = double;
 
+using radian_t = Float;
+using degree_t = Float;
+
 constexpr Float k_pi = std::numbers::pi;
 constexpr Float k_inv_pi = std::numbers::inv_pi;
+
+constexpr radian_t radians(degree_t deg) { return (k_pi / 180) * deg; }
+constexpr degree_t degrees(radian_t rad) { return (180 / k_pi) * rad; }
 
 #pragma endregion
 
@@ -414,6 +420,7 @@ public:
     int get_width() const { return width_; }
     int get_height() const { return height_; }
     int get_channels() const { return 3; }
+    vec2_t get_resolution() const { return { (Float)width_, (Float)height_ }; }
 
     color_t& operator()(int x, int y)
     {
@@ -529,7 +536,7 @@ private:
 
 struct camera_sample_t
 {
-    point2_t film_sample_point{};
+    point2_t p_film{}; // film_sample_point
 };
 
 /*
@@ -541,23 +548,44 @@ class camera_t
 {
 public:
     virtual ~camera_t() {}
-    camera_t(const vec3_t& position, const unit_vec3_t& direction, float focal_length):
+    camera_t(const vec3_t& position, const unit_vec3_t& direction, degree_t fov, vec2_t resolution):
         position_{ position },
-        direction_{ direction }
+        front_{ direction },
+        resolution_{ resolution }
     {
+        // https://github.com/infancy/pbrt-v3/blob/master/src/core/transform.cpp#L394-L397
+        // `front_` is a unit vector, it's length is 1
+        Float tan_fov = std::tan(radians(fov) / 2);
 
+        right_ = front_.cross(vec3_t{ 0, 1, 0 }).normlize() * get_aspect() * tan_fov;
+        up_ = right_.cross(front_).normlize() * tan_fov;
     }
 
 public:
     virtual ray_t generate_ray(const camera_sample_t& sample) const
     {
+        vec3_t direction =
+            front_ +
+            right_ * (sample.p_film.x / resolution_.x - 0.5) +
+            up_ * (sample.p_film.y / resolution_.y - 0.5);
 
+        // TODO
+        return ray_t{ position_ + direction * 140, direction.normlize() };
     }
 
 private:
+    Float get_aspect() { return resolution_.x / resolution_.y; }
+
+private:
     vec3_t position_;
-    unit_vec3_t direction_;
+    unit_vec3_t front_;
+    vec3_t right_;
+    vec3_t up_;
+
+    vec2_t resolution_;
 };
+
+// TODO: smallpt_camera
 
 #pragma endregion
 
@@ -817,7 +845,6 @@ enum class integrater_e
 class integrater_t
 {
 public:
-    
     void render(const scene_t scene)
     {
 
@@ -906,10 +933,8 @@ int main(int argc, char* argv[])
     int width = 256, height = 256, samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 10; // # samples
 
     film_t film(width, height);
-    ray_t camera(vec3_t(50, 52, 295.6), vec3_t(0, -0.042612, -1).normlize());
-
-    vec3_t cx = vec3_t(width * .5135 / height);
-    vec3_t cy = (cx.cross(camera.direction_)).normlize() * .5135;
+    std::unique_ptr<const camera_t> camera = 
+        std::make_unique<camera_t>(vec3_t{ 50, 52, 295.6 }, vec3_t{ 0, -0.042612, -1 }.normlize(), 53, film.get_resolution());
 
 #pragma omp parallel for schedule(dynamic, 1) // OpenMP
     for (int y = 0; y < height; y += 1) 
@@ -925,12 +950,9 @@ int main(int argc, char* argv[])
 
             do
             {
-                auto camera_sample = sampler->get_camera_sample({ (Float)x, (Float)y });
-                vec3_t direction_ =
-                    cx * (camera_sample.film_sample_point.x / width - .5) +
-                    cy * (camera_sample.film_sample_point.y / height - .5) + camera.direction_;
+                auto sample = sampler->get_camera_sample({ (Float)x, (Float)y });
+                auto ray = camera->generate_ray(sample);
 
-                auto ray = ray_t(camera.origin_ + direction_ * 140, direction_.normlize());
                 Li = Li + radiance(ray, 0, Xi) * (1. / sampler->ge_samples_per_pixel());
             }
             while (sampler->next_sample());
