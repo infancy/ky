@@ -812,7 +812,8 @@ inline bool refract(const vec3_t& wi, const normal_t& normal, Float eta,
 
 class bsdf_t
 {
-
+public:
+    virtual void is_delta() = 0;
 };
 
 
@@ -849,6 +850,16 @@ class glass_material_t
 
 #pragma region light
 
+class light_t
+{
+public:
+    // is delta distribution
+    virtual void is_delta() = 0;
+
+    // sample a delta light or a area light
+    virtual void sample() = 0;
+};
+
 #pragma endregion
 
 
@@ -880,6 +891,8 @@ enum class integrater_e
     normal,
 
     // discrete
+    delta_bsdf,
+    delta_light,
     direct_lighting_point, 
 
     // ray casting/direct lighting
@@ -919,7 +932,7 @@ public:
     {
     }
 
-private:
+protected:
     int max_path_depth_;
 };
 
@@ -946,16 +959,16 @@ vec3_t radiance(const ray_t& r, int depth, sampler_t* sampler)
         return vec3_t(); // if miss, return black
 
     const sphere_t& shape = scene[id];        // the hit object
-    vec3_t x = r.origin_ + r.direction_ * t, 
-    normal = (x - shape.center_).normlize(), 
+    vec3_t intersection = r.origin_ + r.direction_ * t, 
+    normal = (intersection - shape.center_).normlize(), 
     nl = normal.dot(r.direction_) < 0 ? normal : normal * -1, 
     bsdf = shape.color_;
 
     if (++depth > 5)
     {
-        Float bsdf_max = std::max({ bsdf.x, bsdf.y, bsdf.z }); // max refl
-        if(sampler->get_float() < bsdf_max)
-            bsdf = bsdf * (1 / bsdf_max);
+        Float bsdf_max_comp = std::max({ bsdf.x, bsdf.y, bsdf.z }); // max refl
+        if(sampler->get_float() < bsdf_max_comp)
+            bsdf = bsdf * (1 / bsdf_max_comp);
         else
             return shape.emission_; //Russian Roulette
     }
@@ -972,14 +985,16 @@ vec3_t radiance(const ray_t& r, int depth, sampler_t* sampler)
 
         vec3_t direction_ = (u * cos(r1) * r2s + v * sin(r1) * r2s + w * sqrt(1 - r2)).normlize();
         return shape.emission_ + bsdf.multiply(
-            radiance(ray_t(x, direction_), depth, sampler));
+            radiance(ray_t(intersection, direction_), depth, sampler));
     }
     else if (shape.surface_scattering_ == surface_scattering_e::specular)            // Ideal SPECULAR reflection
+    {
         return shape.emission_ + bsdf.multiply(
-            radiance(ray_t(x, r.direction_ - normal * 2 * normal.dot(r.direction_)), depth, sampler));
+            radiance(ray_t(intersection, r.direction_ - normal * 2 * normal.dot(r.direction_)), depth, sampler));
+    }
     else
     {
-        ray_t reflRay(x, r.direction_ - normal * 2 * normal.dot(r.direction_));     // Ideal dielectric REFRACTION
+        ray_t reflRay(intersection, r.direction_ - normal * 2 * normal.dot(r.direction_));     // Ideal dielectric REFRACTION
         bool into = normal.dot(nl) > 0;                // Ray from outside going in?
         Float nc = 1;
         Float nt = 1.5;
@@ -1002,8 +1017,8 @@ vec3_t radiance(const ray_t& r, int depth, sampler_t* sampler)
 
         // Russian roulette
         return shape.emission_ + bsdf.multiply(depth > 2 ?
-            (sampler->get_float() < P ? radiance(reflRay, depth, sampler) * RP : radiance(ray_t(x, tdir), depth, sampler) * TP) :
-            radiance(reflRay, depth, sampler) * Re + radiance(ray_t(x, tdir), depth, sampler) * Tr);
+            (sampler->get_float() < P ? radiance(reflRay, depth, sampler) * RP : radiance(ray_t(intersection, tdir), depth, sampler) * TP) :
+            radiance(reflRay, depth, sampler) * Re + radiance(ray_t(intersection, tdir), depth, sampler) * Tr);
     }
 }
 
