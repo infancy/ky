@@ -886,8 +886,7 @@ public:
 
     bool is_delta() const override { return true; }
 
-    //color_t f(const vec3_t& wo, const vec3_t& wi) const override { return color_t(); }
-    color_t f(const vec3_t& wo, const vec3_t& wi) const override { return R_; }
+    color_t f(const vec3_t& wo, const vec3_t& wi) const override { return color_t(); }
 
     color_t Sample_f(const vec3_t& wo, const point2_t&, vec3_t& wi, Float& pdf) const override 
     {
@@ -911,8 +910,7 @@ public:
 
     bool is_delta() const override { return true; }
 
-    //color_t f(const vec3_t& wo, const vec3_t& wi) const override { return color_t(); }
-    color_t f(const vec3_t& wo, const vec3_t& wi) const override { return R_; }
+    color_t f(const vec3_t& wo, const vec3_t& wi) const override { return color_t(); }
 
     color_t Sample_f(const vec3_t& wo, const point2_t&, vec3_t& wi, Float& pdf) const override
     {
@@ -1225,7 +1223,7 @@ public:
 
     }
 
-    virtual color_t Li() = 0;
+    virtual color_t Li(const ray_t& r, int depth, sampler_t* sampler) = 0;
 };
 
 
@@ -1245,7 +1243,79 @@ protected:
 class path_tracing_recursion_bsdf_t : public path_integrater_t
 {
 public:
+    using path_integrater_t::path_integrater_t;
 
+    color_t Li(const ray_t& r, int depth, sampler_t* sampler) override
+    {
+        isect_t isect;
+        if (!scene.intersect(r, isect))
+            return color_t(); // if miss, return black
+
+        point3_t intersection = isect.position;
+        normal_t normal = isect.normal;
+        normal_t nl = isect.normal.dot(r.direction_) < 0 ? isect.normal : isect.normal * -1;
+
+        isect.scattering();
+        color_t bsdf = isect.get_bsdf()->f(vec3_t(), vec3_t());
+
+        if (++depth > 5)
+        {
+            Float bsdf_max_comp = std::max({ bsdf.x, bsdf.y, bsdf.z }); // max refl
+            if (sampler->get_float() < bsdf_max_comp)
+                bsdf = bsdf * (1 / bsdf_max_comp);
+            else
+                return isect.emission(); //Russian Roulette
+        }
+
+        if (depth > max_path_depth_)
+            return isect.emission(); // MILO
+
+        if (isect.surface_scattering_type() == surface_scattering_e::diffuse)
+        {                  // Ideal DIFFUSE reflection
+            Float random1 = 2 * k_pi * sampler->get_float();
+            Float random2 = sampler->get_float(), r2s = sqrt(random2);
+            vec3_t w = nl;
+            vec3_t u = ((fabs(w.x) > 0.1 ? vec3_t(0, 1, 0) : vec3_t(1, 0, 0)).cross(w)).normlize();
+            vec3_t v = w.cross(u);
+            vec3_t direction_ = (u * cos(random1) * r2s + v * sin(random1) * r2s + w * sqrt(1 - random2)).normlize();
+
+            return isect.emission() + bsdf.multiply(
+                Li(ray_t(intersection, direction_), depth, sampler));
+        }
+        else if (isect.surface_scattering_type() == surface_scattering_e::specular)            // Ideal SPECULAR reflection
+        {
+            return isect.emission() + bsdf.multiply(
+                Li(ray_t(intersection, r.direction_ - normal * 2 * normal.dot(r.direction_)), depth, sampler));
+        }
+        else
+        {
+            ray_t reflRay(intersection, r.direction_ - normal * 2 * normal.dot(r.direction_));     // Ideal dielectric REFRACTION
+            bool into = normal.dot(nl) > 0;                // Ray from outside going in?
+            Float nc = 1;
+            Float nt = 1.5;
+            Float nnt = into ? nc / nt : nt / nc;
+            Float ddn = r.direction_.dot(nl);
+            Float cos2t;
+            if ((cos2t = 1 - nnt * nnt * (1 - ddn * ddn)) < 0)    // Total internal reflection
+                return isect.emission() + bsdf.multiply(
+                    Li(reflRay, depth, sampler));
+
+            vec3_t tdir = (r.direction_ * nnt - normal * ((into ? 1 : -1) * (ddn * nnt + sqrt(cos2t)))).normlize();
+            Float a = nt - nc, b = nt + nc;
+            Float R0 = a * a / (b * b);
+            Float color_ = 1 - (into ? -ddn : tdir.dot(normal));
+            Float Re = R0 + (1 - R0) * color_ * color_ * color_ * color_ * color_;
+            Float Tr = 1 - Re;
+            Float P = .25 + .5 * Re;
+            Float RP = Re / P;
+            Float TP = Tr / (1 - P);
+
+            // Russian roulette
+            return isect.emission() + bsdf.multiply(depth > 2 ?
+                (sampler->get_float() < P ? Li(reflRay, depth, sampler) * RP : Li(ray_t(intersection, tdir), depth, sampler) * TP) :
+                Li(reflRay, depth, sampler) * Re + Li(ray_t(intersection, tdir), depth, sampler) * Tr);
+        }
+    }
 };
 
 /*
@@ -1255,78 +1325,6 @@ public:
     vec3_t Li(const ray_t& r, int depth, sampler_t* sampler, Float include_le = 1);
 };
 */
-
-vec3_t radiance(const ray_t& r, int depth, sampler_t* sampler)
-{
-    isect_t isect;
-    if (!scene.intersect(r, isect))
-        return vec3_t(); // if miss, return black
-
-    point3_t intersection = isect.position;
-    normal_t normal = isect.normal;
-    normal_t nl = isect.normal.dot(r.direction_) < 0 ? isect.normal : isect.normal * -1;
-
-    isect.scattering();
-    color_t bsdf = isect.get_bsdf()->f(vec3_t(), vec3_t());
-
-    if (++depth > 5)
-    {
-        Float bsdf_max_comp = std::max({ bsdf.x, bsdf.y, bsdf.z }); // max refl
-        if(sampler->get_float() < bsdf_max_comp)
-            bsdf = bsdf * (1 / bsdf_max_comp);
-        else
-            return isect.emission(); //Russian Roulette
-    }
-
-    if (depth > 100)
-        return isect.emission(); // MILO
-
-    if (isect.surface_scattering_type() == surface_scattering_e::diffuse)
-    {                  // Ideal DIFFUSE reflection
-        Float random1 = 2 * k_pi * sampler->get_float();
-        Float random2 = sampler->get_float(), r2s = sqrt(random2);
-        vec3_t w = nl;
-        vec3_t u = ((fabs(w.x) > 0.1 ? vec3_t(0, 1, 0) : vec3_t(1, 0, 0)).cross(w)).normlize();
-        vec3_t v = w.cross(u);
-        vec3_t direction_ = (u * cos(random1) * r2s + v * sin(random1) * r2s + w * sqrt(1 - random2)).normlize();
-
-        return isect.emission() + bsdf.multiply(
-            radiance(ray_t(intersection, direction_), depth, sampler));
-    }
-    else if (isect.surface_scattering_type() == surface_scattering_e::specular)            // Ideal SPECULAR reflection
-    {
-        return isect.emission() + bsdf.multiply(
-            radiance(ray_t(intersection, r.direction_ - normal * 2 * normal.dot(r.direction_)), depth, sampler));
-    }
-    else
-    {
-        ray_t reflRay(intersection, r.direction_ - normal * 2 * normal.dot(r.direction_));     // Ideal dielectric REFRACTION
-        bool into = normal.dot(nl) > 0;                // Ray from outside going in?
-        Float nc = 1;
-        Float nt = 1.5;
-        Float nnt = into ? nc / nt : nt / nc;
-        Float ddn = r.direction_.dot(nl);
-        Float cos2t;
-        if ((cos2t = 1 - nnt * nnt * (1 - ddn * ddn)) < 0)    // Total internal reflection
-            return isect.emission() + bsdf.multiply(
-                radiance(reflRay, depth, sampler));
-
-        vec3_t tdir = (r.direction_ * nnt - normal * ((into ? 1 : -1) * (ddn * nnt + sqrt(cos2t)))).normlize();
-        Float a = nt - nc, b = nt + nc;
-        Float R0 = a * a / (b * b);
-        Float color_ = 1 - (into ? -ddn : tdir.dot(normal));
-        Float Re = R0 + (1 - R0) * color_ * color_ * color_ * color_ * color_;
-        Float Tr = 1 - Re;
-        Float P = .25 + .5 * Re;
-        Float RP = Re / P;
-        Float TP = Tr / (1 - P);
-
-        // Russian roulette
-        return isect.emission() + bsdf.multiply(depth > 2 ?
-            (sampler->get_float() < P ? radiance(reflRay, depth, sampler) * RP : radiance(ray_t(intersection, tdir), depth, sampler) * TP) :
-            radiance(reflRay, depth, sampler) * Re + radiance(ray_t(intersection, tdir), depth, sampler) * Tr);
-    }
-}
 
 #pragma endregion
 
@@ -1360,6 +1358,8 @@ int main(int argc, char* argv[])
     std::unique_ptr<const camera_t> camera = 
         std::make_unique<camera_t>(vec3_t{ 50, 52, 295.6 }, vec3_t{ 0, -0.042612, -1 }.normlize(), 53, film.get_resolution());
 
+    std::unique_ptr<integrater_t> integrater = std::make_unique<path_tracing_recursion_bsdf_t>(100);
+
 #ifndef KY_DEBUG
     #pragma omp parallel for schedule(dynamic, 1) // OpenMP
 #endif // !KY_DEBUG
@@ -1378,7 +1378,7 @@ int main(int argc, char* argv[])
                 auto sample = sampler->get_camera_sample({ (Float)x, (Float)y });
                 auto ray = camera->generate_ray(sample);
 
-                Li = Li + radiance(ray, 0, sampler.get()) * (1. / sampler->ge_samples_per_pixel());
+                Li = Li + integrater->Li(ray, 0, sampler.get()) * (1. / sampler->ge_samples_per_pixel());
             }
             while (sampler->next_sample());
 
