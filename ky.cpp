@@ -262,21 +262,17 @@ class isect_t
 public:
     isect_t() = default;
     isect_t(Float distance, point3_t position, normal_t normal, 
-        color_t bsdf, color_t emission, surface_scattering_e surface_scattering) :
+        color_t bsdf, surface_scattering_e surface_scattering) :
         distance{ distance },
         position{ position },
         normal{ normal },
         bsdf{ bsdf },
-        emission_{ emission },
         surface_scattering{ surface_scattering }
     {
     }
     isect_t& operator=(const isect_t& isect) = default;
 
-    color_t emission() const
-    {
-        return emission_;
-    }
+    color_t emission() const;
 
 public:
     Float distance{ 1e20 }; // distance from ray to intersection
@@ -288,8 +284,6 @@ public:
 
 private:
     friend primitive_t;
-
-    color_t emission_{};
 
     const material_t* material{};
     const area_light_t* area_light{};
@@ -314,7 +308,6 @@ public:
         center_(center),
         radius_(radius),
         radius_sq_(radius * radius),
-        emission_(e_),
         color_(c_),
         surface_scattering_(refl_)
     {
@@ -364,7 +357,7 @@ public:
         if (hit)
         {
             point3_t hit_point = ray(t);
-            isect = isect_t(t, hit_point, (hit_point - center_).normlize(), color_, emission_, surface_scattering_);
+            isect = isect_t(t, hit_point, (hit_point - center_).normlize(), color_, surface_scattering_);
         }
 
         return hit;
@@ -375,7 +368,6 @@ private:
     Float radius_;
     Float radius_sq_;
 
-    color_t emission_;
     color_t color_;
     surface_scattering_e surface_scattering_;
 };
@@ -903,10 +895,17 @@ public:
 
     bool is_delta() override { return false; }
 
+    color_t emission() const { return Lemit_; }
+
 private:
     color_t Lemit_;
     const shape_t* shape_;
 };
+
+color_t isect_t::emission() const
+{
+    return area_light ? area_light->emission() : color_t();
+}
 
 #pragma endregion
 
