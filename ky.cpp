@@ -174,9 +174,12 @@ struct vec3_t
     // ???
     vec3_t multiply(const vec3_t& vec3) const { return vec3_t(x * vec3.x, y * vec3.y, z * vec3.z); }
 
-    friend Float dot(const vec3_t& u, const vec3_t& v) { return u.x * v.x + u.y * v.y + u.z * v.z; }
+    friend Float    dot(const vec3_t& u, const vec3_t& v) { return u.dot(v); }
+    friend vec3_t cross(const vec3_t& u, const vec3_t& v) { return u.cross(v); }
+    friend vec3_t normalize(const vec3_t& vec3) { return vec3.normalize(); }
+
     Float dot(const vec3_t& vec3) const { return x * vec3.x + y * vec3.y + z * vec3.z; }
-    vec3_t cross(const vec3_t& v) 
+    vec3_t cross(const vec3_t& v) const
     {
         /*
             |  i  j  k |
@@ -194,7 +197,7 @@ struct vec3_t
     Float magnitude_sq() const { return x * x + y * y + z * z; }
 
     // unit_vec3_t& normlize() const { return *this * (1 / sqrt(x * x + y * y + z * z)); }
-    vec3_t& normlize()   { return *this = *this * (1 / sqrt(x * x + y * y + z * z)); } // TODO: const
+    vec3_t normalize() const { return *this * (1 / sqrt(x * x + y * y + z * z)); }
     bool is_unit() const { return is_equal(magnitude(), 1.); }
 };
 
@@ -208,6 +211,55 @@ using point3_t = vec3_t; // object_point, world_point... we need a frame
 using normal_t = vec3_t;
 using color_t = vec3_t;
 using unit_vec3_t = vec3_t;
+
+
+
+// https://github.com/SmallVCM/SmallVCM/blob/master/src/frame.hxx
+class frame_t
+{
+public:
+    frame_t(const vec3_t& x, const vec3_t& y, const normal_t& z) :
+        x_{ x.normalize() },
+        y_{ y.normalize() },
+        z_{ z.normalize() }
+    {
+    }
+
+    frame_t(const normal_t& z) :
+        z_{ z.normalize()}
+    {
+        set_from_z();
+    }
+
+public:
+    vec3_t to_world(const vec3_t& local_vec3) const
+    {
+        return x_ * local_vec3.x + y_ * local_vec3.y + z_ * local_vec3.z;
+    }
+
+    vec3_t to_local(const vec3_t& world_vec3) const
+    {
+        return vec3_t(dot(world_vec3, x_), dot(world_vec3, y_), dot(world_vec3, z_));
+    }
+
+    const vec3_t& normal() const { return z_; }
+    const vec3_t& tangent() const { return y_; }
+    const vec3_t& binormal() const { return x_; }
+
+private:
+    void set_from_z()
+    {
+        normal_t normal = z_;
+        vec3_t tmp_x = (std::abs(normal.x) > 0.99f) ? vec3_t(0, 1, 0) : vec3_t(1, 0, 0);
+        y_ = normalize(cross(normal, tmp_x));
+        x_ = cross(y_, normal);
+    }
+
+private:
+    vec3_t   x_{ 1, 0, 0 };
+    vec3_t   y_{ 0, 1, 0 };
+    normal_t z_{ 0, 0, 1 };
+};
 
 
 
@@ -360,7 +412,7 @@ public:
         if (hit)
         {
             point3_t hit_point = ray(t);
-            isect = isect_t(t, hit_point, (hit_point - center_).normlize());
+            isect = isect_t(t, hit_point, (hit_point - center_).normalize());
         }
 
         return hit;
@@ -564,8 +616,8 @@ public:
         // `front_` is a unit vector, it's length is 1
         Float tan_fov = std::tan(radians(fov) / 2);
 
-        right_ = front_.cross(vec3_t{ 0, 1, 0 }).normlize() * get_aspect() * tan_fov;
-        up_ = right_.cross(front_).normlize() * tan_fov;
+        right_ = front_.cross(vec3_t{ 0, 1, 0 }).normalize() * get_aspect() * tan_fov;
+        up_ = right_.cross(front_).normalize() * tan_fov;
     }
 
 public:
@@ -577,7 +629,7 @@ public:
             up_ * (sample.p_film.y / resolution_.y - 0.5);
 
         // TODO
-        return ray_t{ position_ + direction * 140, direction.normlize() };
+        return ray_t{ position_ + direction * 140, direction.normalize() };
     }
 
 private:
@@ -1275,9 +1327,9 @@ public:
             Float random1 = 2 * k_pi * sampler->get_float();
             Float random2 = sampler->get_float(), r2s = sqrt(random2);
             vec3_t w = nl;
-            vec3_t u = ((fabs(w.x) > 0.1 ? vec3_t(0, 1, 0) : vec3_t(1, 0, 0)).cross(w)).normlize();
+            vec3_t u = ((fabs(w.x) > 0.1 ? vec3_t(0, 1, 0) : vec3_t(1, 0, 0)).cross(w)).normalize();
             vec3_t v = w.cross(u);
-            vec3_t direction_ = (u * cos(random1) * r2s + v * sin(random1) * r2s + w * sqrt(1 - random2)).normlize();
+            vec3_t direction_ = (u * cos(random1) * r2s + v * sin(random1) * r2s + w * sqrt(1 - random2)).normalize();
 
             return isect.emission() + bsdf.multiply(
                 Li(ray_t(intersection, direction_), depth, sampler));
@@ -1300,7 +1352,7 @@ public:
                 return isect.emission() + bsdf.multiply(
                     Li(reflRay, depth, sampler));
 
-            vec3_t tdir = (r.direction_ * nnt - normal * ((into ? 1 : -1) * (ddn * nnt + sqrt(cos2t)))).normlize();
+            vec3_t tdir = (r.direction_ * nnt - normal * ((into ? 1 : -1) * (ddn * nnt + sqrt(cos2t)))).normalize();
             Float a = nt - nc, b = nt + nc;
             Float R0 = a * a / (b * b);
             Float color_ = 1 - (into ? -ddn : tdir.dot(normal));
@@ -1356,7 +1408,7 @@ int main(int argc, char* argv[])
 
     film_t film(width, height);
     std::unique_ptr<const camera_t> camera = 
-        std::make_unique<camera_t>(vec3_t{ 50, 52, 295.6 }, vec3_t{ 0, -0.042612, -1 }.normlize(), 53, film.get_resolution());
+        std::make_unique<camera_t>(vec3_t{ 50, 52, 295.6 }, vec3_t{ 0, -0.042612, -1 }.normalize(), 53, film.get_resolution());
 
     std::unique_ptr<integrater_t> integrater = std::make_unique<path_tracing_recursion_bsdf_t>(100);
 
