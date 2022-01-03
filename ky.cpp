@@ -251,32 +251,36 @@ struct ray_t
 
 enum class surface_scattering_e { diffuse, specular, refractive };  // material types, used in radiance()
 
-struct intersection_t
-{
-    point3_t position; // world position
+class material_t;
+class area_light_t;
 
+// surface intersection
+struct isect_t
+{
+    Float distance{ 1e20 }; // distance from ray to intersection
+    point3_t position{}; // world position of intersection
+    normal_t normal{};
+
+    color_t bsdf{};
+    color_t emission{};
+    surface_scattering_e surface_scattering{};
+
+    const material_t* material{};
+    const area_light_t* area_light{};
 };
 
-struct shape_t
+class shape_t
 {
 public:
-    virtual bool intersect(const ray_t ray, intersection_t& out_intersec) = 0;
+    virtual bool intersect(const ray_t& ray, isect_t& out_isect) const = 0;
 
-private:
-    color_t color_;
-    surface_scattering_e surface_scattering_;
+protected:
+    static constexpr Float eps = 1e-4;
 };
 
-struct sphere_t
+class sphere_t : public shape_t
 {
-    vec3_t center_;
-    Float radius_;
-    Float radius_sq_;
-
-    color_t emission_;
-    color_t color_;
-    surface_scattering_e surface_scattering_;
-
+public:
     sphere_t(Float radius, vec3_t center, vec3_t e_, vec3_t c_, surface_scattering_e refl_) :
         center_(center),
         radius_(radius),
@@ -287,10 +291,8 @@ struct sphere_t
     {
     }
 
-    Float intersect(const ray_t& r) const
+    bool intersect(const ray_t& ray, isect_t& isect) const override
     { 
-        // returns distance, 0 if nohit
-
         /*
           ||o + t*d - c||^2 = r^2
           (t*d + o - c).(t*d + o - c) = r^2
@@ -310,29 +312,48 @@ struct sphere_t
             = -b' +/- sqrt(discr)
         */
 
-        vec3_t co = center_ - r.origin();
-        Float neg_b = dot(co, r.direction());
+        vec3_t co = center_ - ray.origin();
+        Float neg_b = dot(co, ray.direction());
         Float discr = neg_b * neg_b - dot(co, co) + radius_sq_;
 
+        Float t = 0;
+        bool hit = false;
         if (discr >= 0)
          {
             Float sqrt_discr = sqrt(discr);
 
-            Float t = 0;
-            Float eps = 1e-4;
-
-            if (t = neg_b - sqrt_discr; t > eps)
+            if (t = neg_b - sqrt_discr; t > eps && t < isect.distance)
             {
-                return t;
+                hit = true;
             }
-            else if (t = neg_b + sqrt_discr; t > eps)
+            else if (t = neg_b + sqrt_discr; t > eps && t < isect.distance)
             {
-                return t;
+                hit = true;
             }
         }
 
-        return 0;
+        if (hit)
+        {
+            isect.distance = t;
+            isect.position = ray(t);
+            isect.normal = (isect.position - center_).normlize();
+
+            isect.bsdf = color_;
+            isect.emission = emission_;
+            isect.surface_scattering = surface_scattering_;
+        }
+
+        return hit;
     }
+
+private:
+    vec3_t center_;
+    Float radius_;
+    Float radius_sq_;
+
+    color_t emission_;
+    color_t color_;
+    surface_scattering_e surface_scattering_;
 };
 
 #pragma endregion
@@ -349,39 +370,6 @@ class accel_t
 {
 
 };
-
-#pragma endregion
-
-#pragma region scene
-
-// TODO: std::vector<std::function<intersect(ray_t ray), result_t> primitives_;
-
-sphere_t scene[] = {//Scene: radius, center, emission, color, material
-  sphere_t(1e5, vec3_t(1e5 + 1,40.8,81.6), vec3_t(),vec3_t(.75,.25,.25),surface_scattering_e::diffuse),//Left
-  sphere_t(1e5, vec3_t(-1e5 + 99,40.8,81.6),vec3_t(),vec3_t(.25,.25,.75),surface_scattering_e::diffuse),//Rght
-  sphere_t(1e5, vec3_t(50,40.8, 1e5),     vec3_t(),vec3_t(.75,.75,.75),surface_scattering_e::diffuse),//Back
-  sphere_t(1e5, vec3_t(50,40.8,-1e5 + 170), vec3_t(),vec3_t(),           surface_scattering_e::diffuse),//Frnt
-  sphere_t(1e5, vec3_t(50, 1e5, 81.6),    vec3_t(),vec3_t(.75,.75,.75),surface_scattering_e::diffuse),//Botm
-  sphere_t(1e5, vec3_t(50,-1e5 + 81.6,81.6),vec3_t(),vec3_t(.75,.75,.75),surface_scattering_e::diffuse),//Top
-
-  sphere_t(16.5,vec3_t(27,16.5,47),       vec3_t(),vec3_t(1,1,1) * .999, surface_scattering_e::specular),//Mirr
-  sphere_t(16.5,vec3_t(73,16.5,78),       vec3_t(),vec3_t(1,1,1) * .999, surface_scattering_e::refractive),//Glas
-
-  sphere_t(600, vec3_t(50,681.6 - .27,81.6),vec3_t(12,12,12),  vec3_t(), surface_scattering_e::diffuse) //Light
-};
-
-bool intersect(const ray_t& r, Float& t, int& id)
-{
-    int n = sizeof(scene) / sizeof(sphere_t);
-    Float direction_, inf = t = 1e20;
-    for (int i = int(n); i--;)
-        if ((direction_ = scene[i].intersect(r)) && direction_ < t)
-        {
-            t = direction_; id = i;
-        }
-
-    return t < inf;
-}
 
 #pragma endregion
 
@@ -825,7 +813,7 @@ class material_t
 public:
     virtual ~material_t() = default;
 
-    virtual std::unique_ptr<bsdf_t> scattering(intersection_t interse) const
+    virtual std::unique_ptr<bsdf_t> scattering(isect_t interse) const
     {
 
     }
@@ -860,11 +848,44 @@ public:
     virtual void sample() = 0;
 };
 
+class aera_light_t
+{
+
+};
+
 #pragma endregion
 
 
 
 #pragma region scene
+
+// TODO: std::vector<std::function<intersect(ray_t ray), result_t> primitives_;
+
+sphere_t scene[] = {//Scene: radius, center, emission, color, material
+  sphere_t(1e5, vec3_t(1e5 + 1,40.8,81.6), vec3_t(),vec3_t(.75,.25,.25),surface_scattering_e::diffuse),//Left
+  sphere_t(1e5, vec3_t(-1e5 + 99,40.8,81.6),vec3_t(),vec3_t(.25,.25,.75),surface_scattering_e::diffuse),//Rght
+  sphere_t(1e5, vec3_t(50,40.8, 1e5),     vec3_t(),vec3_t(.75,.75,.75),surface_scattering_e::diffuse),//Back
+  sphere_t(1e5, vec3_t(50,40.8,-1e5 + 170), vec3_t(),vec3_t(),           surface_scattering_e::diffuse),//Frnt
+  sphere_t(1e5, vec3_t(50, 1e5, 81.6),    vec3_t(),vec3_t(.75,.75,.75),surface_scattering_e::diffuse),//Botm
+  sphere_t(1e5, vec3_t(50,-1e5 + 81.6,81.6),vec3_t(),vec3_t(.75,.75,.75),surface_scattering_e::diffuse),//Top
+
+  sphere_t(16.5,vec3_t(27,16.5,47),       vec3_t(),vec3_t(1,1,1) * .999, surface_scattering_e::specular),//Mirr
+  sphere_t(16.5,vec3_t(73,16.5,78),       vec3_t(),vec3_t(1,1,1) * .999, surface_scattering_e::refractive),//Glas
+
+  sphere_t(600, vec3_t(50,681.6 - .27,81.6),vec3_t(12,12,12),  vec3_t(), surface_scattering_e::diffuse) //Light
+};
+
+bool intersect(const ray_t& ray, isect_t& isect)
+{
+    static Float inf = 1e20;
+
+    int n = sizeof(scene) / sizeof(sphere_t);
+
+    for (int i = n; i--;)
+        scene[i].intersect(ray, isect);
+
+    return isect.distance < inf;
+}
 
 class scene_t : public reference_type_t
 {
@@ -872,7 +893,7 @@ public:
 
     const camera_t camera() const { return camera_; }
 
-    intersection_t intersect() const { }
+    isect_t intersect() const { }
 
 private:
     camera_t camera_;
@@ -952,17 +973,14 @@ public:
 
 vec3_t radiance(const ray_t& r, int depth, sampler_t* sampler)
 {
-    Float t;                               // distance to intersection
-    int id = 0;                               // id of intersected object
-
-    if (!intersect(r, t, id))
+    isect_t isect;
+    if (!intersect(r, isect))
         return vec3_t(); // if miss, return black
 
-    const sphere_t& shape = scene[id];        // the hit object
-    vec3_t intersection = r.origin_ + r.direction_ * t, 
-    normal = (intersection - shape.center_).normlize(), 
-    nl = normal.dot(r.direction_) < 0 ? normal : normal * -1, 
-    bsdf = shape.color_;
+    point3_t intersection = isect.position;
+    normal_t normal = isect.normal;
+    normal_t nl = isect.normal.dot(r.direction_) < 0 ? isect.normal : isect.normal * -1, 
+    bsdf = isect.bsdf;
 
     if (++depth > 5)
     {
@@ -970,26 +988,27 @@ vec3_t radiance(const ray_t& r, int depth, sampler_t* sampler)
         if(sampler->get_float() < bsdf_max_comp)
             bsdf = bsdf * (1 / bsdf_max_comp);
         else
-            return shape.emission_; //Russian Roulette
+            return isect.emission; //Russian Roulette
     }
 
-    if (depth > 100) 
-        return shape.emission_; // MILO
+    if (depth > 100)
+        return isect.emission; // MILO
 
-    if (shape.surface_scattering_ == surface_scattering_e::diffuse)
+    if (isect.surface_scattering == surface_scattering_e::diffuse)
     {                  // Ideal DIFFUSE reflection
-        Float r1 = 2 * k_pi *  sampler->get_float(), r2 =  sampler->get_float(), r2s = sqrt(r2);
+        Float random1 = 2 * k_pi * sampler->get_float();
+        Float random2 = sampler->get_float(), r2s = sqrt(random2);
         vec3_t w = nl;
-        vec3_t u = ((fabs(w.x) > .1 ? vec3_t(0, 1) : vec3_t(1)).cross(w)).normlize();
+        vec3_t u = ((fabs(w.x) > 0.1 ? vec3_t(0, 1, 0) : vec3_t(1, 0, 0)).cross(w)).normlize();
         vec3_t v = w.cross(u);
+        vec3_t direction_ = (u * cos(random1) * r2s + v * sin(random1) * r2s + w * sqrt(1 - random2)).normlize();
 
-        vec3_t direction_ = (u * cos(r1) * r2s + v * sin(r1) * r2s + w * sqrt(1 - r2)).normlize();
-        return shape.emission_ + bsdf.multiply(
+        return isect.emission + bsdf.multiply(
             radiance(ray_t(intersection, direction_), depth, sampler));
     }
-    else if (shape.surface_scattering_ == surface_scattering_e::specular)            // Ideal SPECULAR reflection
+    else if (isect.surface_scattering == surface_scattering_e::specular)            // Ideal SPECULAR reflection
     {
-        return shape.emission_ + bsdf.multiply(
+        return isect.emission + bsdf.multiply(
             radiance(ray_t(intersection, r.direction_ - normal * 2 * normal.dot(r.direction_)), depth, sampler));
     }
     else
@@ -1002,7 +1021,7 @@ vec3_t radiance(const ray_t& r, int depth, sampler_t* sampler)
         Float ddn = r.direction_.dot(nl);
         Float cos2t;
         if ((cos2t = 1 - nnt * nnt * (1 - ddn * ddn)) < 0)    // Total internal reflection
-            return shape.emission_ + bsdf.multiply(
+            return isect.emission + bsdf.multiply(
                 radiance(reflRay, depth, sampler));
 
         vec3_t tdir = (r.direction_ * nnt - normal * ((into ? 1 : -1) * (ddn * nnt + sqrt(cos2t)))).normlize();
@@ -1016,7 +1035,7 @@ vec3_t radiance(const ray_t& r, int depth, sampler_t* sampler)
         Float TP = Tr / (1 - P);
 
         // Russian roulette
-        return shape.emission_ + bsdf.multiply(depth > 2 ?
+        return isect.emission + bsdf.multiply(depth > 2 ?
             (sampler->get_float() < P ? radiance(reflRay, depth, sampler) * RP : radiance(ray_t(intersection, tdir), depth, sampler) * TP) :
             radiance(reflRay, depth, sampler) * Re + radiance(ray_t(intersection, tdir), depth, sampler) * Tr);
     }
