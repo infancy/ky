@@ -255,15 +255,37 @@ class material_t;
 class area_light_t;
 
 // surface intersection
-struct isect_t
+class isect_t
 {
+public:
+    isect_t() = default;
+    isect_t(Float distance, point3_t position, normal_t normal, 
+        color_t bsdf, color_t emission, surface_scattering_e surface_scattering) :
+        distance{ distance },
+        position{ position },
+        normal{ normal },
+        bsdf{ bsdf },
+        emission_{ emission },
+        surface_scattering{ surface_scattering }
+    {
+    }
+    isect_t& operator=(const isect_t& isect) = default;
+
+    color_t emission() const
+    {
+        return emission_;
+    }
+
+public:
     Float distance{ 1e20 }; // distance from ray to intersection
     point3_t position{}; // world position of intersection
     normal_t normal{};
 
     color_t bsdf{};
-    color_t emission{};
     surface_scattering_e surface_scattering{};
+
+private:
+    color_t emission_{};
 
     const material_t* material{};
     const area_light_t* area_light{};
@@ -334,13 +356,8 @@ public:
 
         if (hit)
         {
-            isect.distance = t;
-            isect.position = ray(t);
-            isect.normal = (isect.position - center_).normlize();
-
-            isect.bsdf = color_;
-            isect.emission = emission_;
-            isect.surface_scattering = surface_scattering_;
+            point3_t hit_point = ray(t);
+            isect = isect_t(t, hit_point, (hit_point - center_).normlize(), color_, emission_, surface_scattering_);
         }
 
         return hit;
@@ -988,11 +1005,11 @@ vec3_t radiance(const ray_t& r, int depth, sampler_t* sampler)
         if(sampler->get_float() < bsdf_max_comp)
             bsdf = bsdf * (1 / bsdf_max_comp);
         else
-            return isect.emission; //Russian Roulette
+            return isect.emission(); //Russian Roulette
     }
 
     if (depth > 100)
-        return isect.emission; // MILO
+        return isect.emission(); // MILO
 
     if (isect.surface_scattering == surface_scattering_e::diffuse)
     {                  // Ideal DIFFUSE reflection
@@ -1003,12 +1020,12 @@ vec3_t radiance(const ray_t& r, int depth, sampler_t* sampler)
         vec3_t v = w.cross(u);
         vec3_t direction_ = (u * cos(random1) * r2s + v * sin(random1) * r2s + w * sqrt(1 - random2)).normlize();
 
-        return isect.emission + bsdf.multiply(
+        return isect.emission() + bsdf.multiply(
             radiance(ray_t(intersection, direction_), depth, sampler));
     }
     else if (isect.surface_scattering == surface_scattering_e::specular)            // Ideal SPECULAR reflection
     {
-        return isect.emission + bsdf.multiply(
+        return isect.emission() + bsdf.multiply(
             radiance(ray_t(intersection, r.direction_ - normal * 2 * normal.dot(r.direction_)), depth, sampler));
     }
     else
@@ -1021,7 +1038,7 @@ vec3_t radiance(const ray_t& r, int depth, sampler_t* sampler)
         Float ddn = r.direction_.dot(nl);
         Float cos2t;
         if ((cos2t = 1 - nnt * nnt * (1 - ddn * ddn)) < 0)    // Total internal reflection
-            return isect.emission + bsdf.multiply(
+            return isect.emission() + bsdf.multiply(
                 radiance(reflRay, depth, sampler));
 
         vec3_t tdir = (r.direction_ * nnt - normal * ((into ? 1 : -1) * (ddn * nnt + sqrt(cos2t)))).normlize();
@@ -1035,7 +1052,7 @@ vec3_t radiance(const ray_t& r, int depth, sampler_t* sampler)
         Float TP = Tr / (1 - P);
 
         // Russian roulette
-        return isect.emission + bsdf.multiply(depth > 2 ?
+        return isect.emission() + bsdf.multiply(depth > 2 ?
             (sampler->get_float() < P ? radiance(reflRay, depth, sampler) * RP : radiance(ray_t(intersection, tdir), depth, sampler) * TP) :
             radiance(reflRay, depth, sampler) * Re + radiance(ray_t(intersection, tdir), depth, sampler) * Tr);
     }
