@@ -167,6 +167,8 @@ struct vec3_t
     vec3_t operator+(const vec3_t& vec3) const { return vec3_t(x + vec3.x, y + vec3.y, z + vec3.z); }
     vec3_t operator-(const vec3_t& vec3) const { return vec3_t(x - vec3.x, y - vec3.y, z - vec3.z); }
     vec3_t operator*(Float scalar)       const { return vec3_t(x * scalar, y * scalar, z * scalar); }
+    vec3_t operator/(Float scalar)       const { return vec3_t(x / scalar, y / scalar, z / scalar); }
+
     friend vec3_t operator*(Float scalar, vec3_t vec3) { return vec3_t(vec3.x * scalar, vec3.y * scalar, vec3.z * scalar); }
 
     // ???
@@ -252,6 +254,9 @@ struct ray_t
 
 enum class surface_scattering_e { diffuse, specular, refractive };  // material types, used in radiance()
 
+// TODO
+class bsdf_t;
+using bsdf_uptr_t = std::unique_ptr<bsdf_t>;
 class material_t;
 class area_light_t;
 class primitive_t;
@@ -261,16 +266,17 @@ class isect_t
 {
 public:
     isect_t() = default;
-    isect_t(Float distance, point3_t position, normal_t normal, 
-        color_t bsdf, surface_scattering_e surface_scattering) :
+    isect_t(Float distance, point3_t position, normal_t normal) :
         distance{ distance },
         position{ position },
-        normal{ normal },
-        bsdf{ bsdf },
-        surface_scattering{ surface_scattering }
+        normal{ normal }
     {
     }
-    isect_t& operator=(const isect_t& isect) = default;
+    isect_t& operator=(isect_t&& isect) = default;
+
+    surface_scattering_e surface_scattering_type() const;
+    void scattering();
+    const bsdf_t* get_bsdf() const { return bsdf_.get(); }
 
     color_t emission() const;
 
@@ -279,14 +285,13 @@ public:
     point3_t position{}; // world position of intersection
     normal_t normal{};
 
-    color_t bsdf{};
-    surface_scattering_e surface_scattering{};
-
 private:
     friend primitive_t;
 
-    const material_t* material{};
-    const area_light_t* area_light{};
+    const material_t* material_{};
+    bsdf_uptr_t bsdf_{};
+
+    const area_light_t* area_light_{};
 };
 
 class shape_t
@@ -304,12 +309,10 @@ using shape_list_t = std::vector<shape_sp>;
 class sphere_t : public shape_t
 {
 public:
-    sphere_t(Float radius, vec3_t center, vec3_t e_, vec3_t c_, surface_scattering_e refl_) :
+    sphere_t(Float radius, vec3_t center) :
         center_(center),
         radius_(radius),
-        radius_sq_(radius * radius),
-        color_(c_),
-        surface_scattering_(refl_)
+        radius_sq_(radius * radius)
     {
     }
 
@@ -357,7 +360,7 @@ public:
         if (hit)
         {
             point3_t hit_point = ray(t);
-            isect = isect_t(t, hit_point, (hit_point - center_).normlize(), color_, surface_scattering_);
+            isect = isect_t(t, hit_point, (hit_point - center_).normlize());
         }
 
         return hit;
@@ -367,9 +370,6 @@ private:
     vec3_t center_;
     Float radius_;
     Float radius_sq_;
-
-    color_t color_;
-    surface_scattering_e surface_scattering_;
 };
 
 #pragma endregion
@@ -788,7 +788,9 @@ public:
 #pragma endregion
 
 
-#pragma region bsdf, material
+#pragma region bsdf
+
+inline Float abs_cos_theta(const vec3_t& w) { return std::abs(w.z); }
 
 inline vec3_t reflect(const vec3_t& wo, const normal_t& normal)
 {
@@ -814,44 +816,201 @@ inline bool refract(const vec3_t& wi, const normal_t& normal, Float eta,
     return true;
 }
 
+
+
+class fresnel_t
+{
+public:
+    virtual ~fresnel_t() = default;
+
+    virtual Float Evaluate(Float cosI) const = 0;
+};
+
+class fresnel_dielectric_t : public fresnel_t
+{
+public:
+    fresnel_dielectric_t()
+    {
+    }
+
+    Float Evaluate(Float cosI) const override
+    {
+        return 0;
+    }
+};
+
+// class fresnel_dummy_t : public fresnel_t
+
+
+
 class bsdf_t
 {
 public:
-    virtual void is_delta() = 0;
+    virtual ~bsdf_t() = default;
+
+    virtual bool is_delta() const = 0;
+
+    virtual color_t f(const vec3_t& wo, const vec3_t& wi) const = 0;
+
+    virtual color_t Sample_f(const vec3_t& wo, const point2_t& sample, vec3_t& wi, Float& pdf) const = 0;
 };
 
 
 
+class lambertion_reflection_t : public bsdf_t
+{
+public:
+    lambertion_reflection_t(const color_t& R) :
+        R_{ R }
+    {
+    }
+
+    bool is_delta() const override { return false; }
+
+    // TODO
+    color_t f(const vec3_t& wo, const vec3_t& wi) const override { return R_; }
+
+    color_t Sample_f(const vec3_t& wo, const point2_t& sample, vec3_t& wi, Float& pdf) const override { return R_; }
+
+private:
+    color_t R_;
+};
+
+class specular_reflection_t : public bsdf_t
+{
+public:
+    specular_reflection_t(const color_t& R) :
+        R_{ R }
+    {
+    }
+
+    bool is_delta() const override { return true; }
+
+    //color_t f(const vec3_t& wo, const vec3_t& wi) const override { return color_t(); }
+    color_t f(const vec3_t& wo, const vec3_t& wi) const override { return R_; }
+
+    color_t Sample_f(const vec3_t& wo, const point2_t&, vec3_t& wi, Float& pdf) const override 
+    {
+        wi = vec3_t(-wo.x, -wo.y, wo.z);
+        pdf = 1;
+
+        return R_ / abs_cos_theta(wi);
+    }
+
+private:
+    color_t R_;
+};
+
+class fresnel_specular_t : public bsdf_t
+{
+public:
+    fresnel_specular_t(const color_t& R) :
+        R_{ R }
+    {
+    }
+
+    bool is_delta() const override { return true; }
+
+    //color_t f(const vec3_t& wo, const vec3_t& wi) const override { return color_t(); }
+    color_t f(const vec3_t& wo, const vec3_t& wi) const override { return R_; }
+
+    color_t Sample_f(const vec3_t& wo, const point2_t&, vec3_t& wi, Float& pdf) const override
+    {
+        wi = vec3_t(-wo.x, -wo.y, wo.z);
+        pdf = 1;
+
+        return R_ / abs_cos_theta(wi);
+    }
+
+private:
+    color_t R_;
+};
+
+#pragma endregion
+
+// TODO
 // class texture_t
+
+#pragma region material
 
 class material_t
 {
 public:
     virtual ~material_t() = default;
 
-    virtual std::unique_ptr<bsdf_t> scattering(isect_t interse) const
-    {
-
-    }
+    virtual surface_scattering_e get_surface_scattering_type() const = 0;
+    virtual bsdf_uptr_t scattering(const isect_t& isect) const = 0;
 };
 
 using material_sp = std::shared_ptr<material_t>;
 using material_list_t = std::vector<material_sp>;
 
-class matte_material_t
+class matte_material_t : public material_t
 {
+public:
+    matte_material_t(const color_t Kd) :
+        Kd_{ Kd }
+    {
+    }
 
+    surface_scattering_e get_surface_scattering_type() const override { return surface_scattering_e::diffuse; }
+
+    bsdf_uptr_t scattering(const isect_t& isect) const override
+    {
+        return std::make_unique<lambertion_reflection_t>(Kd_);
+    }
+
+private:
+    color_t Kd_;
 };
 
-class mirror_material_t
+class mirror_material_t : public material_t
 {
+public:
+    mirror_material_t(const color_t Kr) :
+        Kr_{ Kr }
+    {
+    }
 
+    surface_scattering_e get_surface_scattering_type() const override { return surface_scattering_e::specular; }
+
+    bsdf_uptr_t scattering(const isect_t& isect) const override
+    {
+        return std::make_unique<specular_reflection_t>(Kr_);
+    }
+
+private:
+    color_t Kr_;
 };
 
-class glass_material_t
+class glass_material_t : public material_t
 {
+public:
+    glass_material_t(const color_t Kr, const color_t Kt) :
+        Kr_{ Kr }
+    {
+    }
 
+    surface_scattering_e get_surface_scattering_type() const override { return surface_scattering_e::refractive; }
+
+    bsdf_uptr_t scattering(const isect_t& isect) const override
+    {
+        return std::make_unique<fresnel_specular_t>(Kr_);
+    }
+
+private:
+    color_t Kr_;
 };
+
+surface_scattering_e isect_t::surface_scattering_type() const
+{
+    return material_->get_surface_scattering_type();
+}
+
+void isect_t::scattering()
+{
+    bsdf_ = material_->scattering(*this);
+}
 
 #pragma endregion
 
@@ -904,7 +1063,7 @@ private:
 
 color_t isect_t::emission() const
 {
-    return area_light ? area_light->emission() : color_t();
+    return area_light_ ? area_light_->emission() : color_t();
 }
 
 #pragma endregion
@@ -924,8 +1083,8 @@ struct primitive_t
         bool hit = shape->intersect(ray, isect);
         if (hit)
         {
-            isect.material = material;
-            isect.area_light = area_light;
+            isect.material_ = material;
+            isect.area_light_ = area_light;
         }
 
         return hit;
@@ -967,21 +1126,28 @@ public:
 public:
     static scene_t create_smallpt_scene()
     {
-        shape_sp left   = std::make_shared<sphere_t>(1e5, vec3_t(1e5 + 1, 40.8, 81.6), vec3_t(), vec3_t(.75, .25, .25), surface_scattering_e::diffuse);
-        shape_sp right  = std::make_shared<sphere_t>(1e5, vec3_t(-1e5 + 99, 40.8, 81.6), vec3_t(), vec3_t(.25, .25, .75), surface_scattering_e::diffuse);
-        shape_sp back   = std::make_shared<sphere_t>(1e5, vec3_t(50, 40.8, 1e5), vec3_t(), vec3_t(.75, .75, .75), surface_scattering_e::diffuse);
-        shape_sp front  = std::make_shared<sphere_t>(1e5, vec3_t(50, 40.8, -1e5 + 170), vec3_t(), vec3_t(), surface_scattering_e::diffuse);
-        shape_sp bottom = std::make_shared<sphere_t>(1e5, vec3_t(50, 1e5, 81.6), vec3_t(), vec3_t(.75, .75, .75), surface_scattering_e::diffuse);
-        shape_sp top    = std::make_shared<sphere_t>(1e5, vec3_t(50, -1e5 + 81.6, 81.6), vec3_t(), vec3_t(.75, .75, .75), surface_scattering_e::diffuse);
+        shape_sp left   = std::make_shared<sphere_t>(1e5, vec3_t(1e5 + 1, 40.8, 81.6));
+        shape_sp right  = std::make_shared<sphere_t>(1e5, vec3_t(-1e5 + 99, 40.8, 81.6));
+        shape_sp back   = std::make_shared<sphere_t>(1e5, vec3_t(50, 40.8, 1e5));
+        shape_sp front  = std::make_shared<sphere_t>(1e5, vec3_t(50, 40.8, -1e5 + 170));
+        shape_sp bottom = std::make_shared<sphere_t>(1e5, vec3_t(50, 1e5, 81.6));
+        shape_sp top    = std::make_shared<sphere_t>(1e5, vec3_t(50, -1e5 + 81.6, 81.6));
 
-        shape_sp mirror = std::make_shared<sphere_t>(16.5, vec3_t(27, 16.5, 47), vec3_t(), vec3_t(1, 1, 1) * .999, surface_scattering_e::specular);
-        shape_sp glass  = std::make_shared<sphere_t>(16.5, vec3_t(73, 16.5, 78), vec3_t(), vec3_t(1, 1, 1) * .999, surface_scattering_e::refractive);
+        shape_sp mirror = std::make_shared<sphere_t>(16.5, vec3_t(27, 16.5, 47));
+        shape_sp glass  = std::make_shared<sphere_t>(16.5, vec3_t(73, 16.5, 78));
 
-        shape_sp light  = std::make_shared<sphere_t>(600, vec3_t(50, 681.6 - .27, 81.6), vec3_t(12, 12, 12), vec3_t(), surface_scattering_e::diffuse);
+        shape_sp light  = std::make_shared<sphere_t>(600, vec3_t(50, 681.6 - .27, 81.6));
         shape_list_t shape_list{ left, right, back, front, bottom, top, mirror, glass, light };
 
 
-        material_list_t material_list{};
+        material_sp red   = std::make_shared<matte_material_t>(color_t(.75, .25, .25));
+        material_sp blue  = std::make_shared<matte_material_t>(color_t(.25, .25, .75));
+        material_sp gray  = std::make_shared<matte_material_t>(color_t(.75, .75, .75));
+        material_sp black = std::make_shared<matte_material_t>(color_t());
+
+        material_sp mirror_mat = std::make_shared<mirror_material_t>(color_t(1, 1, 1) * 0.999);
+        material_sp glass_mat  = std::make_shared<glass_material_t>(color_t(1, 1, 1) * 0.999, color_t());
+        material_list_t material_list{ red, blue, gray, black, mirror_mat, glass_mat };
 
 
         std::shared_ptr<area_light_t> area_light = std::make_shared<area_light_t>(color_t(12, 12, 12), light.get());
@@ -990,17 +1156,17 @@ public:
 
         primitive_list_t primitive_list
         {
-            {   left.get(), nullptr, nullptr },
-            {  right.get(), nullptr, nullptr },
-            {   back.get(), nullptr, nullptr },
-            {  front.get(), nullptr, nullptr },
-            { bottom.get(), nullptr, nullptr },
-            {    top.get(), nullptr, nullptr },
+            {   left.get(),   red.get(), nullptr},
+            {  right.get(),  blue.get(), nullptr },
+            {   back.get(),  gray.get(), nullptr },
+            {  front.get(), black.get(), nullptr },
+            { bottom.get(),  gray.get(), nullptr },
+            {    top.get(),  gray.get(), nullptr },
 
-            { mirror.get(), nullptr, nullptr },
-            {  glass.get(), nullptr, nullptr },
+            { mirror.get(), mirror_mat.get(), nullptr },
+            {  glass.get(),  glass_mat.get(), nullptr },
 
-            {  light.get(), nullptr, area_light.get()},
+            {  light.get(), black.get(), area_light.get()},
         };
 
         return scene_t{ shape_list, material_list, light_list, primitive_list };
@@ -1098,8 +1264,10 @@ vec3_t radiance(const ray_t& r, int depth, sampler_t* sampler)
 
     point3_t intersection = isect.position;
     normal_t normal = isect.normal;
-    normal_t nl = isect.normal.dot(r.direction_) < 0 ? isect.normal : isect.normal * -1, 
-    bsdf = isect.bsdf;
+    normal_t nl = isect.normal.dot(r.direction_) < 0 ? isect.normal : isect.normal * -1;
+
+    isect.scattering();
+    color_t bsdf = isect.get_bsdf()->f(vec3_t(), vec3_t());
 
     if (++depth > 5)
     {
@@ -1113,7 +1281,7 @@ vec3_t radiance(const ray_t& r, int depth, sampler_t* sampler)
     if (depth > 100)
         return isect.emission(); // MILO
 
-    if (isect.surface_scattering == surface_scattering_e::diffuse)
+    if (isect.surface_scattering_type() == surface_scattering_e::diffuse)
     {                  // Ideal DIFFUSE reflection
         Float random1 = 2 * k_pi * sampler->get_float();
         Float random2 = sampler->get_float(), r2s = sqrt(random2);
@@ -1125,7 +1293,7 @@ vec3_t radiance(const ray_t& r, int depth, sampler_t* sampler)
         return isect.emission() + bsdf.multiply(
             radiance(ray_t(intersection, direction_), depth, sampler));
     }
-    else if (isect.surface_scattering == surface_scattering_e::specular)            // Ideal SPECULAR reflection
+    else if (isect.surface_scattering_type() == surface_scattering_e::specular)            // Ideal SPECULAR reflection
     {
         return isect.emission() + bsdf.multiply(
             radiance(ray_t(intersection, r.direction_ - normal * 2 * normal.dot(r.direction_)), depth, sampler));
