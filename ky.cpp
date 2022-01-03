@@ -11,6 +11,7 @@
 #include <random>
 #include <string>
 #include <string_view>
+#include <vector>
 using namespace std::literals::string_literals;
 
 
@@ -253,6 +254,7 @@ enum class surface_scattering_e { diffuse, specular, refractive };  // material 
 
 class material_t;
 class area_light_t;
+class primitive_t;
 
 // surface intersection
 class isect_t
@@ -285,6 +287,8 @@ public:
     surface_scattering_e surface_scattering{};
 
 private:
+    friend primitive_t;
+
     color_t emission_{};
 
     const material_t* material{};
@@ -299,6 +303,9 @@ public:
 protected:
     static constexpr Float eps = 1e-4;
 };
+
+using shape_sp = std::shared_ptr<shape_t>; 
+using shape_list_t = std::vector<shape_sp>;
 
 class sphere_t : public shape_t
 {
@@ -836,6 +843,9 @@ public:
     }
 };
 
+using material_sp = std::shared_ptr<material_t>;
+using material_list_t = std::vector<material_sp>;
+
 class matte_material_t
 {
 
@@ -859,64 +869,157 @@ class light_t
 {
 public:
     // is delta distribution
-    virtual void is_delta() = 0;
+    virtual bool is_delta() = 0;
 
     // sample a delta light or a area light
-    virtual void sample() = 0;
+    //virtual void sample() = 0;
 };
 
-class aera_light_t
-{
+using light_sp = std::shared_ptr<light_t>;
+using light_list_t = std::vector<light_sp>;
 
+class point_light_t : public light_t
+{
+public:
+    point_light_t(color_t Iemit) :
+        Iemit_{ Iemit }
+    {
+    }
+
+    bool is_delta() override { return true; }
+
+private:
+    color_t Iemit_;
+};
+
+class area_light_t : public light_t
+{
+public:
+    area_light_t(color_t Lemit, const shape_t* shape):
+        Lemit_{ Lemit },
+        shape_{ shape }
+    {
+    }
+
+    bool is_delta() override { return false; }
+
+private:
+    color_t Lemit_;
+    const shape_t* shape_;
 };
 
 #pragma endregion
 
 
 
-#pragma region scene
+#pragma region primitive
 
-// TODO: std::vector<std::function<intersect(ray_t ray), result_t> primitives_;
+struct primitive_t
+{
+    const shape_t* shape;
+    const material_t* material;
+    const area_light_t* area_light;
 
-sphere_t scene[] = {//Scene: radius, center, emission, color, material
-  sphere_t(1e5, vec3_t(1e5 + 1,40.8,81.6), vec3_t(),vec3_t(.75,.25,.25),surface_scattering_e::diffuse),//Left
-  sphere_t(1e5, vec3_t(-1e5 + 99,40.8,81.6),vec3_t(),vec3_t(.25,.25,.75),surface_scattering_e::diffuse),//Rght
-  sphere_t(1e5, vec3_t(50,40.8, 1e5),     vec3_t(),vec3_t(.75,.75,.75),surface_scattering_e::diffuse),//Back
-  sphere_t(1e5, vec3_t(50,40.8,-1e5 + 170), vec3_t(),vec3_t(),           surface_scattering_e::diffuse),//Frnt
-  sphere_t(1e5, vec3_t(50, 1e5, 81.6),    vec3_t(),vec3_t(.75,.75,.75),surface_scattering_e::diffuse),//Botm
-  sphere_t(1e5, vec3_t(50,-1e5 + 81.6,81.6),vec3_t(),vec3_t(.75,.75,.75),surface_scattering_e::diffuse),//Top
+    bool intersect(const ray_t& ray, isect_t& isect)
+    {
+        bool hit = shape->intersect(ray, isect);
+        if (hit)
+        {
+            isect.material = material;
+            isect.area_light = area_light;
+        }
 
-  sphere_t(16.5,vec3_t(27,16.5,47),       vec3_t(),vec3_t(1,1,1) * .999, surface_scattering_e::specular),//Mirr
-  sphere_t(16.5,vec3_t(73,16.5,78),       vec3_t(),vec3_t(1,1,1) * .999, surface_scattering_e::refractive),//Glas
-
-  sphere_t(600, vec3_t(50,681.6 - .27,81.6),vec3_t(12,12,12),  vec3_t(), surface_scattering_e::diffuse) //Light
+        return hit;
+    }
 };
 
-bool intersect(const ray_t& ray, isect_t& isect)
-{
-    static Float inf = 1e20;
+using primitive_list_t = std::vector<primitive_t>;
 
-    int n = sizeof(scene) / sizeof(sphere_t);
+#pragma endregion
 
-    for (int i = n; i--;)
-        scene[i].intersect(ray, isect);
-
-    return isect.distance < inf;
-}
+#pragma region scene
 
 class scene_t : public reference_type_t
 {
 public:
+    scene_t() = default;
+    scene_t(shape_list_t shape_list, material_list_t material_list, light_list_t light_list, primitive_list_t primitive_list) :
+        shape_list_{ shape_list },
+        material_list_{ material_list },
+        light_list_{ light_list },
+        primitive_list_{ primitive_list }
+    {
+    }
 
-    const camera_t camera() const { return camera_; }
+    bool intersect(const ray_t& ray, isect_t& isect)
+    {
+        static Float inf = 1e20;
 
-    isect_t intersect() const { }
+        int n = primitive_list_.size();
+
+        for (int i = n; i--;)
+            primitive_list_[i].intersect(ray, isect);
+
+        return isect.distance < inf;
+    }
+
+    //const camera_t camera() const { return camera_; }
+
+public:
+    static scene_t create_smallpt_scene()
+    {
+        shape_sp left   = std::make_shared<sphere_t>(1e5, vec3_t(1e5 + 1, 40.8, 81.6), vec3_t(), vec3_t(.75, .25, .25), surface_scattering_e::diffuse);
+        shape_sp right  = std::make_shared<sphere_t>(1e5, vec3_t(-1e5 + 99, 40.8, 81.6), vec3_t(), vec3_t(.25, .25, .75), surface_scattering_e::diffuse);
+        shape_sp back   = std::make_shared<sphere_t>(1e5, vec3_t(50, 40.8, 1e5), vec3_t(), vec3_t(.75, .75, .75), surface_scattering_e::diffuse);
+        shape_sp front  = std::make_shared<sphere_t>(1e5, vec3_t(50, 40.8, -1e5 + 170), vec3_t(), vec3_t(), surface_scattering_e::diffuse);
+        shape_sp bottom = std::make_shared<sphere_t>(1e5, vec3_t(50, 1e5, 81.6), vec3_t(), vec3_t(.75, .75, .75), surface_scattering_e::diffuse);
+        shape_sp top    = std::make_shared<sphere_t>(1e5, vec3_t(50, -1e5 + 81.6, 81.6), vec3_t(), vec3_t(.75, .75, .75), surface_scattering_e::diffuse);
+
+        shape_sp mirror = std::make_shared<sphere_t>(16.5, vec3_t(27, 16.5, 47), vec3_t(), vec3_t(1, 1, 1) * .999, surface_scattering_e::specular);
+        shape_sp glass  = std::make_shared<sphere_t>(16.5, vec3_t(73, 16.5, 78), vec3_t(), vec3_t(1, 1, 1) * .999, surface_scattering_e::refractive);
+
+        shape_sp light  = std::make_shared<sphere_t>(600, vec3_t(50, 681.6 - .27, 81.6), vec3_t(12, 12, 12), vec3_t(), surface_scattering_e::diffuse);
+        shape_list_t shape_list{ left, right, back, front, bottom, top, mirror, glass, light };
+
+
+        material_list_t material_list{};
+
+
+        std::shared_ptr<area_light_t> area_light = std::make_shared<area_light_t>(color_t(12, 12, 12), light.get());
+        light_list_t light_list{ area_light };
+
+
+        primitive_list_t primitive_list
+        {
+            {   left.get(), nullptr, nullptr },
+            {  right.get(), nullptr, nullptr },
+            {   back.get(), nullptr, nullptr },
+            {  front.get(), nullptr, nullptr },
+            { bottom.get(), nullptr, nullptr },
+            {    top.get(), nullptr, nullptr },
+
+            { mirror.get(), nullptr, nullptr },
+            {  glass.get(), nullptr, nullptr },
+
+            {  light.get(), nullptr, area_light.get()},
+        };
+
+        return scene_t{ shape_list, material_list, light_list, primitive_list };
+    }
 
 private:
-    camera_t camera_;
+    shape_list_t shape_list_;
+    material_list_t material_list_;
+    light_list_t light_list_;
 
+    // TODO: std::vector<std::function<intersect(ray_t ray), result_t> primitives_;
+    primitive_list_t primitive_list_;
+
+    //camera_t camera_;
     accel_t accel_;
 };
+
+scene_t scene = scene_t::create_smallpt_scene();
 
 #pragma endregion
 
@@ -991,7 +1094,7 @@ public:
 vec3_t radiance(const ray_t& r, int depth, sampler_t* sampler)
 {
     isect_t isect;
-    if (!intersect(r, isect))
+    if (!scene.intersect(r, isect))
         return vec3_t(); // if miss, return black
 
     point3_t intersection = isect.position;
