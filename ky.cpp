@@ -214,6 +214,12 @@ using unit_vec3_t = vec3_t;
 
 
 
+struct mat4_t
+{
+};
+
+
+
 // https://github.com/SmallVCM/SmallVCM/blob/master/src/frame.hxx
 class frame_t
 {
@@ -263,13 +269,6 @@ private:
 
 
 
-struct mat4_t
-{
-
-};
-
-
-
 struct ray_t
 {
     point3_t origin_;
@@ -300,9 +299,6 @@ struct ray_t
     }
 };
 
-#pragma endregion
-
-#pragma region shape
 
 enum class surface_scattering_e { diffuse, specular, refractive };  // material types, used in radiance()
 
@@ -327,9 +323,9 @@ public:
     isect_t& operator=(isect_t&& isect) = default;
 
     surface_scattering_e surface_scattering_type() const;
-    void scattering();
-    const bsdf_t* get_bsdf() const { return bsdf_.get(); }
+    //void scattering();
 
+    const bsdf_t* get_bsdf() const { return bsdf_.get(); }
     color_t emission() const;
 
 public:
@@ -340,11 +336,15 @@ public:
 private:
     friend primitive_t;
 
-    const material_t* material_{};
+    const material_t* material_{}; // TODO: remove
     bsdf_uptr_t bsdf_{};
-
-    const area_light_t* area_light_{};
+    // color_t emission_{};
+    const area_light_t* area_light_{}; // TODO: remove
 };
+
+#pragma endregion
+
+#pragma region shape
 
 class shape_t
 {
@@ -899,12 +899,31 @@ class bsdf_t
 {
 public:
     virtual ~bsdf_t() = default;
+    bsdf_t(frame_t shading_frame) :
+        shading_frame_{ shading_frame }
+    {
+    }
 
+public:
+    vec3_t to_world(const vec3_t& local_vec3) const
+    {
+        return shading_frame_.to_world(local_vec3);
+    }
+
+    vec3_t to_local(const vec3_t& world_vec3) const
+    {
+        return shading_frame_.to_local(world_vec3);
+    }
+
+public:
     virtual bool is_delta() const = 0;
 
     virtual color_t f(const vec3_t& wo, const vec3_t& wi) const = 0;
 
     virtual color_t Sample_f(const vec3_t& wo, const point2_t& sample, vec3_t& wi, Float& pdf) const = 0;
+
+private:
+    frame_t shading_frame_;
 };
 
 
@@ -912,8 +931,8 @@ public:
 class lambertion_reflection_t : public bsdf_t
 {
 public:
-    lambertion_reflection_t(const color_t& R) :
-        R_{ R }
+    lambertion_reflection_t(const frame_t& shading_frame, const color_t& R) :
+        bsdf_t(shading_frame), R_{ R }
     {
     }
 
@@ -925,14 +944,14 @@ public:
     color_t Sample_f(const vec3_t& wo, const point2_t& sample, vec3_t& wi, Float& pdf) const override { return R_; }
 
 private:
-    color_t R_;
+    color_t R_; // surface reflectance
 };
 
 class specular_reflection_t : public bsdf_t
 {
 public:
-    specular_reflection_t(const color_t& R) :
-        R_{ R }
+    specular_reflection_t(const frame_t& shading_frame, const color_t& R) :
+        bsdf_t(shading_frame), R_{ R }
     {
     }
 
@@ -955,8 +974,8 @@ private:
 class fresnel_specular_t : public bsdf_t
 {
 public:
-    fresnel_specular_t(const color_t& R) :
-        R_{ R }
+    fresnel_specular_t(const frame_t& shading_frame, const color_t& R) :
+        bsdf_t(shading_frame), R_{ R }
     {
     }
 
@@ -1007,7 +1026,7 @@ public:
 
     bsdf_uptr_t scattering(const isect_t& isect) const override
     {
-        return std::make_unique<lambertion_reflection_t>(Kd_);
+        return std::make_unique<lambertion_reflection_t>(frame_t(isect.normal), Kd_);
     }
 
 private:
@@ -1026,7 +1045,7 @@ public:
 
     bsdf_uptr_t scattering(const isect_t& isect) const override
     {
-        return std::make_unique<specular_reflection_t>(Kr_);
+        return std::make_unique<specular_reflection_t>(frame_t(isect.normal), Kr_);
     }
 
 private:
@@ -1045,7 +1064,7 @@ public:
 
     bsdf_uptr_t scattering(const isect_t& isect) const override
     {
-        return std::make_unique<fresnel_specular_t>(Kr_);
+        return std::make_unique<fresnel_specular_t>(frame_t(isect.normal), Kr_);
     }
 
 private:
@@ -1055,11 +1074,6 @@ private:
 surface_scattering_e isect_t::surface_scattering_type() const
 {
     return material_->get_surface_scattering_type();
-}
-
-void isect_t::scattering()
-{
-    bsdf_ = material_->scattering(*this);
 }
 
 #pragma endregion
@@ -1134,6 +1148,7 @@ struct primitive_t
         if (hit)
         {
             isect.material_ = material;
+            isect.bsdf_ = material->scattering(isect);
             isect.area_light_ = area_light;
         }
 
@@ -1146,6 +1161,12 @@ using primitive_list_t = std::vector<primitive_t>;
 #pragma endregion
 
 #pragma region scene
+
+enum class scene_type_e
+{
+    point_light_diffuse_ball,
+    area_light_specular_ball,
+};
 
 class scene_t : public reference_type_t
 {
@@ -1174,7 +1195,7 @@ public:
     //const camera_t camera() const { return camera_; }
 
 public:
-    static scene_t create_smallpt_scene()
+    static scene_t create_smallpt_scene(scene_type_e scene_type)
     {
         shape_sp left   = std::make_shared<sphere_t>(1e5, vec3_t(1e5 + 1, 40.8, 81.6));
         shape_sp right  = std::make_shared<sphere_t>(1e5, vec3_t(-1e5 + 99, 40.8, 81.6));
@@ -1185,7 +1206,6 @@ public:
 
         shape_sp mirror = std::make_shared<sphere_t>(16.5, vec3_t(27, 16.5, 47));
         shape_sp glass  = std::make_shared<sphere_t>(16.5, vec3_t(73, 16.5, 78));
-
         shape_sp light  = std::make_shared<sphere_t>(600, vec3_t(50, 681.6 - .27, 81.6));
         shape_list_t shape_list{ left, right, back, front, bottom, top, mirror, glass, light };
 
@@ -1234,7 +1254,7 @@ private:
     accel_t accel_;
 };
 
-scene_t scene = scene_t::create_smallpt_scene();
+scene_t scene = scene_t::create_smallpt_scene(scene_type_e::area_light_specular_ball);
 
 #pragma endregion
 
@@ -1247,8 +1267,8 @@ enum class integrater_e
     normal,
 
     // discrete
-    delta_bsdf,
-    delta_light,
+    delta_bsdf, // + area light
+    delta_light, // + diffuse brdf
     direct_lighting_point, 
 
     // ray casting/direct lighting
@@ -1306,8 +1326,6 @@ public:
         point3_t intersection = isect.position;
         normal_t normal = isect.normal;
         normal_t nl = isect.normal.dot(r.direction_) < 0 ? isect.normal : isect.normal * -1;
-
-        isect.scattering();
         color_t bsdf = isect.get_bsdf()->f(vec3_t(), vec3_t());
 
         if (++depth > 5)
@@ -1375,6 +1393,7 @@ class path_tracing_recursion_light_t : public path_integrater_t
 {
 public:
     vec3_t Li(const ray_t& r, int depth, sampler_t* sampler, Float include_le = 1);
+    // Le(emit), Ld(direct), Li(indirect)
 };
 */
 

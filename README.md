@@ -11,15 +11,15 @@ ky is based on smallpt at first, gradually rewritten into a PBRT style
 ## milestone
 
 - [x] run smallpt
-- [ ] rewrite samllpt
+- [ ] rewrite smallpt
   - [x] geometry
   - [ ] shape
     - [ ] triangle
     - [x] sphere
-  - [ ] scene
-  - [ ] camera
-  - [ ] material
-  - [ ] light
+  - [x] scene
+  - [x] camera
+  - [x] material
+  - [x] light
   - [ ] integrator
   - [ ] cmd
 - [ ] step-by-step integrator 
@@ -30,6 +30,11 @@ ky is based on smallpt at first, gradually rewritten into a PBRT style
   - [ ] MIS
   - [ ] recursion style pathtracing
   - [ ] iterative style pathtracing
+<br>
+- [ ] bsdf/material
+  - [ ] Phong
+- [ ] scene
+  - [ ] mis scene
 <br>
 - [ ] unity support
 - [ ] web support
