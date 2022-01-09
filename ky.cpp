@@ -179,6 +179,9 @@ struct vec3_t
     friend vec3_t  cross(const vec3_t& u, const vec3_t& v) { return u.cross(v); }
     friend vec3_t normalize(const vec3_t& v) { return v.normalize(); }
 
+    friend Float     cos(const vec3_t& u, const vec3_t& v) { return u.dot(v); }
+    friend Float abs_cos(const vec3_t& u, const vec3_t& v) { return std::abs(u.dot(v)); }
+
     Float dot(const vec3_t& v) const { return x * v.x + y * v.y + z * v.z; }
     vec3_t cross(const vec3_t& v) const
     {
@@ -239,12 +242,13 @@ public:
     }
 
 public:
+    // think if stn is (1, 0, 0), (0, 1, 0), (0, 0, 1)
     vec3_t to_local(const vec3_t& world_vec3) const
     {
         return vec3_t(
-            dot(world_vec3, s_),
-            dot(world_vec3, t_),
-            dot(world_vec3, n_));
+            dot(s_, world_vec3),
+            dot(t_, world_vec3),
+            dot(n_, world_vec3));
     }
 
     vec3_t to_world(const vec3_t& local_vec3) const
@@ -255,8 +259,8 @@ public:
             n_ * local_vec3.z;
     }
 
-    const vec3_t& tangent() const { return s_; }
-    const vec3_t& binormal() const { return t_; }
+    const vec3_t& binormal() const { return s_; }
+    const vec3_t& tangent() const { return t_; }
     const vec3_t& normal() const { return n_; }
 
 private:
@@ -264,10 +268,11 @@ private:
     {
         vec3_t tmp_s = (std::abs(n_.x) > 0.99f) ? vec3_t(0, 1, 0) : vec3_t(1, 0, 0);
         t_ = normalize(cross(n_, tmp_s));
-        s_ = cross(t_, n_);
+        s_ = normalize(cross(t_, n_));
     }
 
 private:
+    // world frame basic vector
     vec3_t   s_{ 1, 0, 0 }; // x
     vec3_t   t_{ 0, 1, 0 }; // y
     normal_t n_{ 0, 0, 1 }; // z
@@ -1004,7 +1009,7 @@ public:
         vec3_t* out_world_wi, Float* out_pdf, bsdf_type_e* out_bsdf_type) const
     {
         auto value = sample_f_(to_local(world_wo), p_sample, out_world_wi, out_pdf, out_bsdf_type);
-        to_world(*out_world_wi);
+        *out_world_wi = to_world(*out_world_wi);
 
         return value;
     }
@@ -1079,6 +1084,7 @@ public:
         // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#SpecularReflection
         // https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.cpp#L181-L191
 
+        //*out_wi = reflect(wo, vec3_t(0, 0, 1));
         *out_wi = vec3_t(-wo.x, -wo.y, wo.z);
         *out_pdf = 1;
         *out_bsdf_type = bsdf_type_e::reflection;
@@ -1477,11 +1483,8 @@ public:
         }
         else if (isect.surface_scattering_type() == surface_scattering_e::specular)            // Ideal SPECULAR reflection
         {
-            //ray_t ray(position, wi);
-            //return isect.emission() + dot(bsdf, Li(ray, depth, sampler)) * abs_dot(wi, normal) / pdf;
-
-            //return isect.emission() + bsdf.multiply(Li(ray_t(position, r.direction() - normal * 2 * normal.dot(r.direction())), depth, sampler)) / pdf;
-            return isect.emission() + bsdf.multiply(Li(ray_t(position, wi), depth, sampler)) / pdf;
+            ray_t ray(position, wi);
+            return isect.emission() + bsdf.multiply(Li(ray, depth, sampler)) * abs_dot(wi, normal) / pdf;
         }
         else
         {
@@ -1549,7 +1552,7 @@ int main(int argc, char* argv[])
 {
     clock_t start = clock(); // MILO
 
-    int width = 256, height = 256, samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 10; // # samples
+    int width = 1024, height = 1024, samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 10; // # samples
 
     film_t film(width, height);
     std::unique_ptr<const camera_t> camera = 
@@ -1560,12 +1563,12 @@ int main(int argc, char* argv[])
 #ifndef KY_DEBUG
     #pragma omp parallel for schedule(dynamic, 1) // OpenMP
 #endif // !KY_DEBUG
-    for (int y = 0; y < height; y += 1) 
+    for (int y = 256; y < 512; y += 1) 
     {
         std::unique_ptr<sampler_t> sampler = std::make_unique<trapezoidal_sampler_t>(samples_per_pixel);
         LOG("\rRendering ({} spp) {}", sampler->ge_samples_per_pixel(), 100. * y / (height - 1));
 
-        for (int x = 0; x < width; x += 1)
+        for (int x = 256; x < 512; x += 1)
         {
             color_t Li{};
             sampler->start_sample();
