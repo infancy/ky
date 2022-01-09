@@ -1702,21 +1702,18 @@ public:
     {
         isect_t isect;
         if (!scene.intersect(r, isect))
-            return color_t(); // if miss, return black
-
-        point3_t position = isect.position;
-        normal_t normal = isect.normal;
+            return color_t();
 
         vec3_t wi;
         Float pdf;
         bsdf_type_e bsdf_type;
-        color_t bsdf = isect.get_bsdf()->sample_f(isect.wo, sampler->get_vec2(), &wi, &pdf, &bsdf_type);
+        color_t f = isect.get_bsdf()->sample_f(isect.wo, sampler->get_vec2(), &wi, &pdf, &bsdf_type);
 
         if (++depth > 5)
         {
-            Float bsdf_max_comp = std::max({ bsdf.x, bsdf.y, bsdf.z }); // max refl
+            Float bsdf_max_comp = std::max({ f.x, f.y, f.z }); // max refl
             if (sampler->get_float() < bsdf_max_comp)
-                bsdf = bsdf * (1 / bsdf_max_comp); // importance sampling
+                f = f * (1 / bsdf_max_comp); // importance sampling
             else
                 return isect.emission(); //Russian Roulette
         }
@@ -1724,22 +1721,8 @@ public:
         if (depth > max_path_depth_)
             return isect.emission(); // MILO
 
-        // return isect.emission() + ...
-        if (isect.surface_scattering_type() == surface_scattering_e::diffuse)
-        {        
-            ray_t ray(position, wi);
-            return isect.emission() + bsdf.multiply(Li(ray, depth, sampler)) * abs_dot(wi, normal) / pdf;
-        }
-        else if (isect.surface_scattering_type() == surface_scattering_e::specular) // Ideal SPECULAR reflection
-        {
-            ray_t ray(position, wi);
-            return isect.emission() + bsdf.multiply(Li(ray, depth, sampler)) * abs_dot(wi, normal) / pdf;
-        }
-        else
-        {
-            ray_t ray(position, wi);
-            return isect.emission() + bsdf.multiply(Li(ray, depth, sampler)) * abs_dot(wi, normal) / pdf;
-        }
+        ray_t ray(isect.position, wi);
+        return isect.emission() + f.multiply(Li(ray, depth, sampler)) * abs_dot(wi, isect.normal) / pdf;
     }
 };
 
