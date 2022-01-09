@@ -181,6 +181,7 @@ struct vec3_t
 
     friend Float     cos(const vec3_t& u, const vec3_t& v) { return u.dot(v); }
     friend Float abs_cos(const vec3_t& u, const vec3_t& v) { return std::abs(u.dot(v)); }
+    friend vec3_t   lerp(const vec3_t& u, const vec3_t& v, Float t) { return u + t * (v - u); }
 
     Float dot(const vec3_t& v) const { return x * v.x + y * v.y + z * v.z; }
     vec3_t cross(const vec3_t& v) const
@@ -886,18 +887,20 @@ public:
 
 inline Float abs_cos_theta(const vec3_t& w) { return std::abs(w.z); }
 
-// https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#SpecularReflection
 inline vec3_t reflect(const vec3_t& wo, const normal_t& normal)
 {
+    // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#SpecularReflection
+
     return -wo + 2 * dot(wo, normal) * normal;
 }
 
 // eta = etaI/etaT
-inline bool refract(const vec3_t& wi, const normal_t& normal, Float eta,
-    vec3_t* wt)
+inline bool refract(const vec3_t& wo, const normal_t& normal, Float eta, vec3_t* wt)
 {
+    // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#SpecularTransmission
+
     // Compute $\cos \theta_\roman{t}$ using Snell's law
-    Float cosThetaI = dot(normal, wi);
+    Float cosThetaI = dot(normal, wo);
     Float sin2ThetaI = std::max(Float(0), Float(1 - cosThetaI * cosThetaI));
     Float sin2ThetaT = eta * eta * sin2ThetaI;
 
@@ -906,12 +909,23 @@ inline bool refract(const vec3_t& wi, const normal_t& normal, Float eta,
         return false;
 
     Float cosThetaT = std::sqrt(1 - sin2ThetaT);
-    *wt = eta * -wi + (eta * cosThetaI - cosThetaT) * vec3_t(normal);
+    *wt = eta * -wo + (eta * cosThetaI - cosThetaT) * vec3_t(normal);
 
     return true;
 }
 
 
+
+/*
+  given
+    the reflectance at normal incidence `R0` and
+    the cosine of the angle of incidence `cos_theta_i`,
+  compute reflectance
+*/
+vec3_t schlick_fresnel(vec3_t R0, float cos_theta_i)
+{
+    return lerp(R0, vec3_t(1.0f), std::pow((1.0f - cos_theta_i), 5.0f));
+}
 
 class fresnel_t
 {
@@ -1082,8 +1096,9 @@ public:
         vec3_t* out_wi, Float* out_pdf, bsdf_type_e* out_bsdf_type) const override 
     {
         // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#SpecularReflection
+        // https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.h#L387-L408
         // https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.cpp#L181-L191
-
+        
         //*out_wi = reflect(wo, vec3_t(0, 0, 1));
         *out_wi = vec3_t(-wo.x, -wo.y, wo.z);
         *out_pdf = 1;
@@ -1098,11 +1113,45 @@ private:
 
 
 
+// TODO
+class specular_transmission_t : public bsdf_t
+{
+public:
+    specular_transmission_t(const frame_t& shading_frame, const color_t& T) :
+        bsdf_t(shading_frame), T_{ T }
+    {
+    }
+
+    bool is_delta() const override { return true; }
+
+    color_t f_(const vec3_t& wo, const vec3_t& wi) const override { return color_t(); }
+    Float pdf_(const vec3_t& wo, const vec3_t& wi) const override { return 0; }
+
+    color_t sample_f_(const vec3_t& wo, const point2_t&,
+        vec3_t* out_wi, Float* out_pdf, bsdf_type_e* out_bsdf_type) const override
+    {
+        // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#SpecularTransmission
+        // https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.h#L410-L436
+        // https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.cpp#L198-L218
+
+        *out_wi = vec3_t(-wo.x, -wo.y, wo.z);
+        *out_pdf = 1;
+        *out_bsdf_type = bsdf_type_e::transmission;
+
+        return T_ / abs_cos_theta(*out_wi);
+    }
+
+private:
+    color_t T_;
+};
+
+
+
 class fresnel_specular_t : public bsdf_t
 {
 public:
-    fresnel_specular_t(const frame_t& shading_frame, const color_t& R) :
-        bsdf_t(shading_frame), R_{ R }
+    fresnel_specular_t(const frame_t& shading_frame, const color_t& R, const color_t& T, Float etaA, float etaB) :
+        bsdf_t(shading_frame), R_{ R }, T_{ T }, etaA_{ etaA }, etaB_{ etaB }
     {
     }
 
@@ -1114,6 +1163,10 @@ public:
     color_t sample_f_(const vec3_t& wo, const point2_t&, 
         vec3_t* out_wi, Float* out_pdf, bsdf_type_e* out_bsdf_type) const override
     {
+        // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#Fresnel-ModulatedSpecularReflectionandTransmission
+        // https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.h#L440-L463
+        // https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.cpp#L627-L667
+
         *out_wi = vec3_t(-wo.x, -wo.y, wo.z);
         *out_pdf = 1;
 
@@ -1122,6 +1175,9 @@ public:
 
 private:
     color_t R_;
+    color_t T_;
+    Float etaA_;
+    Float etaB_;
 };
 
 #pragma endregion
@@ -1184,8 +1240,8 @@ private:
 class glass_material_t : public material_t
 {
 public:
-    glass_material_t(const color_t Kr, const color_t Kt) :
-        Kr_{ Kr }
+    glass_material_t(const color_t& Kr, const color_t& Kt, Float eta) :
+        Kr_{ Kr }, Kt_{ Kt }, eta_{ eta }
     {
     }
 
@@ -1193,11 +1249,13 @@ public:
 
     bsdf_uptr_t scattering(const isect_t& isect) const override
     {
-        return std::make_unique<fresnel_specular_t>(frame_t(isect.normal), Kr_);
+        return std::make_unique<fresnel_specular_t>(frame_t(isect.normal), Kr_, Kt_, 1, eta_);
     }
 
 private:
     color_t Kr_;
+    color_t Kt_;
+    Float eta_;
 };
 
 surface_scattering_e isect_t::surface_scattering_type() const
@@ -1260,6 +1318,7 @@ private:
 
 #pragma region primitive
 
+// TODO: surface_t
 struct primitive_t
 {
     const shape_t* shape;
@@ -1340,7 +1399,7 @@ public:
         material_sp black = std::make_shared<matte_material_t>(color_t());
 
         material_sp mirror_mat = std::make_shared<mirror_material_t>(color_t(1, 1, 1) * 0.999);
-        material_sp glass_mat  = std::make_shared<glass_material_t>(color_t(1, 1, 1) * 0.999, color_t());
+        material_sp glass_mat  = std::make_shared<glass_material_t>(color_t(1, 1, 1) * 0.999, color_t(), 1.5);
         material_list_t material_list{ red, blue, gray, black, mirror_mat, glass_mat };
 
 
@@ -1488,31 +1547,50 @@ public:
         }
         else
         {
-            ray_t reflRay(position, r.direction() - normal * 2 * normal.dot(r.direction()));     // Ideal dielectric REFRACTION
+            ray_t reflRay(position, r.direction() - normal * 2 * normal.dot(r.direction())); // Ideal dielectric REFRACTION
             bool into = normal.dot(nl) > 0;                // Ray from outside going in?
-            Float nc = 1;
-            Float nt = 1.5;
-            Float nnt = into ? nc / nt : nt / nc;
-            Float ddn = r.direction().dot(nl);
-            Float cos2t;
-            if ((cos2t = 1 - nnt * nnt * (1 - ddn * ddn)) < 0)    // Total internal reflection
-                return isect.emission() + bsdf.multiply(
-                    Li(reflRay, depth, sampler));
 
-            vec3_t tdir = (r.direction() * nnt - normal * ((into ? 1 : -1) * (ddn * nnt + sqrt(cos2t)))).normalize();
-            Float a = nt - nc, b = nt + nc;
+            Float eta_a = 1;
+            Float eta_b = 1.5;
+            Float eta = into ? eta_a / eta_b : eta_b / eta_a;
+
+            Float cos_theta_a = r.direction().dot(nl);
+            Float cos2t;
+            if ((cos2t = 1 - eta * eta * (1 - cos_theta_a * cos_theta_a)) < 0)    // Total internal reflection
+                return isect.emission();
+
+            vec3_t tdir = (r.direction() * eta - normal * ((into ? 1 : -1) * (cos_theta_a * eta + sqrt(cos2t)))).normalize();
+            Float cos_theta_b = tdir.dot(normal);
+            Float cos_i = 1 - (into ? -cos_theta_a : cos_theta_b);
+
+
+            Float a = eta_b - eta_a;
+            Float b = eta_b + eta_a;
             Float R0 = a * a / (b * b);
-            Float color_ = 1 - (into ? -ddn : tdir.dot(normal));
-            Float Re = R0 + (1 - R0) * color_ * color_ * color_ * color_ * color_;
+
+            Float Re = R0 + (1 - R0) * cos_i * cos_i * cos_i * cos_i * cos_i;
             Float Tr = 1 - Re;
+
+
             Float P = .25 + .5 * Re;
             Float RP = Re / P;
             Float TP = Tr / (1 - P);
 
-            // Russian roulette
-            return isect.emission() + bsdf.multiply(depth > 2 ?
-                (sampler->get_float() < P ? Li(reflRay, depth, sampler) * RP : Li(ray_t(position, tdir), depth, sampler) * TP) :
-                Li(reflRay, depth, sampler) * Re + Li(ray_t(position, tdir), depth, sampler) * Tr);
+            color_t L{};
+            if (depth > 2)
+            {
+                // Russian roulette
+                if(sampler->get_float() < P)
+                    L = Li(reflRay, depth, sampler) * RP;
+                else
+                    L = Li(ray_t(position, tdir), depth, sampler) * TP;
+            }
+            else
+            {
+                L = Li(reflRay, depth, sampler) * Re + 
+                    Li(ray_t(position, tdir), depth, sampler) * Tr;
+            }
+            return isect.emission() + bsdf.multiply(L);
         }
     }
 };
@@ -1552,7 +1630,7 @@ int main(int argc, char* argv[])
 {
     clock_t start = clock(); // MILO
 
-    int width = 1024, height = 1024, samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 10; // # samples
+    int width = 1024, height = 1024, samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 4; // # samples
 
     film_t film(width, height);
     std::unique_ptr<const camera_t> camera = 
@@ -1563,12 +1641,12 @@ int main(int argc, char* argv[])
 #ifndef KY_DEBUG
     #pragma omp parallel for schedule(dynamic, 1) // OpenMP
 #endif // !KY_DEBUG
-    for (int y = 256; y < 512; y += 1) 
+    for (int y = 50; y < 450; y += 1) 
     {
         std::unique_ptr<sampler_t> sampler = std::make_unique<trapezoidal_sampler_t>(samples_per_pixel);
         LOG("\rRendering ({} spp) {}", sampler->ge_samples_per_pixel(), 100. * y / (height - 1));
 
-        for (int x = 256; x < 512; x += 1)
+        for (int x = 550; x < 900; x += 1)
         {
             color_t Li{};
             sampler->start_sample();
