@@ -48,6 +48,8 @@ using radian_t = Float;
 using degree_t = Float;
 
 constexpr Float k_pi = std::numbers::pi;
+constexpr Float k_pi_over2 = std::numbers::pi / 2;
+constexpr Float k_pi_over4 = std::numbers::pi / 4;
 constexpr Float k_inv_pi = std::numbers::inv_pi;
 
 constexpr radian_t radians(degree_t deg) { return (k_pi / 180) * deg; }
@@ -147,6 +149,9 @@ struct vec2_t
     vec2_t(Float x = 0, Float y = 0) { this->x = x; this->y = y; }
 
     vec2_t operator+(const vec2_t& vec2) const { return vec2_t(x + vec2.x, y + vec2.y); }
+    vec2_t operator-(const vec2_t& vec2) const { return vec2_t(x - vec2.x, y - vec2.y); }
+
+    friend vec2_t operator*(Float scalar, vec2_t v) { return vec2_t(v.x * scalar, v.y * scalar); }
 };
 
 using point2_t = vec2_t;
@@ -697,6 +702,41 @@ private:
 
 #pragma region sampling
 
+point2_t concentric_sample_disk(const point2_t& u) 
+{
+    // Map uniform random numbers to $[-1,1]^2$
+    point2_t uOffset = 2.f * u - vec2_t(1, 1);
+
+    // Handle degeneracy at the origin
+    if (uOffset.x == 0 && uOffset.y == 0) 
+        return point2_t(0, 0);
+
+    // Apply concentric mapping to point
+    Float theta, r;
+    if (std::abs(uOffset.x) > std::abs(uOffset.y)) 
+    {
+        r = uOffset.x;
+        theta = k_pi_over4 * (uOffset.y / uOffset.x);
+    }
+    else 
+    {
+        r = uOffset.y;
+        theta = k_pi_over2 - k_pi_over4 * (uOffset.x / uOffset.y);
+    }
+
+    return r * point2_t(std::cos(theta), std::sin(theta));
+}
+
+// cosine-weighted sampling
+inline vec3_t cosine_sample_hemi_sphere(const point2_t& p_sample)
+{
+    point2_t d = concentric_sample_disk(p_sample);
+    Float z = std::sqrt(std::max((Float)0, 1 - d.x * d.x - d.y * d.y));
+    return vec3_t(d.x, d.y, z);
+}
+
+inline Float cosine_hemisphere_pdf(Float cosTheta) { return cosTheta * k_inv_pi; }
+
 #pragma endregion
 
 #pragma region sampler
@@ -890,6 +930,8 @@ public:
 
 inline Float cos_theta(const vec3_t& w) { return w.z; }
 inline Float abs_cos_theta(const vec3_t& w) { return std::abs(w.z); }
+
+inline bool same_hemi_sphere(const vec3_t& w, const vec3_t& wp) { return w.z * wp.z > 0; }
 
 inline vec3_t reflect(const vec3_t& wo, const normal_t& normal)
 {
@@ -1141,15 +1183,24 @@ public:
 
     bool is_delta() const override { return false; }
 
-    // TODO
     color_t f_(const vec3_t& wo, const vec3_t& wi) const override { return R_; }
-    Float pdf_(const vec3_t& wo, const vec3_t& wi) const override { return 0; } // TODO
+    //color_t f_(const vec3_t& wo, const vec3_t& wi) const override { return R_ / k_inv_pi; }
+    Float pdf_(const vec3_t& wo, const vec3_t& wi) const override
+    {
+        return same_hemi_sphere(wo, wi) ? abs_cos_theta(wi) * k_inv_pi : 0;
+    }
 
-    color_t sample_f_(const vec3_t& wo, const point2_t& sample, 
+    color_t sample_f_(const vec3_t& wo, const point2_t& p_sample, 
         vec3_t* out_wi, Float* out_pdf, bsdf_type_e* out_bsdf_type) const override
     {
+        // Cosine-sample the hemisphere, flipping the direction if necessary
+        *out_wi = cosine_sample_hemi_sphere(p_sample);
 
-        return R_; 
+        if (wo.z < 0) 
+            out_wi->z *= -1;
+
+        *out_pdf = pdf_(wo, *out_wi);
+        return f(wo, *out_wi);
     }
 
 private:
@@ -1677,16 +1728,22 @@ public:
         // return isect.emission() + ...
         if (isect.surface_scattering_type() == surface_scattering_e::diffuse)
         {                  // Ideal DIFFUSE reflection
+
+            //*
             Float random1 = 2 * k_pi * sampler->get_float();
             Float random2 = sampler->get_float(), r2s = sqrt(random2);
             normal_t nl = normal.dot(r.direction()) < 0 ? normal : normal * -1;
+
             vec3_t w = nl;
             vec3_t u = ((fabs(w.x) > 0.1 ? vec3_t(0, 1, 0) : vec3_t(1, 0, 0)).cross(w)).normalize();
             vec3_t v = w.cross(u);
             vec3_t direction = (u * cos(random1) * r2s + v * sin(random1) * r2s + w * sqrt(1 - random2)).normalize();
-
             return isect.emission() + bsdf.multiply(
                 Li(ray_t(position, direction), depth, sampler));
+            //*/
+            
+            //ray_t ray(position, wi);
+            //return isect.emission() + bsdf.multiply(Li(ray, depth, sampler)) / pdf;
         }
         else if (isect.surface_scattering_type() == surface_scattering_e::specular) // Ideal SPECULAR reflection
         {
@@ -1736,7 +1793,7 @@ int main(int argc, char* argv[])
 {
     clock_t start = clock(); // MILO
 
-    int width = 1024, height = 1024, samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 4; // # samples
+    int width = 256, height = 256, samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 10; // # samples
 
     film_t film(width, height);
     std::unique_ptr<const camera_t> camera = 
@@ -1747,12 +1804,12 @@ int main(int argc, char* argv[])
 #ifndef KY_DEBUG
     #pragma omp parallel for schedule(dynamic, 1) // OpenMP
 #endif // !KY_DEBUG
-    for (int y = 50; y < 450; y += 1) 
+    for (int y = 0; y < height; y += 1) 
     {
         std::unique_ptr<sampler_t> sampler = std::make_unique<trapezoidal_sampler_t>(samples_per_pixel);
         LOG("\rRendering ({} spp) {}", sampler->ge_samples_per_pixel(), 100. * y / (height - 1));
 
-        for (int x = 550; x < 900; x += 1)
+        for (int x = 0; x < width; x += 1)
         {
             color_t Li{};
             sampler->start_sample();
