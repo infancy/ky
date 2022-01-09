@@ -225,47 +225,52 @@ struct mat4_t
 class frame_t
 {
 public:
-    frame_t(const vec3_t& x, const vec3_t& y, const normal_t& z) :
-        x_{ x.normalize() },
-        y_{ y.normalize() },
-        z_{ z.normalize() }
+    frame_t(const vec3_t& s, const vec3_t& t, const normal_t& n) :
+        s_{ s.normalize() },
+        t_{ t.normalize() },
+        n_{ n.normalize() }
     {
     }
 
-    frame_t(const normal_t& z) :
-        z_{ z.normalize()}
+    frame_t(const normal_t& n) :
+        n_{ n.normalize()}
     {
         set_from_z();
     }
 
 public:
-    vec3_t to_world(const vec3_t& local_vec3) const
-    {
-        return x_ * local_vec3.x + y_ * local_vec3.y + z_ * local_vec3.z;
-    }
-
     vec3_t to_local(const vec3_t& world_vec3) const
     {
-        return vec3_t(dot(world_vec3, x_), dot(world_vec3, y_), dot(world_vec3, z_));
+        return vec3_t(
+            dot(world_vec3, s_),
+            dot(world_vec3, t_),
+            dot(world_vec3, n_));
     }
 
-    const vec3_t& normal() const { return z_; }
-    const vec3_t& tangent() const { return y_; }
-    const vec3_t& binormal() const { return x_; }
+    vec3_t to_world(const vec3_t& local_vec3) const
+    {
+        return 
+            s_ * local_vec3.x + 
+            t_ * local_vec3.y + 
+            n_ * local_vec3.z;
+    }
+
+    const vec3_t& tangent() const { return s_; }
+    const vec3_t& binormal() const { return t_; }
+    const vec3_t& normal() const { return n_; }
 
 private:
     void set_from_z()
     {
-        normal_t normal = z_;
-        vec3_t tmp_x = (std::abs(normal.x) > 0.99f) ? vec3_t(0, 1, 0) : vec3_t(1, 0, 0);
-        y_ = normalize(cross(normal, tmp_x));
-        x_ = cross(y_, normal);
+        vec3_t tmp_s = (std::abs(n_.x) > 0.99f) ? vec3_t(0, 1, 0) : vec3_t(1, 0, 0);
+        t_ = normalize(cross(n_, tmp_s));
+        s_ = cross(t_, n_);
     }
 
 private:
-    vec3_t   x_{ 1, 0, 0 };
-    vec3_t   y_{ 0, 1, 0 };
-    normal_t z_{ 0, 0, 1 };
+    vec3_t   s_{ 1, 0, 0 }; // x
+    vec3_t   t_{ 0, 1, 0 }; // y
+    normal_t n_{ 0, 0, 1 }; // z
 };
 
 
@@ -301,6 +306,7 @@ private:
     point3_t origin_;
     unit_vec3_t direction_; // confirm it is Unit Vector
 };
+
 
 
 enum class surface_scattering_e { diffuse, specular, refractive };  // material types, used in radiance()
@@ -1011,15 +1017,14 @@ protected:
         vec3_t* out_wi, Float* out_pdf, bsdf_type_e* out_bsdf_type) const = 0;
 
 private:
+    vec3_t to_local(const vec3_t& world_vec3) const
+    {
+        return shading_frame_.to_local(world_vec3);
+    }
 
     vec3_t to_world(const vec3_t& local_vec3) const
     {
         return shading_frame_.to_world(local_vec3);
-    }
-
-    vec3_t to_local(const vec3_t& world_vec3) const
-    {
-        return shading_frame_.to_local(world_vec3);
     }
 
 private:
@@ -1053,6 +1058,8 @@ private:
     color_t R_; // surface reflectance
 };
 
+
+
 class specular_reflection_t : public bsdf_t
 {
 public:
@@ -1082,6 +1089,8 @@ public:
 private:
     color_t R_;
 };
+
+
 
 class fresnel_specular_t : public bsdf_t
 {
@@ -1468,8 +1477,11 @@ public:
         }
         else if (isect.surface_scattering_type() == surface_scattering_e::specular)            // Ideal SPECULAR reflection
         {
-            ray_t ray(position, wi);
-            return isect.emission() + dot(bsdf, Li(ray, depth, sampler)) * abs_dot(wi, normal) / pdf;
+            //ray_t ray(position, wi);
+            //return isect.emission() + dot(bsdf, Li(ray, depth, sampler)) * abs_dot(wi, normal) / pdf;
+
+            //return isect.emission() + bsdf.multiply(Li(ray_t(position, r.direction() - normal * 2 * normal.dot(r.direction())), depth, sampler)) / pdf;
+            return isect.emission() + bsdf.multiply(Li(ray_t(position, wi), depth, sampler)) / pdf;
         }
         else
         {
