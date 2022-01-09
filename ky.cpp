@@ -164,21 +164,22 @@ struct vec3_t
 
     Float operator[](int i)              const { DCHECK(i >= 0 && i < 3); return (&x)[i]; }
     vec3_t operator-() const { return vec3_t(-x, -y, -z); }
-    vec3_t operator+(const vec3_t& vec3) const { return vec3_t(x + vec3.x, y + vec3.y, z + vec3.z); }
-    vec3_t operator-(const vec3_t& vec3) const { return vec3_t(x - vec3.x, y - vec3.y, z - vec3.z); }
+    vec3_t operator+(const vec3_t& v) const { return vec3_t(x + v.x, y + v.y, z + v.z); }
+    vec3_t operator-(const vec3_t& v) const { return vec3_t(x - v.x, y - v.y, z - v.z); }
     vec3_t operator*(Float scalar)       const { return vec3_t(x * scalar, y * scalar, z * scalar); }
     vec3_t operator/(Float scalar)       const { return vec3_t(x / scalar, y / scalar, z / scalar); }
 
-    friend vec3_t operator*(Float scalar, vec3_t vec3) { return vec3_t(vec3.x * scalar, vec3.y * scalar, vec3.z * scalar); }
+    friend vec3_t operator*(Float scalar, vec3_t v) { return vec3_t(v.x * scalar, v.y * scalar, v.z * scalar); }
 
     // ???
-    vec3_t multiply(const vec3_t& vec3) const { return vec3_t(x * vec3.x, y * vec3.y, z * vec3.z); }
+    vec3_t multiply(const vec3_t& v) const { return vec3_t(x * v.x, y * v.y, z * v.z); }
 
-    friend Float    dot(const vec3_t& u, const vec3_t& v) { return u.dot(v); }
-    friend vec3_t cross(const vec3_t& u, const vec3_t& v) { return u.cross(v); }
-    friend vec3_t normalize(const vec3_t& vec3) { return vec3.normalize(); }
+    friend Float     dot(const vec3_t& u, const vec3_t& v) { return u.dot(v); }
+    friend Float abs_dot(const vec3_t& u, const vec3_t& v) { return std::abs(u.dot(v)); }
+    friend vec3_t  cross(const vec3_t& u, const vec3_t& v) { return u.cross(v); }
+    friend vec3_t normalize(const vec3_t& v) { return v.normalize(); }
 
-    Float dot(const vec3_t& vec3) const { return x * vec3.x + y * vec3.y + z * vec3.z; }
+    Float dot(const vec3_t& v) const { return x * v.x + y * v.y + z * v.z; }
     vec3_t cross(const vec3_t& v) const
     {
         /*
@@ -269,11 +270,9 @@ private:
 
 
 
-struct ray_t
+class ray_t
 {
-    point3_t origin_;
-    unit_vec3_t direction_; // confirm it is Unit Vector
-
+public:
     ray_t(const point3_t& origin, const unit_vec3_t& direction) : 
         origin_(origin), 
         direction_(direction) 
@@ -297,6 +296,10 @@ struct ray_t
         DCHECK(t >= 0);
         return origin_ + t * direction_;
     }
+
+private:
+    point3_t origin_;
+    unit_vec3_t direction_; // confirm it is Unit Vector
 };
 
 
@@ -309,14 +312,25 @@ class material_t;
 class area_light_t;
 class primitive_t;
 
+// prev   n   light
+// ----   ^   -----
+//   ^    |    ^
+//    \   |   /
+//     \  |  /
+//   wo \ | / wi.direction is unknown, sampling for bsdf or light?
+//       \|/
+//     -------
+//      isect
+
 // surface intersection
 class isect_t
 {
 public:
     isect_t() = default;
-    isect_t(Float distance, point3_t position, normal_t normal) :
+    isect_t(Float distance, point3_t position, unit_vec3_t wo, normal_t normal) :
         distance{ distance },
         position{ position },
+        wo{ wo },
         normal{ normal }
     {
     }
@@ -326,11 +340,12 @@ public:
     //void scattering();
 
     const bsdf_t* get_bsdf() const { return bsdf_.get(); }
-    color_t emission() const;
+    color_t emission() const { return emission_; }
 
 public:
     Float distance{ 1e20 }; // distance from ray to intersection
     point3_t position{}; // world position of intersection
+    unit_vec3_t wo{};
     normal_t normal{};
 
 private:
@@ -338,8 +353,7 @@ private:
 
     const material_t* material_{}; // TODO: remove
     bsdf_uptr_t bsdf_{};
-    // color_t emission_{};
-    const area_light_t* area_light_{}; // TODO: remove
+    color_t emission_{};
 };
 
 #pragma endregion
@@ -357,6 +371,23 @@ protected:
 
 using shape_sp = std::shared_ptr<shape_t>; 
 using shape_list_t = std::vector<shape_sp>;
+
+
+
+/*
+       z(0, 0, 1)
+       |
+       |
+       |
+       |
+       |_ _ _ _ _ _ x(1, 0, 0)
+      /
+     /
+    /
+   y(0, 1, 0)
+
+   https://www.pbr-book.org/3ed-2018/Shapes/Spheres
+*/
 
 class sphere_t : public shape_t
 {
@@ -412,7 +443,7 @@ public:
         if (hit)
         {
             point3_t hit_point = ray(t);
-            isect = isect_t(t, hit_point, (hit_point - center_).normalize());
+            isect = isect_t(t, hit_point, -ray.direction(), (hit_point - center_).normalize());
         }
 
         return hit;
@@ -844,6 +875,7 @@ public:
 
 inline Float abs_cos_theta(const vec3_t& w) { return std::abs(w.z); }
 
+// https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#SpecularReflection
 inline vec3_t reflect(const vec3_t& wo, const normal_t& normal)
 {
     return -wo + 2 * dot(wo, normal) * normal;
@@ -895,6 +927,44 @@ public:
 
 
 
+enum class bsdf_type_e
+{
+    reflection,
+    transmission,
+    scattering = reflection | transmission,
+
+    diffuse,
+    glossy,
+    specluar,
+};
+
+/* 
+shading frame:
+
+       z, n(0, 0, 1)
+       |
+       |
+       |
+       |
+       |_ _ _ _ _ _ x, s(1, 0, 0)
+      / p
+     /
+    /
+   y, t(0, 1, 0)
+
+   prev   n   light
+   ----   ^   -----
+     ^    |    ^
+      \   |   /
+       \  |  /
+     wo \ | / wi, wi.direction is unknown, sampling for bsdf or light?
+         \|/
+       -------
+        isect
+
+   https://www.pbr-book.org/3ed-2018/Reflection_Models#x0-GeometricSetting
+*/
+
 class bsdf_t
 {
 public:
@@ -905,6 +975,43 @@ public:
     }
 
 public:
+    virtual bool is_delta() const = 0;
+
+    color_t f(const vec3_t& world_wo, const vec3_t& world_wi) const
+    {
+        return f_(to_local(world_wo), to_local(world_wi));
+    }
+    Float pdf(const vec3_t& world_wo, const vec3_t& world_wi) const
+    {
+        return pdf_(to_local(world_wo), to_local(world_wi));
+    }
+
+
+    color_t f(const vec3_t& world_wo, const vec3_t& world_wi, Float* out_pdf) const
+    {
+        vec3_t wo = to_local(world_wo), wi = to_local(world_wi);
+        *out_pdf = pdf_(wo, wi);
+        return f_(wo, wi);
+    }
+
+    color_t sample_f(const vec3_t& world_wo, const point2_t& p_sample, 
+        vec3_t* out_world_wi, Float* out_pdf, bsdf_type_e* out_bsdf_type) const
+    {
+        auto value = sample_f_(to_local(world_wo), p_sample, out_world_wi, out_pdf, out_bsdf_type);
+        to_world(*out_world_wi);
+
+        return value;
+    }
+
+protected: 
+    virtual color_t f_(const vec3_t& wo, const vec3_t& wi) const = 0;
+    virtual Float pdf_(const vec3_t& wo, const vec3_t& wi) const = 0;
+
+    virtual color_t sample_f_(const vec3_t& wo, const point2_t& p_sample, 
+        vec3_t* out_wi, Float* out_pdf, bsdf_type_e* out_bsdf_type) const = 0;
+
+private:
+
     vec3_t to_world(const vec3_t& local_vec3) const
     {
         return shading_frame_.to_world(local_vec3);
@@ -914,13 +1021,6 @@ public:
     {
         return shading_frame_.to_local(world_vec3);
     }
-
-public:
-    virtual bool is_delta() const = 0;
-
-    virtual color_t f(const vec3_t& wo, const vec3_t& wi) const = 0;
-
-    virtual color_t Sample_f(const vec3_t& wo, const point2_t& sample, vec3_t& wi, Float& pdf) const = 0;
 
 private:
     frame_t shading_frame_;
@@ -939,9 +1039,15 @@ public:
     bool is_delta() const override { return false; }
 
     // TODO
-    color_t f(const vec3_t& wo, const vec3_t& wi) const override { return R_; }
+    color_t f_(const vec3_t& wo, const vec3_t& wi) const override { return R_; }
+    Float pdf_(const vec3_t& wo, const vec3_t& wi) const override { return 0; } // TODO
 
-    color_t Sample_f(const vec3_t& wo, const point2_t& sample, vec3_t& wi, Float& pdf) const override { return R_; }
+    color_t sample_f_(const vec3_t& wo, const point2_t& sample, 
+        vec3_t* out_wi, Float* out_pdf, bsdf_type_e* out_bsdf_type) const override
+    {
+
+        return R_; 
+    }
 
 private:
     color_t R_; // surface reflectance
@@ -957,14 +1063,20 @@ public:
 
     bool is_delta() const override { return true; }
 
-    color_t f(const vec3_t& wo, const vec3_t& wi) const override { return color_t(); }
+    color_t f_(const vec3_t& wo, const vec3_t& wi) const override { return color_t(); }
+    Float pdf_(const vec3_t& wo, const vec3_t& wi) const override { return 0; }
 
-    color_t Sample_f(const vec3_t& wo, const point2_t&, vec3_t& wi, Float& pdf) const override 
+    color_t sample_f_(const vec3_t& wo, const point2_t&, 
+        vec3_t* out_wi, Float* out_pdf, bsdf_type_e* out_bsdf_type) const override 
     {
-        wi = vec3_t(-wo.x, -wo.y, wo.z);
-        pdf = 1;
+        // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#SpecularReflection
+        // https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.cpp#L181-L191
 
-        return R_ / abs_cos_theta(wi);
+        *out_wi = vec3_t(-wo.x, -wo.y, wo.z);
+        *out_pdf = 1;
+        *out_bsdf_type = bsdf_type_e::reflection;
+
+        return R_ / abs_cos_theta(*out_wi);
     }
 
 private:
@@ -981,14 +1093,16 @@ public:
 
     bool is_delta() const override { return true; }
 
-    color_t f(const vec3_t& wo, const vec3_t& wi) const override { return color_t(); }
+    color_t f_(const vec3_t& wo, const vec3_t& wi) const override { return color_t(); }
+    Float pdf_(const vec3_t& wo, const vec3_t& wi) const override { return 0; }
 
-    color_t Sample_f(const vec3_t& wo, const point2_t&, vec3_t& wi, Float& pdf) const override
+    color_t sample_f_(const vec3_t& wo, const point2_t&, 
+        vec3_t* out_wi, Float* out_pdf, bsdf_type_e* out_bsdf_type) const override
     {
-        wi = vec3_t(-wo.x, -wo.y, wo.z);
-        pdf = 1;
+        *out_wi = vec3_t(-wo.x, -wo.y, wo.z);
+        *out_pdf = 1;
 
-        return R_ / abs_cos_theta(wi);
+        return R_ / abs_cos_theta(*out_wi);
     }
 
 private:
@@ -1125,11 +1239,6 @@ private:
     const shape_t* shape_;
 };
 
-color_t isect_t::emission() const
-{
-    return area_light_ ? area_light_->emission() : color_t();
-}
-
 #pragma endregion
 
 
@@ -1149,7 +1258,7 @@ struct primitive_t
         {
             isect.material_ = material;
             isect.bsdf_ = material->scattering(isect);
-            isect.area_light_ = area_light;
+            isect.emission_ = area_light ? area_light->emission() : color_t();
         }
 
         return hit;
@@ -1323,16 +1432,20 @@ public:
         if (!scene.intersect(r, isect))
             return color_t(); // if miss, return black
 
-        point3_t intersection = isect.position;
+        point3_t position = isect.position;
         normal_t normal = isect.normal;
-        normal_t nl = isect.normal.dot(r.direction_) < 0 ? isect.normal : isect.normal * -1;
-        color_t bsdf = isect.get_bsdf()->f(vec3_t(), vec3_t());
+        normal_t nl = isect.normal.dot(r.direction()) < 0 ? isect.normal : isect.normal * -1;
+
+        vec3_t wi;
+        Float pdf;
+        bsdf_type_e bsdf_type;
+        color_t bsdf = isect.get_bsdf()->sample_f(isect.wo, sampler->get_vec2(), &wi, &pdf, &bsdf_type);
 
         if (++depth > 5)
         {
             Float bsdf_max_comp = std::max({ bsdf.x, bsdf.y, bsdf.z }); // max refl
             if (sampler->get_float() < bsdf_max_comp)
-                bsdf = bsdf * (1 / bsdf_max_comp);
+                bsdf = bsdf * (1 / bsdf_max_comp); // importance sampling
             else
                 return isect.emission(); //Russian Roulette
         }
@@ -1340,6 +1453,7 @@ public:
         if (depth > max_path_depth_)
             return isect.emission(); // MILO
 
+        // return isect.emission() + ...
         if (isect.surface_scattering_type() == surface_scattering_e::diffuse)
         {                  // Ideal DIFFUSE reflection
             Float random1 = 2 * k_pi * sampler->get_float();
@@ -1347,30 +1461,30 @@ public:
             vec3_t w = nl;
             vec3_t u = ((fabs(w.x) > 0.1 ? vec3_t(0, 1, 0) : vec3_t(1, 0, 0)).cross(w)).normalize();
             vec3_t v = w.cross(u);
-            vec3_t direction_ = (u * cos(random1) * r2s + v * sin(random1) * r2s + w * sqrt(1 - random2)).normalize();
+            vec3_t direction = (u * cos(random1) * r2s + v * sin(random1) * r2s + w * sqrt(1 - random2)).normalize();
 
             return isect.emission() + bsdf.multiply(
-                Li(ray_t(intersection, direction_), depth, sampler));
+                Li(ray_t(position, direction), depth, sampler));
         }
         else if (isect.surface_scattering_type() == surface_scattering_e::specular)            // Ideal SPECULAR reflection
         {
-            return isect.emission() + bsdf.multiply(
-                Li(ray_t(intersection, r.direction_ - normal * 2 * normal.dot(r.direction_)), depth, sampler));
+            ray_t ray(position, wi);
+            return isect.emission() + dot(bsdf, Li(ray, depth, sampler)) * abs_dot(wi, normal) / pdf;
         }
         else
         {
-            ray_t reflRay(intersection, r.direction_ - normal * 2 * normal.dot(r.direction_));     // Ideal dielectric REFRACTION
+            ray_t reflRay(position, r.direction() - normal * 2 * normal.dot(r.direction()));     // Ideal dielectric REFRACTION
             bool into = normal.dot(nl) > 0;                // Ray from outside going in?
             Float nc = 1;
             Float nt = 1.5;
             Float nnt = into ? nc / nt : nt / nc;
-            Float ddn = r.direction_.dot(nl);
+            Float ddn = r.direction().dot(nl);
             Float cos2t;
             if ((cos2t = 1 - nnt * nnt * (1 - ddn * ddn)) < 0)    // Total internal reflection
                 return isect.emission() + bsdf.multiply(
                     Li(reflRay, depth, sampler));
 
-            vec3_t tdir = (r.direction_ * nnt - normal * ((into ? 1 : -1) * (ddn * nnt + sqrt(cos2t)))).normalize();
+            vec3_t tdir = (r.direction() * nnt - normal * ((into ? 1 : -1) * (ddn * nnt + sqrt(cos2t)))).normalize();
             Float a = nt - nc, b = nt + nc;
             Float R0 = a * a / (b * b);
             Float color_ = 1 - (into ? -ddn : tdir.dot(normal));
@@ -1382,8 +1496,8 @@ public:
 
             // Russian roulette
             return isect.emission() + bsdf.multiply(depth > 2 ?
-                (sampler->get_float() < P ? Li(reflRay, depth, sampler) * RP : Li(ray_t(intersection, tdir), depth, sampler) * TP) :
-                Li(reflRay, depth, sampler) * Re + Li(ray_t(intersection, tdir), depth, sampler) * Tr);
+                (sampler->get_float() < P ? Li(reflRay, depth, sampler) * RP : Li(ray_t(position, tdir), depth, sampler) * TP) :
+                Li(reflRay, depth, sampler) * Re + Li(ray_t(position, tdir), depth, sampler) * Tr);
         }
     }
 };
