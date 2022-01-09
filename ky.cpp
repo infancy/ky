@@ -1726,21 +1726,7 @@ public:
 
         // return isect.emission() + ...
         if (isect.surface_scattering_type() == surface_scattering_e::diffuse)
-        {                  // Ideal DIFFUSE reflection
-
-            /*
-            Float random1 = 2 * k_pi * sampler->get_float();
-            Float random2 = sampler->get_float(), r2s = sqrt(random2);
-            normal_t nl = normal.dot(r.direction()) < 0 ? normal : normal * -1;
-
-            vec3_t w = nl;
-            vec3_t u = ((fabs(w.x) > 0.1 ? vec3_t(0, 1, 0) : vec3_t(1, 0, 0)).cross(w)).normalize();
-            vec3_t v = w.cross(u);
-            vec3_t direction = (u * cos(random1) * r2s + v * sin(random1) * r2s + w * sqrt(1 - random2)).normalize();
-            return isect.emission() + bsdf.multiply(
-                Li(ray_t(position, direction), depth, sampler));
-            */
-            
+        {        
             ray_t ray(position, wi);
             return isect.emission() + bsdf.multiply(Li(ray, depth, sampler)) * abs_dot(wi, normal) / pdf;
         }
