@@ -1183,8 +1183,7 @@ public:
 
     bool is_delta() const override { return false; }
 
-    color_t f_(const vec3_t& wo, const vec3_t& wi) const override { return R_; }
-    //color_t f_(const vec3_t& wo, const vec3_t& wi) const override { return R_ / k_inv_pi; }
+    color_t f_(const vec3_t& wo, const vec3_t& wi) const override { return R_ * k_inv_pi; }
     Float pdf_(const vec3_t& wo, const vec3_t& wi) const override
     {
         return same_hemi_sphere(wo, wi) ? abs_cos_theta(wi) * k_inv_pi : 0;
@@ -1729,7 +1728,7 @@ public:
         if (isect.surface_scattering_type() == surface_scattering_e::diffuse)
         {                  // Ideal DIFFUSE reflection
 
-            //*
+            /*
             Float random1 = 2 * k_pi * sampler->get_float();
             Float random2 = sampler->get_float(), r2s = sqrt(random2);
             normal_t nl = normal.dot(r.direction()) < 0 ? normal : normal * -1;
@@ -1740,10 +1739,10 @@ public:
             vec3_t direction = (u * cos(random1) * r2s + v * sin(random1) * r2s + w * sqrt(1 - random2)).normalize();
             return isect.emission() + bsdf.multiply(
                 Li(ray_t(position, direction), depth, sampler));
-            //*/
+            */
             
-            //ray_t ray(position, wi);
-            //return isect.emission() + bsdf.multiply(Li(ray, depth, sampler)) / pdf;
+            ray_t ray(position, wi);
+            return isect.emission() + bsdf.multiply(Li(ray, depth, sampler)) * abs_dot(wi, normal) / pdf;
         }
         else if (isect.surface_scattering_type() == surface_scattering_e::specular) // Ideal SPECULAR reflection
         {
@@ -1793,7 +1792,7 @@ int main(int argc, char* argv[])
 {
     clock_t start = clock(); // MILO
 
-    int width = 256, height = 256, samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 10; // # samples
+    int width = 256, height = 256, samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 100; // # samples
 
     film_t film(width, height);
     std::unique_ptr<const camera_t> camera = 
