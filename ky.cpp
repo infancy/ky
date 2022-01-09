@@ -888,6 +888,7 @@ public:
 
 #pragma region fresnel
 
+inline Float cos_theta(const vec3_t& w) { return w.z; }
 inline Float abs_cos_theta(const vec3_t& w) { return std::abs(w.z); }
 
 inline vec3_t reflect(const vec3_t& wo, const normal_t& normal)
@@ -947,6 +948,14 @@ Float fresnel_dielectric(Float cosThetaI, Float etaI, Float etaT)
     Float Rperp = ((etaI * cosThetaI) - (etaT * cosThetaT)) /
                   ((etaI * cosThetaI) + (etaT * cosThetaT));
     return (Rparl * Rparl + Rperp * Rperp) / 2;
+}
+
+Float fresnel_dielectric_schlick(Float cos_i, Float eta_i, Float eta_t)
+{
+    Float R0 = (eta_t - eta_i) / (eta_t + eta_i);
+    R0 *= R0;
+
+    return lerp(R0, 1.0f, std::pow(1 - cos_i, 5.0f));
 }
 
 Float fresnel_dielectric_schlick(Float cos_theta_i, Float cos_theta_t, Float eta_i, Float eta_t)
@@ -1230,18 +1239,87 @@ public:
     color_t f_(const vec3_t& wo, const vec3_t& wi) const override { return color_t(); }
     Float pdf_(const vec3_t& wo, const vec3_t& wi) const override { return 0; }
 
-    color_t sample_f_(const vec3_t& wo, const point2_t&, 
+    color_t sample_f_(const vec3_t& wo, const point2_t& p_sample, 
         vec3_t* out_wi, Float* out_pdf, bsdf_type_e* out_bsdf_type) const override
     {
         // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#Fresnel-ModulatedSpecularReflectionandTransmission
         // https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.h#L440-L463
         // https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.cpp#L627-L667
 
-        *out_wi = vec3_t(-wo.x, -wo.y, wo.z);
-        *out_pdf = 1;
+        Float Re = fresnel_dielectric_schlick(abs_cos_theta(wo), etaA_, etaB_);
+        // or Float Re = fresnel_dielectric(cos_theta(wo), etaA_, etaB_);
+        Float Tr = 1 - Re;
 
-        return R_ / abs_cos_theta(*out_wi);
+        if (p_sample.x < Re)
+        {
+            // Compute specular reflection for _FresnelSpecular_
+
+            *out_wi = vec3_t(-wo.x, -wo.y, wo.z);
+            *out_pdf = Re; // Russian roulette???
+
+            return (Re * R_) / abs_cos_theta(*out_wi);
+        }
+        else
+        {
+            // Compute specular transmission for _FresnelSpecular_
+
+            normal_t normal(0, 0, 1);
+            bool into = normal.dot(wo) > 0; // Ray from outside going in?
+
+            normal_t wo_normal = into ? normal : normal * -1;
+            Float eta = into ? etaA_ / etaB_ : etaB_ / etaA_;
+
+            if (!refract(wo, wo_normal, eta, out_wi))
+            {
+                return color_t(); // total internal reflection
+            }
+            
+            *out_pdf = Tr;
+            return (T_ * Tr) / abs_cos_theta(*out_wi);
+        }
     }
+
+    /*
+    // smallpt version
+    color_t sample_f_(const vec3_t& wo, const point2_t& p_sample,
+        vec3_t* out_wi, Float* out_pdf, bsdf_type_e* out_bsdf_type) const override
+    {
+        normal_t normal(0, 0, 1);
+        bool into = normal.dot(wo) > 0; // Ray from outside going in?
+
+        normal_t wo_normal = into ? normal : normal * -1;
+        Float eta = into ? etaA_ / etaB_ : etaB_ / etaA_;
+
+        if (!refract(wo, wo_normal, eta, out_wi))
+        {
+            return color_t(); // total internal reflection
+        }
+
+        Float cos_theta_a = wo.dot(wo_normal);
+        Float cos_theta_b = (*out_wi).dot(normal);
+        Float cos_theta_i = into ? cos_theta_a : cos_theta_b;
+
+        Float Re = fresnel_dielectric_schlick(cos_theta_a, etaA_, etaB_);
+        Float Tr = 1 - Re;
+
+        if (p_sample.x < Re)
+        {
+            // Compute specular reflection for _FresnelSpecular_
+
+            *out_wi = vec3_t(-wo.x, -wo.y, wo.z);
+            *out_pdf = Re; // Russian roulette???
+
+            return (Re * R_) / abs_cos_theta(*out_wi);
+        }
+        else
+        {
+            // Compute specular transmission for _FresnelSpecular_
+
+            *out_pdf = Tr;
+            return (T_ * Tr) / abs_cos_theta(*out_wi);
+        }
+    }
+    */
 
 private:
     color_t R_;
@@ -1469,7 +1547,7 @@ public:
         material_sp black = std::make_shared<matte_material_t>(color_t());
 
         material_sp mirror_mat = std::make_shared<mirror_material_t>(color_t(1, 1, 1) * 0.999);
-        material_sp glass_mat  = std::make_shared<glass_material_t>(color_t(1, 1, 1) * 0.999, color_t(), 1.5);
+        material_sp glass_mat  = std::make_shared<glass_material_t>(color_t(1, 1, 1) * 0.999, color_t(1, 1, 1) * 0.999, 1.5);
         material_list_t material_list{ red, blue, gray, black, mirror_mat, glass_mat };
 
 
@@ -1610,71 +1688,15 @@ public:
             return isect.emission() + bsdf.multiply(
                 Li(ray_t(position, direction), depth, sampler));
         }
-        else if (isect.surface_scattering_type() == surface_scattering_e::specular)            // Ideal SPECULAR reflection
+        else if (isect.surface_scattering_type() == surface_scattering_e::specular) // Ideal SPECULAR reflection
         {
             ray_t ray(position, wi);
             return isect.emission() + bsdf.multiply(Li(ray, depth, sampler)) * abs_dot(wi, normal) / pdf;
         }
         else
         {
-            ray_t reflRay(position, r.direction() - normal * 2 * normal.dot(r.direction())); // Ideal dielectric REFRACTION
-
-            bool into = normal.dot(r.direction()) < 0; // Ray from outside going in?
-            normal_t out_normal = into ? normal : normal * -1;
-
-            Float eta_a = 1;
-            Float eta_b = 1.5;
-            Float eta = into ? eta_a / eta_b : eta_b / eta_a;
-
-            /*
-            Float cos_theta_a = r.direction().dot(out_normal);
-            Float cos2t;
-            if ((cos2t = 1 - eta * eta * (1 - cos_theta_a * cos_theta_a)) < 0)    // Total internal reflection
-                return isect.emission();
-
-             vec3_t tdir = (r.direction() * eta - normal * ((into ? 1 : -1) * (cos_theta_a * eta + sqrt(cos2t)))).normalize();
-            */
-            vec3_t tdir;
-            if (!refract(-r.direction(), out_normal, eta, &tdir))
-            {
-                return isect.emission();
-            }
-
-            Float cos_theta_a = r.direction().dot(out_normal);
-            Float cos_theta_b = tdir.dot(normal);
-
-            /*
-            Float cos_theta_i = 1 - (into ? -cos_theta_a : cos_theta_b);
-
-            Float a = eta_b - eta_a;
-            Float b = eta_b + eta_a;
-            Float R0 = a * a / (b * b);
-
-            Float Re = R0 + (1 - R0) * cos_theta_i * cos_theta_i * cos_theta_i * cos_theta_i * cos_theta_i;
-            */
-            Float Re = fresnel_dielectric_schlick(cos_theta_a, cos_theta_b, eta_a, eta_b);
-            Float Tr = 1 - Re;
-
-
-            Float P = .25 + .5 * Re;
-            Float RP = Re / P;
-            Float TP = Tr / (1 - P);
-
-            color_t L{};
-            if (depth > 2)
-            {
-                // Russian roulette
-                if(sampler->get_float() < P)
-                    L = Li(reflRay, depth, sampler) * RP;
-                else
-                    L = Li(ray_t(position, tdir), depth, sampler) * TP;
-            }
-            else
-            {
-                L = Li(reflRay, depth, sampler) * Re + 
-                    Li(ray_t(position, tdir), depth, sampler) * Tr;
-            }
-            return isect.emission() + bsdf.multiply(L);
+            ray_t ray(position, wi);
+            return isect.emission() + bsdf.multiply(Li(ray, depth, sampler)) * abs_dot(wi, normal) / pdf;
         }
     }
 };
