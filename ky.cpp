@@ -1663,9 +1663,11 @@ enum class integrater_e
     // path tracing
     path_tracing_recursion_bsdf,
     path_tracing_recursion_light,
-
     path_tracing_recursion_mis,
-    path_tracing_iteration
+
+    path_tracing_iteration_bsdf,
+    path_tracing_iteration_light,
+    path_tracing_iteration_mis
 };
 
 class integrater_t
@@ -1692,6 +1694,12 @@ public:
 protected:
     int max_path_depth_;
 };
+
+// Le + T(Le + T(le + ...))
+// class path_tracing_recursion
+
+// Le + TLe + T^2le + ...
+// class path_tracing_iteration
 
 class path_tracing_recursion_bsdf_t : public path_integrater_t
 {
