@@ -653,6 +653,21 @@ struct camera_sample_t
  * 
  *
  */
+
+/* 
+  TODO: camera space:
+
+ y (0, 1, 0)         z(0, 0, 1)
+       |            /
+       |          /
+       |        /
+       |      /
+       |    /
+       |  /
+       |/_ _ _ _ _ _ x(1, 0, 0)
+       o
+*/
+
 class camera_t
 {
 public:
@@ -1641,6 +1656,18 @@ scene_t scene = scene_t::create_smallpt_scene(scene_type_e::area_light_specular_
 
 #pragma region integrater
 
+/* 
+  Li = Lo = Le + ∫Li
+          = Le + ∫(Le + ∫Li)
+          = Le + ∫Le + ∫∫(Le + ∫Li)) = ...
+*/
+enum class lighting_type_e
+{
+    emit, // Le = Le
+    direct, // Ld = ∫Le
+    indirect, // Li = ∫∫(Le + ∫Li)
+};
+
 enum class integrater_e
 {
     // debug
@@ -1670,6 +1697,10 @@ enum class integrater_e
     path_tracing_iteration_mis
 };
 
+/*
+  rendering scene by Rendering Equation(Li = Lo = Le + ∫Li)
+  solving Rendering Equation(a integral equation) by numerical integration(monte carlo integration)
+*/
 class integrater_t
 {
 public:
@@ -1677,6 +1708,9 @@ public:
     {
 
     }
+
+    // render_phase
+    // render_debug
 
     virtual color_t Li(const ray_t& r, int depth, sampler_t* sampler) = 0;
 };
