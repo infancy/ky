@@ -359,6 +359,7 @@ public:
     //void scattering();
 
     const bsdf_t* get_bsdf() const { return bsdf_.get(); }
+    // Le()
     color_t emission() const { return emission_; }
 
 public:
@@ -1518,6 +1519,8 @@ public:
 
     bool is_delta() override { return false; }
 
+public:
+    // Le(), only for area_light
     color_t emission() const { return Lemit_; }
 
 private:
@@ -1764,6 +1767,7 @@ public:
             return isect.emission(); // MILO
 
         ray_t ray(isect.position, wi);
+        // Le + ∫f*Li*cos_theta
         return isect.emission() + f.multiply(Li(ray, depth, sampler)) * abs_dot(wi, isect.normal) / pdf;
     }
 };
