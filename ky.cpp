@@ -382,6 +382,7 @@ public:
     //void scattering();
 
     const bsdf_t* get_bsdf() const { return bsdf_.get(); }
+    // Le()
     color_t emission() const { return emission_; }
 
 public:
@@ -691,6 +692,21 @@ struct camera_sample_t
  * 
  *
  */
+
+/* 
+  TODO: camera space:
+
+ y (0, 1, 0)         z(0, 0, 1)
+       |            /
+       |          /
+       |        /
+       |      /
+       |    /
+       |  /
+       |/_ _ _ _ _ _ x(1, 0, 0)
+       o
+*/
+
 class camera_t
 {
 public:
@@ -1567,6 +1583,8 @@ public:
 
     bool is_delta() override { return false; }
 
+public:
+    // Le(), only for area_light
     color_t emission() const { return Lemit_; }
 
 private:
@@ -1703,6 +1721,18 @@ private:
 
 #pragma region integrater
 
+/* 
+  Li = Lo = Le + ∫Li
+          = Le + ∫(Le + ∫Li)
+          = Le + ∫Le + ∫∫(Le + ∫Li)) = ...
+*/
+enum class lighting_type_e
+{
+    emit, // Le = Le
+    direct, // Ld = ∫Le
+    indirect, // Li = ∫∫(Le + ∫Li)
+};
+
 enum class integrater_e
 {
     // debug
@@ -1725,11 +1755,17 @@ enum class integrater_e
     // path tracing
     path_tracing_recursion_bsdf,
     path_tracing_recursion_light,
-
     path_tracing_recursion_mis,
+
+    path_tracing_iteration_bsdf,
+    path_tracing_iteration_light,
     path_tracing_iteration_mis
 };
 
+/*
+  rendering scene by Rendering Equation(Li = Lo = Le + ∫Li)
+  solving Rendering Equation(a integral equation) by numerical integration(monte carlo integration)
+*/
 class integrater_t
 {
 public:
@@ -1776,6 +1812,8 @@ public:
         }
     }
 
+
+    // render_phase    
     void debug()
     {
 
@@ -1828,7 +1866,11 @@ protected:
     int max_path_depth_;
 };
 
+// Le + T(Le + T(le + ...))
+// class path_tracing_recursion
 
+// Le + TLe + T^2le + ...
+// class path_tracing_iteration
 
 class path_tracing_recursion_bsdf_t : public path_integrater_t
 {
@@ -1928,7 +1970,7 @@ int main(int argc, char* argv[])
     clock_t start = clock(); // MILO
 
     int width = 256, height = 256;
-    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 1000; // # samples
+    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 100; // # samples
 
     film_t film(width, height); //film.clear(color_t(1., 0., 0.));
     std::unique_ptr<const camera_t> camera = 

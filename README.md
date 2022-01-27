@@ -4,9 +4,13 @@
 
 single file pathtracing renderer, 2000 lines of C++20, PBRT-like architecture, step-by-step integrator
 
+
+
 ## feature
 
 ky is based on smallpt at first, gradually rewritten into a PBRT style
+
+
 
 ## milestone
 
@@ -38,6 +42,24 @@ ky is based on smallpt at first, gradually rewritten into a PBRT style
 <br>
 - [ ] unity support
 - [ ] web support
+
+
+
+## kys
+
+- [ ] direct lighting
+- [ ] lambert/specular BRDF
+- [ ] .ppm
+
+
+
+## kye
+
+- [ ] color_t -> spectrum_t
+- [ ] matrix_t
+- [ ] CUDA support
+
+
 
 ## credits
 
