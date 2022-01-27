@@ -1,9 +1,11 @@
-#include <algorithm>
-#include <array>
 #include <cmath>   // smallpt, a Path Tracer by Kevin Beason, 2008
 #include <cstdlib> // Make : g++ -O3 -fopenmp smallpt.cpp -o smallpt
 #include <cstdio>
 #include <ctime>
+
+#include <algorithm>
+#include <array>
+#include <concepts>
 #include <exception>
 #include <format>
 #include <memory>
@@ -56,6 +58,12 @@ constexpr radian_t radians(degree_t deg) { return (k_pi / 180) * deg; }
 constexpr degree_t degrees(radian_t rad) { return (180 / k_pi) * rad; }
 
 constexpr Float lerp(Float a, Float b, Float t) { return a + t * (b - a); }
+
+inline bool is_infinity(const std::floating_point auto x) { return std::isinf(x); }
+inline bool is_nan(const std::floating_point auto x) { return std::isnan(x); }
+
+inline bool is_invalid(const std::floating_point auto x) { return is_infinity(x) || is_nan(x); }
+inline bool is_valid(const std::floating_point auto x) { return !is_invalid(x); }
 
 #pragma endregion
 
@@ -212,7 +220,22 @@ struct vec3_t
     // unit_vec3_t& normlize() const { return *this * (1 / sqrt(x * x + y * y + z * z)); }
     vec3_t normalize() const { return *this * (1 / sqrt(x * x + y * y + z * z)); }
     bool is_unit() const { return is_equal(magnitude(), 1.); }
+
+public: // deubg
+    bool is_valid() const { return ::is_valid(x) && ::is_valid(y) && ::is_valid(z); }
+    bool has_negative() const { return (x < 0) || (y < 0) || (z < 0); }
+    bool small_than(vec3_t vec3) const { return (x < vec3.x) || (y < vec3.y) || (z < vec3.z); }
+
+    std::string to_string() const { return std::format("[{}, {}, {}]", x, y, z);  }
 };
+
+/*
+std::ostream& operator<<(std::ostream& console, const vec3_t& vec3)
+{
+    console << vec3.to_string();
+    return console;
+}
+*/
 
 /*
 class unit_vector_t;
@@ -521,13 +544,14 @@ public:
     film_t(int width, int height) :
         width_{ width },
         height_{ height },
-        pixels_{ std::make_unique<color_t[]>(width_ * height_) }
+        pixels_{ std::make_unique<color_t[]>(get_pixel_num()) }
     {
     }
 
 public:
     int get_width() const { return width_; }
     int get_height() const { return height_; }
+    int get_pixel_num() const { return width_ * height_; }
     int get_channels() const { return 3; }
     vec2_t get_resolution() const { return { (Float)width_, (Float)height_ }; }
 
@@ -537,10 +561,23 @@ public:
         return *(pixels_.get() + get_width() * y + x);
     }
 
+    void set_color(int x, int y, const color_t& color)
+    {
+        operator()(x, y) = color;
+    }
+
     void add_color(int x, int y, const color_t& delta)
     {
         auto& color_ = operator()(x, y);
         color_ = color_ + delta;
+    }
+
+    void clear(color_t color)
+    {
+        for (int i = 0; i < get_pixel_num(); ++i)
+        {
+            pixels_[i] = color;
+        }
     }
 
 public:
@@ -702,6 +739,13 @@ private:
 
 
 #pragma region sampling
+
+point2_t uniform_sample_disk(const point2_t& u) 
+{
+    Float r = std::sqrt(u.x);
+    Float theta = 2 * k_pi * u.y;
+    return point2_t(r * std::cos(theta), r * std::sin(theta));
+}
 
 point2_t concentric_sample_disk(const point2_t& u) 
 {
@@ -1208,7 +1252,7 @@ public:
             out_wi->z *= -1;
 
         *out_pdf = pdf_(wo, *out_wi);
-        return f(wo, *out_wi);
+        return f_(wo, *out_wi);
     }
 
 private:
@@ -1316,7 +1360,7 @@ public:
             *out_wi = vec3_t(-wo.x, -wo.y, wo.z);
             *out_pdf = Re; // Russian roulette???
 
-            return (Re * R_) / abs_cos_theta(*out_wi);
+            return (R_ * Re) / abs_cos_theta(*out_wi);
         }
         else
         {
@@ -1715,6 +1759,7 @@ public:
             {
                 color_t L{};
                 sampler->start_sample();
+                //film_->set_color(x, y, color_t(0, 0, 0));
 
                 do
                 {
@@ -1813,8 +1858,16 @@ public:
         if (depth > max_path_depth_)
             return isect.emission(); // MILO
 
-        ray_t wi_ray(isect.position, wi);
-        return isect.emission() + f.multiply(Li(wi_ray, scene, sampler, depth)) * abs_dot(wi, isect.normal) / pdf;
+        // pdf == 0 => NaN
+        color_t Ls{};
+        if (!f.has_negative() && pdf > 0)
+        {
+            ray_t wi_ray(isect.position, wi);
+            Ls = isect.emission() + f.multiply(Li(wi_ray, scene, sampler, depth)) * abs_dot(wi, isect.normal) / pdf;
+        }
+
+        // TODO: DCHECK
+        return isect.emission() + Ls;
     }
 };
 
@@ -1875,9 +1928,9 @@ int main(int argc, char* argv[])
     clock_t start = clock(); // MILO
 
     int width = 256, height = 256;
-    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 10; // # samples
+    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 1000; // # samples
 
-    film_t film(width, height);
+    film_t film(width, height); //film.clear(color_t(1., 0., 0.));
     std::unique_ptr<const camera_t> camera = 
         std::make_unique<camera_t>(vec3_t{ 50, 52, 295.6 }, vec3_t{ 0, -0.042612, -1 }.normalize(), 53, film.get_resolution());
     std::unique_ptr<sampler_t> sampler = std::make_unique<trapezoidal_sampler_t>(samples_per_pixel);
