@@ -330,7 +330,7 @@ class bsdf_t;
 using bsdf_uptr_t = std::unique_ptr<bsdf_t>;
 class material_t;
 class area_light_t;
-class primitive_t;
+class surface_t;
 
 // prev   n   light
 // ----   ^   -----
@@ -356,7 +356,6 @@ public:
     }
     isect_t& operator=(isect_t&& isect) = default;
 
-    surface_scattering_e surface_scattering_type() const;
     //void scattering();
 
     const bsdf_t* get_bsdf() const { return bsdf_.get(); }
@@ -369,9 +368,8 @@ public:
     normal_t normal{};
 
 private:
-    friend primitive_t;
+    friend surface_t;
 
-    const material_t* material_{}; // TODO: remove
     bsdf_uptr_t bsdf_{};
     color_t emission_{};
 };
@@ -508,7 +506,9 @@ struct film_desc_t
 };
 
 constexpr Float clamp01(Float x) { return std::clamp(x, 0., 1.); }
-std::byte gamma_encoding(Float x) { return std::byte(pow(clamp01(x), 1 / 2.2) * 255 + .5); }
+inline vec3_t clamp01(vec3_t vec3) { return vec3_t(clamp01(vec3.x), clamp01(vec3.y), clamp01(vec3.z)); }
+
+inline std::byte gamma_encoding(Float x) { return std::byte(pow(clamp01(x), 1 / 2.2) * 255 + .5); }
 
 /*
   warpper of `color_t pixels[]`
@@ -1465,11 +1465,6 @@ private:
     Float eta_;
 };
 
-surface_scattering_e isect_t::surface_scattering_type() const
-{
-    return material_->get_surface_scattering_type();
-}
-
 #pragma endregion
 
 
@@ -1541,8 +1536,7 @@ private:
 
 #pragma region surface(primitive)
 
-// TODO: surface_t
-struct primitive_t
+struct surface_t
 {
     const shape_t* shape;
     const material_t* material;
@@ -1553,7 +1547,6 @@ struct primitive_t
         bool hit = shape->intersect(ray, isect);
         if (hit)
         {
-            isect.material_ = material;
             isect.bsdf_ = material->scattering(isect);
             isect.emission_ = area_light ? area_light->emission() : color_t();
         }
@@ -1562,7 +1555,7 @@ struct primitive_t
     }
 };
 
-using primitive_list_t = std::vector<primitive_t>;
+using surface_list_t = std::vector<surface_t>;
 
 #pragma endregion
 
@@ -1578,11 +1571,11 @@ class scene_t : public reference_type_t
 {
 public:
     scene_t() = default;
-    scene_t(shape_list_t shape_list, material_list_t material_list, light_list_t light_list, primitive_list_t primitive_list) :
+    scene_t(shape_list_t shape_list, material_list_t material_list, light_list_t light_list, surface_list_t surface_list) :
         shape_list_{ shape_list },
         material_list_{ material_list },
         light_list_{ light_list },
-        primitive_list_{ primitive_list }
+        surface_list_{ surface_list }
     {
     }
 
@@ -1590,10 +1583,10 @@ public:
     {
         static Float inf = 1e20;
 
-        int n = primitive_list_.size();
+        int n = surface_list_.size();
 
         for (int i = n; i--;)
-            primitive_list_[i].intersect(ray, isect);
+            surface_list_[i].intersect(ray, isect);
 
         return isect.distance < inf;
     }
@@ -1630,7 +1623,7 @@ public:
         light_list_t light_list{ area_light };
 
 
-        primitive_list_t primitive_list
+        surface_list_t surface_list
         {
             {   left.get(),   red.get(), nullptr},
             {  right.get(),  blue.get(), nullptr },
@@ -1645,7 +1638,7 @@ public:
             {  light.get(), black.get(), area_light.get()},
         };
 
-        return scene_t{ shape_list, material_list, light_list, primitive_list };
+        return scene_t{ shape_list, material_list, light_list, surface_list };
     }
 
 private:
@@ -1653,8 +1646,8 @@ private:
     material_list_t material_list_;
     light_list_t light_list_;
 
-    // TODO: std::vector<std::function<intersect(ray_t ray), result_t> primitives_;
-    primitive_list_t primitive_list_;
+    // TODO: std::vector<std::function<intersect(ray_t ray), result_t> surfaces_;
+    surface_list_t surface_list_;
 
     //camera_t camera_;
     accel_t accel_;
@@ -1733,8 +1726,7 @@ public:
                 while (sampler->next_sample());
 
                 // TODO
-                auto clamp_Li = vec3_t(clamp01(L.x), clamp01(L.y), clamp01(L.z));
-                film_->add_color(x, y, clamp_Li);
+                film_->add_color(x, y, clamp01(L));
             }
         }
     }
