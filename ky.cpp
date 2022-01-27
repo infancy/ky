@@ -41,7 +41,7 @@ using namespace std::literals::string_literals;
 
 // namespace ky
 
-#pragma region using/cosntant/math
+#pragma region math
 
 using uint = uint32_t;
 using Float = double;
@@ -345,8 +345,6 @@ private:
 };
 
 
-
-enum class surface_scattering_e { diffuse, specular, refractive };  // material types, used in radiance()
 
 // TODO
 class bsdf_t;
@@ -885,21 +883,9 @@ public:
     }
 
 public:
-    virtual Float get_float()
-    {
-        return rng_.uniform_float01();
-    }
-
-    virtual vec2_t get_vec2()
-    {
-        return rng_.uniform_vec2();
-    }
-
-    // TODO: coroutine
-    virtual camera_sample_t get_camera_sample(point2_t p_film)
-    {
-        return { p_film + rng_.uniform_vec2() };
-    }
+    virtual Float get_float() = 0;
+    virtual vec2_t get_vec2() = 0;
+    virtual camera_sample_t get_camera_sample(point2_t p_film) = 0;
 
 protected:
     rng_t rng_{};
@@ -908,78 +894,32 @@ protected:
     int current_sample_index_{};
 };
 
-// for smallpt
-// https://computergraphics.stackexchange.com/questions/3868/why-use-a-tent-filter-in-path-tracing
-class trapezoidal_sampler_t : public sampler_t
+class random_sampler_t : public sampler_t
 {
 public:
-    trapezoidal_sampler_t(int samples_per_pixel) : sampler_t(samples_per_pixel)
-    {
-    }
-
-    int ge_samples_per_pixel() override
-    {
-        return samples_per_pixel_ * k_sub_pixel_num;
-    }
+    using sampler_t::sampler_t;
 
     std::unique_ptr<sampler_t> clone() override
     {
-        return std::make_unique<trapezoidal_sampler_t>(samples_per_pixel_);
+        return std::make_unique<random_sampler_t>(samples_per_pixel_);
     }
 
 public:
-    void start_sample() override
+    Float get_float() override
     {
-        sampler_t::start_sample();
-        current_sub_pixel_index_ = 0;
+        return rng_.uniform_float01();
     }
 
-    bool next_sample() override
+    vec2_t get_vec2() override
     {
-        current_sample_index_ += 1;
-        if (current_sample_index_ < samples_per_pixel_)
-        {
-            return true;
-        }
-        else if (current_sample_index_ == samples_per_pixel_)
-        {
-            current_sample_index_ = 0;
-            current_sub_pixel_index_ += 1;
-
-            return current_sub_pixel_index_ < k_sub_pixel_num;
-        }
-        else
-        {
-            LOG_ERROR("current_sample_index: {}", current_sample_index_);
-            return false;
-        }
+        return rng_.uniform_vec2();
     }
 
+    // TODO: coroutine
     camera_sample_t get_camera_sample(point2_t p_film) override
     {
-        int sub_pixel_x = current_sub_pixel_index_ % 2;
-        int sub_pixel_y = current_sub_pixel_index_ / 2;
-
-        Float random1 = 2 * rng_.uniform_float01();
-        Float random2 = 2 * rng_.uniform_float01();
-
-        // uniform dist [0, 1) => triangle dist [-1, 1)
-        Float delta_x = random1 < 1 ? sqrt(random1) - 1 : 1 - sqrt(2 - random1);
-        Float delta_y = random2 < 1 ? sqrt(random2) - 1 : 1 - sqrt(2 - random2);
-
-        point2_t sample_point
-        {
-            (sub_pixel_x + delta_x + 0.5) / 2,
-            (sub_pixel_y + delta_y + 0.5) / 2
-        };
-
-        return { p_film + sample_point };
+        return { p_film + rng_.uniform_vec2() };
     }
-
-private:
-    static constexpr int k_sub_pixel_num = 4;
-
-    int current_sub_pixel_index_{};
 };
 
 class stratified_sampler_t : public sampler_t
@@ -1459,7 +1399,6 @@ class material_t
 public:
     virtual ~material_t() = default;
 
-    virtual surface_scattering_e get_surface_scattering_type() const = 0;
     virtual bsdf_uptr_t scattering(const isect_t& isect) const = 0;
 };
 
@@ -1473,8 +1412,6 @@ public:
         Kd_{ Kd }
     {
     }
-
-    surface_scattering_e get_surface_scattering_type() const override { return surface_scattering_e::diffuse; }
 
     bsdf_uptr_t scattering(const isect_t& isect) const override
     {
@@ -1493,8 +1430,6 @@ public:
     {
     }
 
-    surface_scattering_e get_surface_scattering_type() const override { return surface_scattering_e::specular; }
-
     bsdf_uptr_t scattering(const isect_t& isect) const override
     {
         return std::make_unique<specular_reflection_t>(frame_t(isect.normal), Kr_);
@@ -1511,8 +1446,6 @@ public:
         Kr_{ Kr }, Kt_{ Kt }, eta_{ eta }
     {
     }
-
-    surface_scattering_e get_surface_scattering_type() const override { return surface_scattering_e::refractive; }
 
     bsdf_uptr_t scattering(const isect_t& isect) const override
     {
@@ -1970,12 +1903,12 @@ int main(int argc, char* argv[])
     clock_t start = clock(); // MILO
 
     int width = 256, height = 256;
-    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 100; // # samples
+    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 40; // # samples
 
     film_t film(width, height); //film.clear(color_t(1., 0., 0.));
     std::unique_ptr<const camera_t> camera = 
         std::make_unique<camera_t>(vec3_t{ 50, 52, 295.6 }, vec3_t{ 0, -0.042612, -1 }.normalize(), 53, film.get_resolution());
-    std::unique_ptr<sampler_t> sampler = std::make_unique<trapezoidal_sampler_t>(samples_per_pixel);
+    std::unique_ptr<sampler_t> sampler = std::make_unique<random_sampler_t>(samples_per_pixel);
 
     scene_t scene = scene_t::create_smallpt_scene(scene_type_e::area_light_specular_ball);
     std::unique_ptr<integrater_t> integrater = 
