@@ -79,6 +79,7 @@ inline void LOG(const std::string_view fmt, const Ts&... args)
     std::printf("%s", msg.c_str());
 }
 
+// TODO: file, line
 template <typename... Ts>
 inline void LOG_ERROR(const std::string_view fmt, const Ts&... args)
 {
@@ -809,7 +810,9 @@ public:
         return samples_per_pixel_;
     }
 
+    virtual std::unique_ptr<sampler_t> clone() = 0;
 
+public:
     virtual void start_sample()
     {
         current_sample_index_ = 0;
@@ -821,7 +824,7 @@ public:
         return current_sample_index_ < samples_per_pixel_;
     }
 
-
+public:
     virtual Float get_float()
     {
         return rng_.uniform_float01();
@@ -859,6 +862,12 @@ public:
         return samples_per_pixel_ * k_sub_pixel_num;
     }
 
+    std::unique_ptr<sampler_t> clone() override
+    {
+        return std::make_unique<trapezoidal_sampler_t>(samples_per_pixel_);
+    }
+
+public:
     void start_sample() override
     {
         sampler_t::start_sample();
@@ -881,7 +890,7 @@ public:
         }
         else
         {
-            LOG_ERROR("shouldn't be there");
+            LOG_ERROR("current_sample_index: {}", current_sample_index_);
             return false;
         }
     }
@@ -926,7 +935,7 @@ public:
 
 
 
-#pragma region fresnel
+#pragma region bsdf utility
 
 inline Float cos_theta(const vec3_t& w) { return w.z; }
 inline Float abs_cos_theta(const vec3_t& w) { return std::abs(w.z); }
@@ -960,7 +969,9 @@ inline bool refract(const vec3_t& wo, const normal_t& normal, Float eta, vec3_t*
     return true;
 }
 
+#pragma endregion
 
+#pragma region fresnel
 
 Float fresnel_dielectric(Float cosThetaI, Float etaI, Float etaT)
 {
@@ -1068,8 +1079,6 @@ public:
 // class fresnel_dummy_t : public fresnel_t
 
 #pragma endregion
-
-
 
 #pragma region bsdf
 
@@ -1463,6 +1472,8 @@ surface_scattering_e isect_t::surface_scattering_type() const
 
 #pragma endregion
 
+
+
 #pragma region light
 
 class light_t
@@ -1482,6 +1493,20 @@ class point_light_t : public light_t
 {
 public:
     point_light_t(color_t Iemit) :
+        Iemit_{ Iemit }
+    {
+    }
+
+    bool is_delta() override { return true; }
+
+private:
+    color_t Iemit_;
+};
+
+class direction_light_t : public light_t
+{
+public:
+    direction_light_t(color_t Iemit) :
         Iemit_{ Iemit }
     {
     }
@@ -1514,7 +1539,7 @@ private:
 
 
 
-#pragma region primitive
+#pragma region surface(primitive)
 
 // TODO: surface_t
 struct primitive_t
@@ -1635,9 +1660,9 @@ private:
     accel_t accel_;
 };
 
-scene_t scene = scene_t::create_smallpt_scene(scene_type_e::area_light_specular_ball);
-
 #pragma endregion
+
+
 
 #pragma region integrater
 
@@ -1658,33 +1683,106 @@ enum class integrater_e
     direct_lighting_mis,
 
     // stochastic ray tracing
-    stochastic_ray_tracing,
+    stochastic_raytracing,
 
     // path tracing
     path_tracing_recursion_bsdf,
     path_tracing_recursion_light,
 
     path_tracing_recursion_mis,
-    path_tracing_iteration
+    path_tracing_iteration_mis
 };
 
 class integrater_t
 {
 public:
-    void render(const scene_t scene)
+    ~integrater_t() = default;
+    integrater_t(sampler_t* sampler, const camera_t* camera, film_t* film):
+        sampler_{ sampler },
+        camera_{ camera },
+        film_{ film }
+    {
+    }
+
+public:
+    void render(/*const*/ scene_t* scene)
+    {
+        int height = film_->get_height();
+        int width = film_->get_width();
+
+    #ifndef KY_DEBUG
+        #pragma omp parallel for schedule(dynamic, 1) // OpenMP
+    #endif // !KY_DEBUG
+        for (int y = 0; y < height; y += 1)
+        {
+            auto sampler = sampler_->clone(); // multi thread
+            LOG("\rRendering ({} spp) {}", sampler->ge_samples_per_pixel(), 100. * y / (height - 1));
+
+            for (int x = 0; x < width; x += 1)
+            {
+                color_t L{};
+                sampler->start_sample();
+
+                do
+                {
+                    auto sample = sampler->get_camera_sample({ (Float)x, (Float)y });
+                    auto ray = camera_->generate_ray(sample);
+
+                    L = L + Li(ray, scene, sampler.get(), 0) * (1. / sampler->ge_samples_per_pixel());
+                }
+                while (sampler->next_sample());
+
+                // TODO
+                auto clamp_Li = vec3_t(clamp01(L.x), clamp01(L.y), clamp01(L.z));
+                film_->add_color(x, y, clamp_Li);
+            }
+        }
+    }
+
+    void debug()
     {
 
     }
 
-    virtual color_t Li(const ray_t& r, int depth, sampler_t* sampler) = 0;
+    virtual color_t Li(const ray_t& ray, scene_t* scene, sampler_t* sampler, int depth) = 0;
+
+private:
+    sampler_t* sampler_;
+    const camera_t* camera_;
+    film_t* film_;
 };
 
+
+
+/*
+class direct_lighting_t : public integrater_t
+{
+public:
+    direct_lighting_t()
+    {
+    }
+};
+
+
+class stochastic_raytracing_t : public integrater_t
+{
+public:
+    stochastic_raytracing_t(int max_path_depth) :
+        max_path_depth_{ max_path_depth }
+    {
+    }
+
+protected:
+    int max_path_depth_;
+};
+*/
 
 
 class path_integrater_t : public integrater_t
 {
 public:
-    path_integrater_t(int max_path_depth):
+    path_integrater_t(sampler_t* sampler, const camera_t* camera, film_t* film, int max_path_depth):
+        integrater_t(sampler, camera, film),
         max_path_depth_{ max_path_depth }
     {
     }
@@ -1693,15 +1791,17 @@ protected:
     int max_path_depth_;
 };
 
+
+
 class path_tracing_recursion_bsdf_t : public path_integrater_t
 {
 public:
     using path_integrater_t::path_integrater_t;
 
-    color_t Li(const ray_t& r, int depth, sampler_t* sampler) override
+    color_t Li(const ray_t& ray, scene_t* scene, sampler_t* sampler, int depth) override
     {
         isect_t isect;
-        if (!scene.intersect(r, isect))
+        if (!scene->intersect(ray, isect))
             return color_t();
 
         vec3_t wi;
@@ -1721,13 +1821,29 @@ public:
         if (depth > max_path_depth_)
             return isect.emission(); // MILO
 
-        ray_t ray(isect.position, wi);
-        return isect.emission() + f.multiply(Li(ray, depth, sampler)) * abs_dot(wi, isect.normal) / pdf;
+        ray_t wi_ray(isect.position, wi);
+        return isect.emission() + f.multiply(Li(wi_ray, scene, sampler, depth)) * abs_dot(wi, isect.normal) / pdf;
     }
 };
 
 /*
 class path_tracing_recursion_light_t : public path_integrater_t
+{
+public:
+    vec3_t Li(const ray_t& r, int depth, sampler_t* sampler, Float include_le = 1);
+    // Le(emit), Ld(direct), Li(indirect)
+};
+
+
+
+class path_tracing_recursion_mis_t : public path_integrater_t
+{
+public:
+    vec3_t Li(const ray_t& r, int depth, sampler_t* sampler, Float include_le = 1);
+    // Le(emit), Ld(direct), Li(indirect)
+};
+
+class path_tracing_iteration_mis_t : public path_integrater_t
 {
 public:
     vec3_t Li(const ray_t& r, int depth, sampler_t* sampler, Float include_le = 1);
@@ -1747,6 +1863,11 @@ public:
 
 #pragma region main
 
+class profiler_t
+{
+
+};
+
 class option_t
 {
 
@@ -1761,40 +1882,18 @@ int main(int argc, char* argv[])
 {
     clock_t start = clock(); // MILO
 
-    int width = 256, height = 256, samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 100; // # samples
+    int width = 256, height = 256;
+    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 10; // # samples
 
     film_t film(width, height);
     std::unique_ptr<const camera_t> camera = 
         std::make_unique<camera_t>(vec3_t{ 50, 52, 295.6 }, vec3_t{ 0, -0.042612, -1 }.normalize(), 53, film.get_resolution());
+    std::unique_ptr<sampler_t> sampler = std::make_unique<trapezoidal_sampler_t>(samples_per_pixel);
 
-    std::unique_ptr<integrater_t> integrater = std::make_unique<path_tracing_recursion_bsdf_t>(100);
-
-#ifndef KY_DEBUG
-    #pragma omp parallel for schedule(dynamic, 1) // OpenMP
-#endif // !KY_DEBUG
-    for (int y = 0; y < height; y += 1) 
-    {
-        std::unique_ptr<sampler_t> sampler = std::make_unique<trapezoidal_sampler_t>(samples_per_pixel);
-        LOG("\rRendering ({} spp) {}", sampler->ge_samples_per_pixel(), 100. * y / (height - 1));
-
-        for (int x = 0; x < width; x += 1)
-        {
-            color_t Li{};
-            sampler->start_sample();
-
-            do
-            {
-                auto sample = sampler->get_camera_sample({ (Float)x, (Float)y });
-                auto ray = camera->generate_ray(sample);
-
-                Li = Li + integrater->Li(ray, 0, sampler.get()) * (1. / sampler->ge_samples_per_pixel());
-            }
-            while (sampler->next_sample());
-
-            auto clamp_Li = vec3_t(clamp01(Li.x), clamp01(Li.y), clamp01(Li.z));
-            film.add_color(x, y, clamp_Li);
-        }
-    }
+    scene_t scene = scene_t::create_smallpt_scene(scene_type_e::area_light_specular_ball);
+    std::unique_ptr<integrater_t> integrater = 
+        std::make_unique<path_tracing_recursion_bsdf_t>(sampler.get(), camera.get(), &film, 10);
+    integrater->render(&scene);
 
     LOG("\n{} sec\n", (float)(clock() - start) / CLOCKS_PER_SEC); // MILO
 
