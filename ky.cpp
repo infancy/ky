@@ -49,6 +49,8 @@ using Float = double;
 using radian_t = Float;
 using degree_t = Float;
 
+constexpr Float k_epsilon = std::numeric_limits<Float>::epsilon();
+constexpr Float k_infinity = std::numeric_limits<Float>::infinity();
 constexpr Float k_pi = std::numbers::pi;
 constexpr Float k_pi_over2 = std::numbers::pi / 2;
 constexpr Float k_pi_over4 = std::numbers::pi / 4;
@@ -274,7 +276,7 @@ public:
     }
 
 public:
-    // think if stn is (1, 0, 0), (0, 1, 0), (0, 0, 1)
+    // think if {s, t, n} is (1, 0, 0), (0, 1, 0), (0, 0, 1)
     vec3_t to_local(const vec3_t& world_vec3) const
     {
         return vec3_t(
@@ -384,7 +386,7 @@ public:
     color_t emission() const { return emission_; }
 
 public:
-    Float distance{ 1e20 }; // distance from ray to intersection
+    Float distance{ k_infinity }; // distance from ray to intersection
     point3_t position{}; // world position of intersection
     unit_vec3_t wo{};
     normal_t normal{};
@@ -949,7 +951,7 @@ inline vec3_t reflect(const vec3_t& wo, const normal_t& normal)
     return -wo + 2 * dot(wo, normal) * normal;
 }
 
-// eta = etaI/etaT
+// eta = eta_i/eta_t
 inline bool refract(const vec3_t& wo, const normal_t& normal, Float eta, vec3_t* wt)
 {
     // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#SpecularTransmission
@@ -973,45 +975,54 @@ inline bool refract(const vec3_t& wo, const normal_t& normal, Float eta, vec3_t*
 
 #pragma region fresnel
 
-Float fresnel_dielectric(Float cosThetaI, Float etaI, Float etaT)
+Float fresnel_dielectric(
+    Float cos_theta_i, 
+    Float eta_i, Float eta_t)
 {
     // https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.cpp#L66-L90
 
-    cosThetaI = std::clamp(cosThetaI, -1.0, 1.0);
+    cos_theta_i = std::clamp(cos_theta_i, -1.0, 1.0);
 
-    bool entering = cosThetaI > 0.f;
+    bool entering = cos_theta_i > 0.f;
     if (!entering)
     {
-        std::swap(etaI, etaT);
-        cosThetaI = std::abs(cosThetaI);
+        std::swap(eta_i, eta_t);
+        cos_theta_i = std::abs(cos_theta_i);
     }
 
+
     // Compute _cosThetaT_ using Snell's law
-    Float sinThetaI = std::sqrt(std::max((Float)0, 1 - cosThetaI * cosThetaI));
-    Float sinThetaT = etaI / etaT * sinThetaI;
+    Float sin_theta_i = std::sqrt(std::max((Float)0, 1 - cos_theta_i * cos_theta_i));
+    Float sin_theta_t = eta_i / eta_t * sin_theta_i;
 
     // Handle total internal reflection
-    if (sinThetaT >= 1)
+    if (sin_theta_t >= 1)
         return 1;
 
-    Float cosThetaT = std::sqrt(std::max((Float)0, 1 - sinThetaT * sinThetaT));
+    Float cos_theta_t = std::sqrt(std::max((Float)0, 1 - sin_theta_t * sin_theta_t));
 
-    Float Rparl = ((etaT * cosThetaI) - (etaI * cosThetaT)) /
-                  ((etaT * cosThetaI) + (etaI * cosThetaT));
-    Float Rperp = ((etaI * cosThetaI) - (etaT * cosThetaT)) /
-                  ((etaI * cosThetaI) + (etaT * cosThetaT));
-    return (Rparl * Rparl + Rperp * Rperp) / 2;
+
+    Float r_para = ((eta_t * cos_theta_i) - (eta_i * cos_theta_t)) /
+                   ((eta_t * cos_theta_i) + (eta_i * cos_theta_t));
+    Float r_perp = ((eta_i * cos_theta_i) - (eta_t * cos_theta_t)) /
+                   ((eta_i * cos_theta_i) + (eta_t * cos_theta_t));
+    return (r_para * r_para + r_perp * r_perp) / 2;
 }
 
-Float fresnel_dielectric_schlick(Float cos_i, Float eta_i, Float eta_t)
+
+Float fresnel_dielectric_schlick(
+    Float cos_theta_i, 
+    Float eta_i, Float eta_t)
 {
     Float R0 = (eta_t - eta_i) / (eta_t + eta_i);
     R0 *= R0;
 
-    return lerp(R0, 1.0f, std::pow(1 - cos_i, 5.0f));
+    return lerp(R0, 1.0f, std::pow(1 - cos_theta_i, 5.0f));
 }
 
-Float fresnel_dielectric_schlick(Float cos_theta_i, Float cos_theta_t, Float eta_i, Float eta_t)
+Float fresnel_dielectric_schlick(
+    Float cos_theta_i, Float cos_theta_t, 
+    Float eta_i, Float eta_t)
 {
     /*
     cos_theta_i = std::clamp(cos_theta_i, -1.0, 1.0);
@@ -1035,13 +1046,13 @@ Float fresnel_dielectric_schlick(Float cos_theta_i, Float cos_theta_t, Float eta
     return lerp(R0, 1.0f, std::pow(1 - cos_i, 5.0f) );
 }
 
+
 /*
   given
     the reflectance at normal incidence `R0` and
     the cosine of the angle of incidence `cos_theta_i`,
   compute reflectance
 */
-
 Float fresnel_dielectric_schlick(Float R0, float cos_theta_i)
 {
     return lerp(R0, 1.0f, std::pow((1.0f - cos_theta_i), 5.0f));
@@ -1051,7 +1062,6 @@ vec3_t fresnel_dielectric_schlick(vec3_t R0, float cos_theta_i)
 {
     return lerp(R0, vec3_t(1.0f), std::pow((1.0f - cos_theta_i), 5.0f));
 }
-
 
 
 
