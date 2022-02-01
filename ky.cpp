@@ -1878,7 +1878,7 @@ public:
 
         // large ball
         Float large_radius = 0.8f;
-        vec3_t large_center = (cb[0] + cb[1] + cb[4] + cb[5]) * (1.f / 4.f) + vec3_t(0, 0, large_radius);
+        vec3_t large_center = (cb[0] + cb[4] + cb[5] + cb[1]) * (1.f / 4.f) + vec3_t(0, 0, large_radius);
 
         // small ball
         Float small_radius = 0.5f;
@@ -1908,7 +1908,7 @@ public:
         };
         shape_sp left2   = std::make_shared<rectangle_t>(lb[3], lb[7], lb[4], lb[0]);
         shape_sp right2  = std::make_shared<rectangle_t>(lb[1], lb[5], lb[6], lb[2]);
-        shape_sp front2  = std::make_shared<rectangle_t>(lb[4], lb[6], lb[7], lb[5]);
+        shape_sp front2  = std::make_shared<rectangle_t>(lb[4], lb[5], lb[6], lb[7]);
         shape_sp back2   = std::make_shared<rectangle_t>(lb[0], lb[1], lb[2], lb[3]);
         shape_sp bottom2 = std::make_shared<rectangle_t>(lb[0], lb[4], lb[5], lb[1]);
 
@@ -2245,13 +2245,13 @@ int main(int argc, char* argv[])
     clock_t start = clock(); // MILO
 
     int width = 256, height = 256;
-    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 1000; // # samples per pixel
+    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 100; // # samples per pixel
 
     film_t film(width, height); //film.clear(color_t(1., 0., 0.));
     std::unique_ptr<const camera_t> camera = 
         std::make_unique<camera_t>(
             vec3_t{ -0.0439815f, -4.12529f,  0.222539f }, 
-            vec3_t{ 0.00688625f, 0.998505f, -0.054216f },
+            vec3_t{ 0.00688625f, 0.998505f, -0.0542161f },
             vec3_t{ 3.73896e-4f, 0.0542148f, 0.998529f },
             80, film.get_resolution());
     std::unique_ptr<sampler_t> sampler = std::make_unique<random_sampler_t>(samples_per_pixel);
