@@ -98,6 +98,9 @@ inline void LOG_ERROR(const std::string_view fmt, const Ts&... args)
     throw std::exception(msg.c_str());
 }
 
+// TODO
+#define KY_CHECK(condition) if(!(condition)) LOG_ERROR("{}", #condition)
+
 #ifdef KY_DEBUG
     #ifndef LOG_DEBUG
         #define LOG_DEBUG(...) LOG(__VA_ARGS__)
@@ -189,7 +192,7 @@ struct vec3_t
 
     friend vec3_t operator*(Float scalar, vec3_t v) { return vec3_t(v.x * scalar, v.y * scalar, v.z * scalar); }
 
-    // ???
+    // for color/spectrum
     vec3_t multiply(const vec3_t& v) const { return vec3_t(x * v.x, y * v.y, z * v.z); }
 
     friend Float     dot(const vec3_t& u, const vec3_t& v) { return u.dot(v); }
@@ -408,7 +411,7 @@ public:
     virtual bool intersect(const ray_t& ray, isect_t& out_isect) const = 0;
 
 protected:
-    static constexpr Float eps = 1e-4;
+    static constexpr Float epsilon = 1e-4;
 };
 
 using shape_sp = std::shared_ptr<shape_t>; 
@@ -431,6 +434,93 @@ using shape_list_t = std::vector<shape_sp>;
    https://www.pbr-book.org/3ed-2018/Shapes/Spheres
 */
 
+class plane_t : public shape_t
+{
+public:
+    plane_t(const point3_t& p, const normal_t& normal)
+    {
+        p_ = p;
+        normal_ = normal;
+    }
+
+    bool intersect(const ray_t& ray, isect_t& out_isect) const override
+    {
+        if (is_equal(dot(ray.direction(), normal_), (Float)0))
+            return false;
+ 
+        const vec3_t op = p_ - ray.origin();
+        const Float distance = dot(normal_, op) / dot(normal_, ray.direction());
+
+        if ((distance > epsilon) && (distance < out_isect.distance))
+        {
+            point3_t hit_point = ray(distance);
+            out_isect = isect_t(distance, hit_point, -ray.direction(), normal_);
+
+            return true;
+        }
+    }
+
+public:
+    point3_t p_;
+    normal_t normal_;
+};
+
+class triangle_t : public shape_t
+{
+public:
+    triangle_t(const point3_t& p0, const point3_t& p1, const point3_t& p2)
+    {
+        p0_ = p0;
+        p1_ = p1;
+        p2_ = p2;
+
+        normal_ = normalize(cross(p1_ - p0_, p2_ - p0_));
+    }
+
+    bool intersect(const ray_t& ray, isect_t& out_isect) const override
+    {
+        // https://github.com/SmallVCM/SmallVCM/blob/master/src/geometry.hxx#L125-L156
+
+        const vec3_t oa = p0_ - ray.origin();
+        const vec3_t ob = p1_ - ray.origin();
+        const vec3_t oc = p2_ - ray.origin();
+
+        const vec3_t v0 = cross(oc, ob);
+        const vec3_t v1 = cross(ob, oa);
+        const vec3_t v2 = cross(oa, oc);
+
+        const Float v0d = dot(v0, ray.direction());
+        const Float v1d = dot(v1, ray.direction());
+        const Float v2d = dot(v2, ray.direction());
+
+        if (((v0d <  0.f) && (v1d <  0.f) && (v2d <  0.f)) ||
+            ((v0d >= 0.f) && (v1d >= 0.f) && (v2d >= 0.f)))
+        {
+            // 1. first calculate the vertical distance from ray.origin to the plane,
+            //    by `dot(normal, op)` (or `bo`, `co`)
+            // 2. then calculate the distance from ray.origin to the plane alone ray.direction, 
+            //    by `distance * dot(normal, ray.direction()) = vertical_distance`
+            const Float distance = dot(normal_, oa) / dot(normal_, ray.direction());
+
+            if ((distance > epsilon) && (distance < out_isect.distance))
+            {
+                point3_t hit_point = ray(distance);
+                out_isect = isect_t(distance, hit_point, -ray.direction(), normal_);
+
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+public:
+    point3_t p0_;
+    point3_t p1_;
+    point3_t p2_;
+    normal_t normal_;
+};
+
 class sphere_t : public shape_t
 {
 public:
@@ -441,7 +531,7 @@ public:
     {
     }
 
-    bool intersect(const ray_t& ray, isect_t& isect) const override
+    bool intersect(const ray_t& ray, isect_t& out_isect) const override
     { 
         /*
           ||o + t*d - c||^2 = r^2
@@ -472,11 +562,11 @@ public:
          {
             Float sqrt_discr = sqrt(discr);
 
-            if (t = neg_b - sqrt_discr; t > eps && t < isect.distance)
+            if (t = neg_b - sqrt_discr; t > epsilon && t < out_isect.distance)
             {
                 hit = true;
             }
-            else if (t = neg_b + sqrt_discr; t > eps && t < isect.distance)
+            else if (t = neg_b + sqrt_discr; t > epsilon && t < out_isect.distance)
             {
                 hit = true;
             }
@@ -485,7 +575,7 @@ public:
         if (hit)
         {
             point3_t hit_point = ray(t);
-            isect = isect_t(t, hit_point, -ray.direction(), (hit_point - center_).normalize());
+            out_isect = isect_t(t, hit_point, -ray.direction(), (hit_point - center_).normalize());
         }
 
         return hit;
@@ -788,6 +878,7 @@ point2_t concentric_sample_disk(const point2_t& u)
     return r * point2_t(std::cos(theta), std::sin(theta));
 }
 
+
 // cosine-weighted sampling
 inline vec3_t cosine_sample_hemi_sphere(const point2_t& p_sample)
 {
@@ -796,7 +887,7 @@ inline vec3_t cosine_sample_hemi_sphere(const point2_t& p_sample)
     return vec3_t(d.x, d.y, z);
 }
 
-inline Float cosine_hemisphere_pdf(Float cosTheta) { return cosTheta * k_inv_pi; }
+inline Float cosine_hemisphere_pdf(Float cos_theta) { return cos_theta * k_inv_pi; }
 
 #pragma endregion
 
@@ -1053,12 +1144,12 @@ Float fresnel_dielectric_schlick(
     the cosine of the angle of incidence `cos_theta_i`,
   compute reflectance
 */
-Float fresnel_dielectric_schlick(Float R0, float cos_theta_i)
+Float fresnel_dielectric_schlick(Float R0, Float cos_theta_i)
 {
     return lerp(R0, 1.0f, std::pow((1.0f - cos_theta_i), 5.0f));
 }
 
-vec3_t fresnel_dielectric_schlick(vec3_t R0, float cos_theta_i)
+vec3_t fresnel_dielectric_schlick(vec3_t R0, Float cos_theta_i)
 {
     return lerp(R0, vec3_t(1.0f), std::pow((1.0f - cos_theta_i), 5.0f));
 }
@@ -1298,7 +1389,7 @@ private:
 class fresnel_specular_t : public bsdf_t
 {
 public:
-    fresnel_specular_t(const frame_t& shading_frame, const color_t& R, const color_t& T, Float etaA, float etaB) :
+    fresnel_specular_t(const frame_t& shading_frame, const color_t& R, const color_t& T, Float etaA, Float etaB) :
         bsdf_t(shading_frame), R_{ R }, T_{ T }, etaA_{ etaA }, etaB_{ etaB }
     {
     }
@@ -1333,7 +1424,7 @@ public:
             // Compute specular transmission for _FresnelSpecular_
 
             normal_t normal(0, 0, 1);
-            bool into = normal.dot(wo) > 0; // Ray from outside going in?
+            bool into = normal.dot(wo) > 0; // ray from outside going in?
 
             normal_t wo_normal = into ? normal : normal * -1;
             Float eta = into ? etaA_ / etaB_ : etaB_ / etaA_;
@@ -1354,7 +1445,7 @@ public:
         vec3_t* out_wi, Float* out_pdf, bsdf_type_e* out_bsdf_type) const override
     {
         normal_t normal(0, 0, 1);
-        bool into = normal.dot(wo) > 0; // Ray from outside going in?
+        bool into = normal.dot(wo) > 0; // ray from outside going in?
 
         normal_t wo_normal = into ? normal : normal * -1;
         Float eta = into ? etaA_ / etaB_ : etaB_ / etaA_;
@@ -1601,6 +1692,9 @@ public:
 public:
     static scene_t create_smallpt_scene(scene_type_e scene_type)
     {
+        bool is_double = std::is_same_v<Float, double>;
+        KY_CHECK(is_double);
+
         shape_sp left   = std::make_shared<sphere_t>(1e5, vec3_t(1e5 + 1, 40.8, 81.6));
         shape_sp right  = std::make_shared<sphere_t>(1e5, vec3_t(-1e5 + 99, 40.8, 81.6));
         shape_sp back   = std::make_shared<sphere_t>(1e5, vec3_t(50, 40.8, 1e5));
@@ -1913,7 +2007,7 @@ int main(int argc, char* argv[])
     clock_t start = clock(); // MILO
 
     int width = 256, height = 256;
-    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 40; // # samples
+    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 100; // # samples
 
     film_t film(width, height); //film.clear(color_t(1., 0., 0.));
     std::unique_ptr<const camera_t> camera = 
@@ -1925,7 +2019,7 @@ int main(int argc, char* argv[])
         std::make_unique<path_tracing_recursion_bsdf_t>(sampler.get(), camera.get(), &film, 10);
     integrater->render(&scene);
 
-    LOG("\n{} sec\n", (float)(clock() - start) / CLOCKS_PER_SEC); // MILO
+    LOG("\n{} sec\n", (Float)(clock() - start) / CLOCKS_PER_SEC); // MILO
 
     film.store_image("image.bmp"s);
 #ifdef KY_WINDOWS
