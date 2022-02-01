@@ -44,7 +44,7 @@ using namespace std::literals::string_literals;
 #pragma region math
 
 using uint = uint32_t;
-using Float = double;
+using Float = float;
 
 using radian_t = Float;
 using degree_t = Float;
@@ -224,7 +224,7 @@ struct vec3_t
 
     // unit_vec3_t& normlize() const { return *this * (1 / sqrt(x * x + y * y + z * z)); }
     vec3_t normalize() const { return *this * (1 / sqrt(x * x + y * y + z * z)); }
-    bool is_unit() const { return is_equal(magnitude(), 1.); }
+    bool is_unit() const { return is_equal(magnitude(), (Float)1); }
 
 public: // deubg
     bool is_valid() const { return ::is_valid(x) && ::is_valid(y) && ::is_valid(z); }
@@ -619,7 +619,7 @@ struct film_desc_t
     int height;
 };
 
-constexpr Float clamp01(Float x) { return std::clamp(x, 0., 1.); }
+constexpr Float clamp01(Float x) { return std::clamp(x, (Float)0, (Float)1); }
 inline vec3_t clamp01(vec3_t vec3) { return vec3_t(clamp01(vec3.x), clamp01(vec3.y), clamp01(vec3.z)); }
 
 inline std::byte gamma_encoding(Float x) { return std::byte(pow(clamp01(x), 1 / 2.2) * 255 + .5); }
@@ -771,6 +771,8 @@ private:
 
 #pragma region camera
 
+// TODO: move under the sampler
+
 struct camera_sample_t
 {
     point2_t p_film{}; // film_sample_point
@@ -784,7 +786,7 @@ struct camera_sample_t
  */
 
 /* 
-  TODO: camera space:
+  camera space:
 
  y (0, 1, 0)         z(0, 0, 1)
        |            /
@@ -801,16 +803,17 @@ class camera_t
 {
 public:
     virtual ~camera_t() {}
-    camera_t(const vec3_t& position, const unit_vec3_t& direction, degree_t fov, vec2_t resolution):
+
+    camera_t(const vec3_t& position, const unit_vec3_t& front, degree_t fov, vec2_t resolution):
         position_{ position },
-        front_{ direction },
+        front_{ front },
         resolution_{ resolution }
     {
         // https://github.com/infancy/pbrt-v3/blob/master/src/core/transform.cpp#L394-L397
-        // `front_` is a unit vector, it's length is 1
+ 
         Float tan_fov = std::tan(radians(fov) / 2);
 
-        right_ = front_.cross(vec3_t{ 0, 1, 0 }).normalize() * get_aspect() * tan_fov;
+        right_ = front_.cross(vec3_t{ 0, 1, 0 }).normalize() * tan_fov * get_aspect();
         up_ = right_.cross(front_).normalize() * tan_fov;
     }
 
@@ -820,10 +823,9 @@ public:
         vec3_t direction =
             front_ +
             right_ * (sample.p_film.x / resolution_.x - 0.5) +
-            up_ * (sample.p_film.y / resolution_.y - 0.5);
+               up_ * (sample.p_film.y / resolution_.y - 0.5);
 
-        // TODO
-        return ray_t{ position_ + direction * 140, direction.normalize() };
+        return ray_t{ position_, direction.normalize() };
     }
 
 private:
@@ -832,8 +834,8 @@ private:
 private:
     vec3_t position_;
     unit_vec3_t front_;
-    vec3_t right_;
-    vec3_t up_;
+    unit_vec3_t right_;
+    unit_vec3_t up_;
 
     vec2_t resolution_;
 };
@@ -1072,7 +1074,7 @@ Float fresnel_dielectric(
 {
     // https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.cpp#L66-L90
 
-    cos_theta_i = std::clamp(cos_theta_i, -1.0, 1.0);
+    cos_theta_i = std::clamp(cos_theta_i, (Float)-1, (Float)1);
 
     bool entering = cos_theta_i > 0.f;
     if (!entering)
@@ -1826,7 +1828,7 @@ public:
         for (int y = 0; y < height; y += 1)
         {
             auto sampler = sampler_->clone(); // multi thread
-            LOG("\rRendering ({} spp) {}", sampler->ge_samples_per_pixel(), 100. * y / (height - 1));
+            LOG("\rRendering ({} spp) {:.2f}%", sampler->ge_samples_per_pixel(), 100. * y / (height - 1));
 
             for (int x = 0; x < width; x += 1)
             {
