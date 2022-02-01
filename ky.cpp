@@ -521,6 +521,64 @@ public:
     normal_t normal_;
 };
 
+class rectangle_t : public shape_t
+{
+public:
+    rectangle_t(const point3_t& p0, const point3_t& p1, const point3_t& p2, const point3_t& p3)
+    {
+        p0_ = p0;
+        p1_ = p1;
+        p2_ = p2;
+        p3_ = p3;
+
+        // TODO
+        normal_ = normalize(cross(p1_ - p0_, p2_ - p0_));
+    }
+
+    bool intersect(const ray_t& ray, isect_t& out_isect) const override
+    {
+        // https://github.com/SmallVCM/SmallVCM/blob/master/src/geometry.hxx#L125-L156
+
+        const vec3_t oa = p0_ - ray.origin();
+        const vec3_t ob = p1_ - ray.origin();
+        const vec3_t oc = p2_ - ray.origin();
+        const vec3_t od = p3_ - ray.origin();
+
+        const vec3_t v0 = cross(oc, ob);
+        const vec3_t v1 = cross(ob, oa);
+        const vec3_t v2 = cross(oa, od);
+        const vec3_t v3 = cross(od, oc);
+
+        const Float v0d = dot(v0, ray.direction());
+        const Float v1d = dot(v1, ray.direction());
+        const Float v2d = dot(v2, ray.direction());
+        const Float v3d = dot(v3, ray.direction());
+
+        if (((v0d <  0.f) && (v1d <  0.f) && (v2d <  0.f) && (v3d <  0.f)) ||
+            ((v0d >= 0.f) && (v1d >= 0.f) && (v2d >= 0.f) && (v3d >= 0.f)))
+        {
+            const Float distance = dot(normal_, oa) / dot(normal_, ray.direction());
+
+            if ((distance > epsilon) && (distance < out_isect.distance))
+            {
+                point3_t hit_point = ray(distance);
+                out_isect = isect_t(distance, hit_point, -ray.direction(), normal_);
+
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+public:
+    point3_t p0_;
+    point3_t p1_;
+    point3_t p2_;
+    point3_t p3_;
+    normal_t normal_;
+};
+
 class sphere_t : public shape_t
 {
 public:
@@ -804,16 +862,20 @@ class camera_t
 public:
     virtual ~camera_t() {}
 
-    camera_t(const vec3_t& position, const unit_vec3_t& front, degree_t fov, vec2_t resolution):
+    camera_t(
+        const vec3_t& position, const vec3_t& front, const vec3_t& up,
+        degree_t fov, vec2_t resolution):
         position_{ position },
-        front_{ front },
+        front_{ front.normalize() },
         resolution_{ resolution }
     {
         // https://github.com/infancy/pbrt-v3/blob/master/src/core/transform.cpp#L394-L397
  
         Float tan_fov = std::tan(radians(fov) / 2);
 
-        right_ = front_.cross(vec3_t{ 0, 1, 0 }).normalize() * tan_fov * get_aspect();
+        right_ = front_.cross(up.normalize()).normalize() * tan_fov * get_aspect();
+
+
         up_ = right_.cross(front_).normalize() * tan_fov;
     }
 
@@ -1659,11 +1721,34 @@ using surface_list_t = std::vector<surface_t>;
 
 #pragma region scene
 
-enum class scene_type_e
+enum class scene_enum_t
 {
-    point_light_diffuse_ball,
-    area_light_specular_ball,
+    // point_light_diffuse_ball,
+    // area_light_specular_ball,
+
+    none,
+
+    light_area = 1,
+    light_sun = 2,
+    light_point = 4,
+    light_background = 8,
+
+    large_mirror_sphere = 16,
+    large_glass_sphere = 32,
+
+    small_mirror_sphere = 64,
+    small_glass_sphere = 128,
+
+    glossy_floor = 256,
+
+    both_small_spheres = small_mirror_sphere | small_glass_sphere,
+    both_large_spheres = large_mirror_sphere | large_glass_sphere,
+
+    default_scene = light_area | both_small_spheres,
 };
+
+constexpr scene_enum_t operator&(scene_enum_t a, scene_enum_t b) { return (scene_enum_t)((int)a & (int)b); }
+constexpr scene_enum_t operator|(scene_enum_t a, scene_enum_t b) { return (scene_enum_t)((int)a | (int)b); }
 
 class scene_t : public reference_type_t
 {
@@ -1692,21 +1777,21 @@ public:
     //const camera_t camera() const { return camera_; }
 
 public:
-    static scene_t create_smallpt_scene(scene_type_e scene_type)
+    static scene_t create_smallpt_scene(scene_enum_t scene_type)
     {
         bool is_double = std::is_same_v<Float, double>;
         KY_CHECK(is_double);
 
-        shape_sp left   = std::make_shared<sphere_t>(1e5, vec3_t(1e5 + 1, 40.8, 81.6));
-        shape_sp right  = std::make_shared<sphere_t>(1e5, vec3_t(-1e5 + 99, 40.8, 81.6));
-        shape_sp back   = std::make_shared<sphere_t>(1e5, vec3_t(50, 40.8, 1e5));
-        shape_sp front  = std::make_shared<sphere_t>(1e5, vec3_t(50, 40.8, -1e5 + 170));
-        shape_sp bottom = std::make_shared<sphere_t>(1e5, vec3_t(50, 1e5, 81.6));
-        shape_sp top    = std::make_shared<sphere_t>(1e5, vec3_t(50, -1e5 + 81.6, 81.6));
+        shape_sp left   = std::make_shared<sphere_t>(1e5, vec3_t(1e5 + 1,   40.8,        81.6));
+        shape_sp right  = std::make_shared<sphere_t>(1e5, vec3_t(-1e5 + 99, 40.8,        81.6));
+        shape_sp back   = std::make_shared<sphere_t>(1e5, vec3_t(50,        40.8,        1e5));
+        shape_sp front  = std::make_shared<sphere_t>(1e5, vec3_t(50,        40.8,        -1e5 + 170));
+        shape_sp bottom = std::make_shared<sphere_t>(1e5, vec3_t(50,        1e5,         81.6));
+        shape_sp top    = std::make_shared<sphere_t>(1e5, vec3_t(50,        -1e5 + 81.6, 81.6));
 
-        shape_sp mirror = std::make_shared<sphere_t>(16.5, vec3_t(27, 16.5, 47));
-        shape_sp glass  = std::make_shared<sphere_t>(16.5, vec3_t(73, 16.5, 78));
-        shape_sp light  = std::make_shared<sphere_t>(600, vec3_t(50, 681.6 - .27, 81.6));
+        shape_sp mirror = std::make_shared<sphere_t>(16.5, vec3_t(27, 16.5,        47));
+        shape_sp glass  = std::make_shared<sphere_t>(16.5, vec3_t(73, 16.5,        78));
+        shape_sp light  = std::make_shared<sphere_t>(600,  vec3_t(50, 681.6 - .27, 81.6));
         shape_list_t shape_list{ left, right, back, front, bottom, top, mirror, glass, light };
 
 
@@ -1738,6 +1823,154 @@ public:
 
             {  light.get(), black.get(), area_light.get()},
         };
+
+        return scene_t{ shape_list, material_list, light_list, surface_list};
+    }
+
+    static scene_t create_cornell_box_scene(scene_enum_t scene_enum)
+    {
+        if ((scene_enum & scene_enum_t::both_large_spheres) == scene_enum_t::both_large_spheres)
+        {
+            LOG_ERROR("Cannot have both large balls, using mirror\n\n");
+        }
+
+
+        material_sp black = std::make_shared<matte_material_t>(color_t());
+        material_sp white = std::make_shared<matte_material_t>(color_t(.8, .8, .8));
+        material_sp red   = std::make_shared<matte_material_t>(color_t(0.803922f, 0.152941f, 0.152941f));
+        material_sp green = std::make_shared<matte_material_t>(color_t(0.156863f, 0.803922f, 0.172549f));
+        material_sp blue  = std::make_shared<matte_material_t>(color_t(0.156863f, 0.172549f, 0.803922f));
+
+        material_sp mirror_mat = std::make_shared<mirror_material_t>(color_t(1, 1, 1));
+        material_sp glass_mat = std::make_shared<glass_material_t>(color_t(1, 1, 1), color_t(1, 1, 1), 1.6);
+        material_list_t material_list{ black, white, red, green, blue, mirror_mat, glass_mat };
+
+
+        bool light_area = (scene_enum & scene_enum_t::light_area) != scene_enum_t::none;
+        bool light_sun = (scene_enum & scene_enum_t::light_sun) != scene_enum_t::none;
+        bool light_point = (scene_enum & scene_enum_t::light_point) != scene_enum_t::none;
+        bool light_background = (scene_enum & scene_enum_t::light_background) != scene_enum_t::none;
+
+
+        #pragma region shape
+
+        // cornell box
+        vec3_t cb[8] = 
+        {
+            vec3_t(-1.27029f,  1.30455f, -1.28002f),
+            vec3_t( 1.28975f,  1.30455f, -1.28002f),
+            vec3_t( 1.28975f,  1.30455f,  1.28002f),
+            vec3_t(-1.27029f,  1.30455f,  1.28002f),
+            vec3_t(-1.27029f, -1.25549f, -1.28002f),
+            vec3_t( 1.28975f, -1.25549f, -1.28002f),
+            vec3_t( 1.28975f, -1.25549f,  1.28002f),
+            vec3_t(-1.27029f, -1.25549f,  1.28002f)
+        };
+        shape_sp left   = std::make_shared<rectangle_t>(cb[3], cb[7], cb[4], cb[0]);
+        shape_sp right  = std::make_shared<rectangle_t>(cb[1], cb[5], cb[6], cb[2]);
+        shape_sp back   = std::make_shared<rectangle_t>(cb[0], cb[1], cb[2], cb[3]);
+        shape_sp bottom = std::make_shared<rectangle_t>(cb[0], cb[4], cb[5], cb[1]);
+        shape_sp top    = std::make_shared<rectangle_t>(cb[2], cb[6], cb[7], cb[3]);
+
+
+        // large ball
+        Float large_radius = 0.8f;
+        vec3_t large_center = (cb[0] + cb[1] + cb[4] + cb[5]) * (1.f / 4.f) + vec3_t(0, 0, large_radius);
+
+        // small ball
+        Float small_radius = 0.5f;
+        vec3_t left_wall_center  = (cb[0] + cb[4]) * (1.f / 2.f) + vec3_t(0, 0, small_radius);
+        vec3_t right_wall_center = (cb[1] + cb[5]) * (1.f / 2.f) + vec3_t(0, 0, small_radius);
+
+        Float length_x = right_wall_center.x - left_wall_center.x;
+        vec3_t left_center  = left_wall_center  + vec3_t(2.f * length_x / 7.f, 0, 0);
+        vec3_t right_center = right_wall_center - vec3_t(2.f * length_x / 7.f, 0, 0);
+
+        shape_sp large_ball  = std::make_shared<sphere_t>(large_radius, large_center);
+        shape_sp left_ball   = std::make_shared<sphere_t>(small_radius, left_center);
+        shape_sp right_ball  = std::make_shared<sphere_t>(small_radius, right_center);
+
+
+        // small light box at the ceiling
+        vec3_t lb[8] = 
+        {
+            vec3_t(-0.25f,  0.25f, 1.26002f),
+            vec3_t( 0.25f,  0.25f, 1.26002f),
+            vec3_t( 0.25f,  0.25f, 1.28002f),
+            vec3_t(-0.25f,  0.25f, 1.28002f),
+            vec3_t(-0.25f, -0.25f, 1.26002f),
+            vec3_t( 0.25f, -0.25f, 1.26002f),
+            vec3_t( 0.25f, -0.25f, 1.28002f),
+            vec3_t(-0.25f, -0.25f, 1.28002f)
+        };
+        shape_sp left2   = std::make_shared<rectangle_t>(lb[3], lb[7], lb[4], lb[0]);
+        shape_sp right2  = std::make_shared<rectangle_t>(lb[1], lb[5], lb[6], lb[2]);
+        shape_sp front2  = std::make_shared<rectangle_t>(lb[4], lb[6], lb[7], lb[5]);
+        shape_sp back2   = std::make_shared<rectangle_t>(lb[0], lb[1], lb[2], lb[3]);
+        shape_sp bottom2 = std::make_shared<rectangle_t>(lb[0], lb[4], lb[5], lb[1]);
+
+        shape_list_t shape_list
+        { 
+            left, right, back, bottom, top, 
+            large_ball, left_ball, right_ball,
+            left2, right2, front2, back2, bottom2, 
+        };
+
+        #pragma endregion
+
+
+        #pragma region light
+
+        light_list_t light_list{};
+        if (light_area)
+        {
+            // TODO
+            std::shared_ptr<light_t> area_light = std::make_shared<area_light_t>(color_t(25, 25, 25), bottom2.get());
+            light_list.push_back(area_light);
+        }
+        // TODO
+
+        #pragma endregion
+
+
+        #pragma region surface
+
+        surface_list_t surface_list
+        {
+            {   left.get(),  green.get(), nullptr},
+            {  right.get(),    red.get(), nullptr },
+            {    top.get(),  white.get(), nullptr },
+            { bottom.get(),  white.get(), nullptr },
+            {   back.get(),  white.get(), nullptr },
+        };
+
+        if ((scene_enum & scene_enum_t::glossy_floor) != scene_enum_t::none)
+        {
+            surface_list[3].material = blue.get();
+            surface_list[4].material = white.get(); // TODO
+        }
+
+        if ((scene_enum & scene_enum_t::large_mirror_sphere) != scene_enum_t::none)
+            surface_list.push_back({ large_ball.get(), mirror_mat.get(), nullptr });
+        else if ((scene_enum & scene_enum_t::large_glass_sphere) != scene_enum_t::none)
+            surface_list.push_back({ large_ball.get(), glass_mat.get(), nullptr });
+
+        if ((scene_enum & scene_enum_t::small_mirror_sphere) != scene_enum_t::none)
+            surface_list.push_back({ left_ball.get(), mirror_mat.get(), nullptr });
+        if ((scene_enum & scene_enum_t::small_glass_sphere) != scene_enum_t::none)
+            surface_list.push_back({ right_ball.get(), glass_mat.get(), nullptr });
+
+        if (light_area)
+        {
+            surface_list.push_back({   left2.get(),   red.get(), nullptr });
+            surface_list.push_back({  right2.get(),  blue.get(), nullptr });
+            surface_list.push_back({  front2.get(), white.get(), nullptr });
+            surface_list.push_back({   back2.get(), white.get(), nullptr });
+            surface_list.push_back({ bottom2.get(), white.get(), (area_light_t*)light_list[0].get() });
+        }
+
+        #pragma endregion
+
 
         return scene_t{ shape_list, material_list, light_list, surface_list };
     }
@@ -2009,14 +2242,18 @@ int main(int argc, char* argv[])
     clock_t start = clock(); // MILO
 
     int width = 256, height = 256;
-    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 100; // # samples
+    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 1000; // # samples per pixel
 
     film_t film(width, height); //film.clear(color_t(1., 0., 0.));
     std::unique_ptr<const camera_t> camera = 
-        std::make_unique<camera_t>(vec3_t{ 50, 52, 295.6 }, vec3_t{ 0, -0.042612, -1 }.normalize(), 53, film.get_resolution());
+        std::make_unique<camera_t>(
+            vec3_t{ -0.0439815f, -4.12529f, 0.222539f }, 
+            vec3_t{ 0.00688625f, 0.998505f, -0.0542161f },
+            vec3_t{ 3.73896e-4f, 0.0542148f, 0.998529f },
+            80, film.get_resolution());
     std::unique_ptr<sampler_t> sampler = std::make_unique<random_sampler_t>(samples_per_pixel);
 
-    scene_t scene = scene_t::create_smallpt_scene(scene_type_e::area_light_specular_ball);
+    scene_t scene = scene_t::create_cornell_box_scene(scene_enum_t::default_scene);
     std::unique_ptr<integrater_t> integrater = 
         std::make_unique<path_tracing_recursion_bsdf_t>(sampler.get(), camera.get(), &film, 10);
     integrater->render(&scene);
