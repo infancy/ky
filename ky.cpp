@@ -411,7 +411,7 @@ public:
     virtual bool intersect(const ray_t& ray, isect_t& out_isect) const = 0;
 
 protected:
-    static constexpr Float epsilon = 1e-4;
+    static constexpr Float epsilon = 1e-6;// TODO
 };
 
 using shape_sp = std::shared_ptr<shape_t>; 
@@ -2245,13 +2245,13 @@ int main(int argc, char* argv[])
     clock_t start = clock(); // MILO
 
     int width = 256, height = 256;
-    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 100; // # samples per pixel
+    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 1000; // # samples per pixel
 
     film_t film(width, height); //film.clear(color_t(1., 0., 0.));
     std::unique_ptr<const camera_t> camera = 
         std::make_unique<camera_t>(
-            vec3_t{ -0.0439815f, -4.12529f, 0.222539f }, 
-            vec3_t{ 0.00688625f, 0.998505f, -0.0542161f },
+            vec3_t{ -0.0439815f, -4.12529f,  0.222539f }, 
+            vec3_t{ 0.00688625f, 0.998505f, -0.054216f },
             vec3_t{ 3.73896e-4f, 0.0542148f, 0.998529f },
             80, film.get_resolution());
     std::unique_ptr<sampler_t> sampler = std::make_unique<random_sampler_t>(samples_per_pixel);
