@@ -810,7 +810,10 @@ public:
         }
 
         // write data body 
-        fwrite(bytes.get(), byte_num, 1, file);
+        int line_num = width * channel;
+        // bmp is stored from bottom to up
+        for(int y = height - 1; y >= 0; --y)
+            fwrite(bytes.get() + y * line_num, line_num, 1, file);
 
 
         fclose(file);
@@ -885,7 +888,7 @@ public:
         vec3_t direction =
             front_ +
             right_ * (sample.p_film.x / resolution_.x - 0.5) +
-               up_ * (sample.p_film.y / resolution_.y - 0.5);
+               up_ * (0.5 - sample.p_film.y / resolution_.y);
 
         return ray_t{ position_, direction.normalize() };
     }
@@ -2242,7 +2245,7 @@ int main(int argc, char* argv[])
     clock_t start = clock(); // MILO
 
     int width = 256, height = 256;
-    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 1000; // # samples per pixel
+    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 100; // # samples per pixel
 
     film_t film(width, height); //film.clear(color_t(1., 0., 0.));
     std::unique_ptr<const camera_t> camera = 
