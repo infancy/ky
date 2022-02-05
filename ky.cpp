@@ -502,15 +502,17 @@ class material_t;
 class area_light_t;
 class surface_t;
 
-// prev   n   light
-// ----   ^   -----
-//   ^    |    ^
-//    \   |   /
-//     \  |  /
-//   wo \ | / wi.direction is unknown, sampling for bsdf or light?
-//       \|/
-//     -------
-//      isect
+/*
+  prev   n   light
+  ----   ^   -----
+    ^    |    ^
+     \   | θ /
+      \  |  /
+    wo \ | / wi.direction is unknown, sampling for bsdf or light?
+        \|/
+      -------
+       isect
+*/
 
 // surface intersection
 class isect_t
@@ -2089,6 +2091,7 @@ public:
     // Le: camera <- light
 
     // TODO: only for environment light
+    // TODO: remove
     virtual color_t Le(const ray_t& r) const { return color_t(); }
 
     // TODO: remove
@@ -2489,22 +2492,21 @@ enum class scene_enum_t
     none,
 
     light_area = 1,
-    light_sun = 2,
+    light_directional = 2,
     light_point = 4,
-    light_background = 8,
+    light_environment = 8,
 
     large_mirror_sphere = 16,
     large_glass_sphere = 32,
-
     small_mirror_sphere = 64,
     small_glass_sphere = 128,
 
-    glossy_floor = 256,
+    glossy_floor = 256, // TODO
 
     both_small_spheres = small_mirror_sphere | small_glass_sphere,
     both_large_spheres = large_mirror_sphere | large_glass_sphere,
 
-    default_scene = light_area | both_small_spheres,
+    default_scene = both_small_spheres | light_area,
 };
 
 constexpr scene_enum_t operator&(scene_enum_t a, scene_enum_t b) { return (scene_enum_t)((int)a & (int)b); }
@@ -2514,14 +2516,16 @@ class scene_t : public reference_type_t
 {
 public:
     scene_t() = default;
-    scene_t(shape_list_t shape_list, material_list_t material_list, light_list_t light_list, surface_list_t surface_list) :
+    scene_t(shape_list_t shape_list, material_list_t material_list, light_list_t light_list, surface_list_t surface_list, environment_light_t* env_light = nullptr) :
         shape_list_{ shape_list },
         material_list_{ material_list },
         light_list_{ light_list },
-        surface_list_{ surface_list }
+        surface_list_{ surface_list },
+        environment_light_{ env_light }
     {
     }
 
+public:
     bool intersect(const ray_t& ray, isect_t* isect)
     {
         bool is_hit = false;
@@ -2548,7 +2552,16 @@ public:
         return bounds3;
     }
 
+
     //const camera_t camera() const { return camera_; }
+
+    int light_list_count() const { return light_list_.size(); }
+    const light_list_t& light_list() const
+    {
+        return light_list_;
+    }
+
+    const environment_light_t* environment_light() const { return environment_light_; }
 
 public:
     static scene_t create_smallpt_scene(scene_enum_t scene_type)
@@ -2619,13 +2632,6 @@ public:
         material_sp glass_mat = std::make_shared<glass_material_t>(color_t(1, 1, 1), color_t(1, 1, 1), 1.6);
         material_list_t material_list{ black, white, red, green, blue, mirror_mat, glass_mat };
 
-
-        bool light_area = (scene_enum & scene_enum_t::light_area) != scene_enum_t::none;
-        bool light_sun = (scene_enum & scene_enum_t::light_sun) != scene_enum_t::none;
-        bool light_point = (scene_enum & scene_enum_t::light_point) != scene_enum_t::none;
-        bool light_background = (scene_enum & scene_enum_t::light_background) != scene_enum_t::none;
-
-
         #pragma region shape
 
         // cornell box
@@ -2695,14 +2701,40 @@ public:
 
         #pragma region light
 
+        bool light_area = (scene_enum & scene_enum_t::light_area) != scene_enum_t::none;
+        bool light_directional = (scene_enum & scene_enum_t::light_directional) != scene_enum_t::none;
+        bool light_point = (scene_enum & scene_enum_t::light_point) != scene_enum_t::none;
+        bool light_environment = (scene_enum & scene_enum_t::light_environment) != scene_enum_t::none;
+
         light_list_t light_list{};
         if (light_area)
         {
-            // TODO
-            std::shared_ptr<light_t> area_light = std::make_shared<area_light_t>(vec3_t(), 1, color_t(25, 25, 25), bottom2.get());
-            light_list.push_back(area_light);
+            light_list.push_back(
+                std::make_shared<area_light_t>(point3_t(), 1, color_t(25, 25, 25), bottom2.get()));
         }
-        // TODO
+
+        if (light_directional)
+        {
+            light_list.push_back(
+                std::make_shared<direction_light_t>(point3_t(), 1, color_t(10, 4, 0), vec3_t(-1, 1.5, -1)));
+        }
+
+        if (light_point)
+        {
+            Float I = 70 * k_inv_4pi;
+            light_list.push_back(
+                std::make_shared<point_light_t>(point3_t(0.0, -0.5, 1.0), 1, color_t(I, I, I)));
+        }
+
+        environment_light_t* environment_light{};
+        if (light_environment)
+        {
+            color_t L = vec3_t(135. / 255, 206. / 255, 250. / 255);
+            auto light = std::make_shared<environment_light_t>(point3_t(), 1, L);
+            light_list.push_back(light);
+
+            environment_light = light.get();
+        }
 
         #pragma endregion
 
@@ -2746,7 +2778,7 @@ public:
         #pragma endregion
 
 
-        return scene_t{ shape_list, material_list, light_list, surface_list };
+        return scene_t{ shape_list, material_list, light_list, surface_list, environment_light };
     }
 
     static scene_t create_mis_scene(scene_enum_t scene_enum);
@@ -2754,13 +2786,15 @@ public:
 private:
     shape_list_t shape_list_;
     material_list_t material_list_;
+
     light_list_t light_list_;
+    environment_light_t* environment_light_;
 
     // TODO: std::vector<std::function<intersect(ray_t ray), result_t> surfaces_;
     surface_list_t surface_list_;
+    accel_t accel_;
 
     //camera_t camera_;
-    accel_t accel_;
 };
 
 
@@ -2916,6 +2950,18 @@ public:
     virtual color_t Li(const ray_t& ray, scene_t* scene, sampler_t* sampler, int depth) = 0;
 
 private:
+    // skip perfectly specular BSDF due to its delta distribution
+    color_t sample_single_light_direct_lighting()
+    {
+
+    }
+
+    color_t sample_all_light_direct_lighting()
+    {
+
+    }
+
+private:
     sampler_t* sampler_;
     const camera_t* camera_;
     film_t* film_;
@@ -2966,6 +3012,7 @@ protected:
 // Le + TLe + T^2le + ...
 // class path_tracing_iteration
 
+// sample from BSDF/direction
 class path_tracing_recursion_bsdf_t : public path_integrater_t
 {
 public:
@@ -2975,31 +3022,41 @@ public:
     {
         isect_t isect;
         if (!scene->intersect(ray, &isect))
-            return color_t();
+        {
+            if (auto env_light = scene->environment_light(); env_light != nullptr)
+                return env_light->Le(ray);
+            else
+                return color_t();
+        }
+
+        if (depth >= max_path_depth_)
+            return isect.Le();
 
         vec3_t wi;
         Float pdf;
         bsdf_type_e bsdf_type;
         color_t f = isect.bsdf()->sample_f(isect.wo, sampler->get_vec2(), &wi, &pdf, &bsdf_type);
 
-        if (++depth > 5)
+        //russian roulette
+        if (++depth > 3)
         {
-            Float bsdf_max_comp = std::max({ f.x, f.y, f.z }); // max refl
-            if (sampler->get_float() < bsdf_max_comp)
-                f = f * (1 / bsdf_max_comp); // importance sampling
+            Float bsdf_max_comp = std::max({ f.x, f.y, f.z });
+            if (sampler->get_float() < bsdf_max_comp) // continue
+                f = f * (1 / bsdf_max_comp);
             else
-                return isect.Le(); //Russian Roulette
+                return isect.Le();
         }
 
-        if (depth > max_path_depth_)
-            return isect.Le(); // MILO
-
-        // pdf == 0 => NaN
         color_t Ls{};
-        if (!f.has_negative() && pdf > 0)
+        if (!f.has_negative() && pdf > 0) // pdf == 0 => NaN
         {
+            /*
+              auto beta = f * abs_dot(wi, isect.normal) / pdf;
+              return beta * Li(wi_ray, scene, sampler, depth));
+            */
+
             ray_t wi_ray(isect.position, wi);
-            Ls = isect.Le() + f.multiply(Li(wi_ray, scene, sampler, depth)) * abs_dot(wi, isect.normal) / pdf;
+            Ls = f.multiply(Li(wi_ray, scene, sampler, depth)) * abs_dot(wi, isect.normal) / pdf;
         }
 
         // TODO: DCHECK
@@ -3075,7 +3132,9 @@ int main(int argc, char* argv[])
             80, film.get_resolution());
     std::unique_ptr<sampler_t> sampler = std::make_unique<random_sampler_t>(samples_per_pixel);
 
-    scene_t scene = scene_t::create_cornell_box_scene(scene_enum_t::default_scene);
+    //scene_t scene = scene_t::create_cornell_box_scene(scene_enum_t::default_scene);
+    scene_t scene = scene_t::create_cornell_box_scene(scene_enum_t::both_small_spheres | scene_enum_t::light_environment);
+
     std::unique_ptr<integrater_t> integrater = 
         std::make_unique<path_tracing_recursion_bsdf_t>(sampler.get(), camera.get(), &film, 10);
 
