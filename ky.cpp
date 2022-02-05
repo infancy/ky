@@ -527,9 +527,8 @@ public:
 public:
     //void scattering();
 
-    const bsdf_t* get_bsdf() const { return bsdf_.get(); }
-    // Le()
-    color_t emission() const { return emission_; }
+    const bsdf_t* bsdf() const { return bsdf_.get(); }
+    color_t Le() const { return emission_; }
 
 public:
     ray_t spawn_ray(const unit_vec3_t& direction) const
@@ -2279,9 +2278,21 @@ public:
     }
 
 public:
-    color_t Le(const isect_t& isect, const vec3_t& w) const
+    /*
+       prev
+       ----
+         ^    ^
+          \   |
+        wo \  | normal
+            \ |
+             \|
+           -------
+         light_isect
+    */
+    // TODO
+    color_t Le(const isect_t& isect, const vec3_t& wo) const
     {
-        return (dot(isect.normal, w) > 0) ? radiance_ : color_t(0.f);
+        return (dot(isect.normal, wo) > 0) ? radiance_ : color_t(0.f);
     }
 
     color_t sample_Le(
@@ -2338,12 +2349,6 @@ public:
         return shape_->pdf_solid_angle(isect, world_wi);
     }
 
-public:
-    // TODO
-    // return (twoSided || Dot(isect.n, w) > 0) ? radiance : Spectrum(0.f);
-    // L(), only for area_light
-    color_t emission() const { return radiance_; }
-
 private:
     color_t radiance_;
     color_t power_;
@@ -2373,7 +2378,7 @@ public:
     }
 
 public:
-    color_t Le(const ray_t& r) const override
+    color_t Le(const ray_t& ray) const override
     {
         return radiance_;
     }
@@ -2463,7 +2468,7 @@ struct surface_t
         if (hit)
         {
             isect->bsdf_ = material->scattering(*isect);
-            isect->emission_ = area_light ? area_light->emission() : color_t();
+            isect->emission_ = area_light ? area_light->Le(*isect, isect->wo) : color_t();
         }
 
         return hit;
@@ -2635,11 +2640,11 @@ public:
             vec3_t( 1.28975f, -1.25549f,  1.28002f),
             vec3_t(-1.27029f, -1.25549f,  1.28002f)
         };
-        shape_sp left   = std::make_shared<rectangle_t>(cb[3], cb[7], cb[4], cb[0]);
-        shape_sp right  = std::make_shared<rectangle_t>(cb[1], cb[5], cb[6], cb[2]);
-        shape_sp back   = std::make_shared<rectangle_t>(cb[0], cb[1], cb[2], cb[3]);
-        shape_sp bottom = std::make_shared<rectangle_t>(cb[0], cb[4], cb[5], cb[1]);
-        shape_sp top    = std::make_shared<rectangle_t>(cb[2], cb[6], cb[7], cb[3]);
+        shape_sp left   = std::make_shared<rectangle_t>(cb[3], cb[0], cb[4], cb[7]);
+        shape_sp right  = std::make_shared<rectangle_t>(cb[1], cb[2], cb[6], cb[5]);
+        shape_sp back   = std::make_shared<rectangle_t>(cb[0], cb[3], cb[2], cb[1]);
+        shape_sp bottom = std::make_shared<rectangle_t>(cb[0], cb[1], cb[5], cb[4]);
+        shape_sp top    = std::make_shared<rectangle_t>(cb[2], cb[3], cb[7], cb[6]);
 
 
         // large ball
@@ -2672,11 +2677,11 @@ public:
             vec3_t( 0.25f, -0.25f, 1.28002f),
             vec3_t(-0.25f, -0.25f, 1.28002f)
         };
-        shape_sp left2   = std::make_shared<rectangle_t>(lb[3], lb[7], lb[4], lb[0]);
-        shape_sp right2  = std::make_shared<rectangle_t>(lb[1], lb[5], lb[6], lb[2]);
+        shape_sp left2   = std::make_shared<rectangle_t>(lb[3], lb[0], lb[4], lb[7]);
+        shape_sp right2  = std::make_shared<rectangle_t>(lb[1], lb[2], lb[6], lb[5]);
         shape_sp front2  = std::make_shared<rectangle_t>(lb[4], lb[5], lb[6], lb[7]);
-        shape_sp back2   = std::make_shared<rectangle_t>(lb[0], lb[1], lb[2], lb[3]);
-        shape_sp bottom2 = std::make_shared<rectangle_t>(lb[0], lb[4], lb[5], lb[1]);
+        shape_sp back2   = std::make_shared<rectangle_t>(lb[0], lb[3], lb[2], lb[1]);
+        shape_sp bottom2 = std::make_shared<rectangle_t>(lb[0], lb[1], lb[5], lb[4]);
 
         shape_list_t shape_list
         { 
@@ -2975,7 +2980,7 @@ public:
         vec3_t wi;
         Float pdf;
         bsdf_type_e bsdf_type;
-        color_t f = isect.get_bsdf()->sample_f(isect.wo, sampler->get_vec2(), &wi, &pdf, &bsdf_type);
+        color_t f = isect.bsdf()->sample_f(isect.wo, sampler->get_vec2(), &wi, &pdf, &bsdf_type);
 
         if (++depth > 5)
         {
@@ -2983,22 +2988,22 @@ public:
             if (sampler->get_float() < bsdf_max_comp)
                 f = f * (1 / bsdf_max_comp); // importance sampling
             else
-                return isect.emission(); //Russian Roulette
+                return isect.Le(); //Russian Roulette
         }
 
         if (depth > max_path_depth_)
-            return isect.emission(); // MILO
+            return isect.Le(); // MILO
 
         // pdf == 0 => NaN
         color_t Ls{};
         if (!f.has_negative() && pdf > 0)
         {
             ray_t wi_ray(isect.position, wi);
-            Ls = isect.emission() + f.multiply(Li(wi_ray, scene, sampler, depth)) * abs_dot(wi, isect.normal) / pdf;
+            Ls = isect.Le() + f.multiply(Li(wi_ray, scene, sampler, depth)) * abs_dot(wi, isect.normal) / pdf;
         }
 
         // TODO: DCHECK
-        return isect.emission() + Ls;
+        return isect.Le() + Ls;
     }
 };
 
@@ -3059,7 +3064,7 @@ int main(int argc, char* argv[])
     clock_t start = clock(); // MILO
 
     int width = 256, height = 256;
-    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 100; // # samples per pixel
+    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 1000; // # samples per pixel
 
     film_t film(width, height); //film.clear(color_t(1., 0., 0.));
     std::unique_ptr<const camera_t> camera = 
