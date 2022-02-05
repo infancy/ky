@@ -8,6 +8,7 @@
 #include <concepts>
 #include <exception>
 #include <format>
+#include <iostream>
 #include <memory>
 #include <numbers>
 #include <random>
@@ -44,7 +45,7 @@ using namespace std::literals::string_literals;
 #pragma region math
 
 using uint = uint32_t;
-using Float = float;
+using Float = float; // TODO: undef float_t; using float_t = float;
 
 using radian_t = Float;
 using degree_t = Float;
@@ -194,12 +195,12 @@ struct vec3_t
 
     vec3_t(Float x = 0, Float y = 0, Float z = 0) { this->x = x; this->y = y; this->z = z; }
 
-    Float operator[](int i)              const { DCHECK(i >= 0 && i < 3); return (&x)[i]; }
+    Float operator[](int i) const { DCHECK(i >= 0 && i < 3); return (&x)[i]; }
     vec3_t operator-() const { return vec3_t(-x, -y, -z); }
     vec3_t operator+(const vec3_t& v) const { return vec3_t(x + v.x, y + v.y, z + v.z); }
     vec3_t operator-(const vec3_t& v) const { return vec3_t(x - v.x, y - v.y, z - v.z); }
-    vec3_t operator*(Float scalar)       const { return vec3_t(x * scalar, y * scalar, z * scalar); }
-    vec3_t operator/(Float scalar)       const { return vec3_t(x / scalar, y / scalar, z / scalar); }
+    vec3_t operator*(Float scalar)    const { return vec3_t(x * scalar, y * scalar, z * scalar); }
+    vec3_t operator/(Float scalar)    const { return vec3_t(x / scalar, y / scalar, z / scalar); }
 
     friend vec3_t operator*(Float scalar, vec3_t v) { return vec3_t(v.x * scalar, v.y * scalar, v.z * scalar); }
 
@@ -253,15 +254,12 @@ public:
     bool small_than(vec3_t vec3) const { return (x < vec3.x) || (y < vec3.y) || (z < vec3.z); }
 
     std::string to_string() const { return std::format("[{}, {}, {}]", x, y, z);  }
+    friend std::ostream& operator<<(std::ostream& console, const vec3_t& vec3)
+    {
+        console << vec3.to_string();
+        return console;
+    }
 };
-
-/*
-std::ostream& operator<<(std::ostream& console, const vec3_t& vec3)
-{
-    console << vec3.to_string();
-    return console;
-}
-*/
 
 /*
 class unit_vector_t;
@@ -460,9 +458,10 @@ private:
 class ray_t
 {
 public:
-    ray_t(const point3_t& origin, const unit_vec3_t& direction) : 
-        origin_(origin), 
-        direction_(direction) 
+    ray_t(const point3_t& origin, const unit_vec3_t& direction, const Float distance = k_infinity) :
+        origin_{ origin },
+        direction_{ direction },
+        distance_{ distance }
     {
         /* TODO
         DCHECK(direction_.is_unit());
@@ -477,6 +476,10 @@ public:
 
     point3_t origin() const { return origin_; }
     unit_vec3_t direction() const { return direction_; }
+    Float distance() const { return distance_; }
+
+    // TODO
+    void set_distance(Float distance) const { distance_ = distance; }
 
     point3_t operator()(Float t) const
     {
@@ -487,6 +490,7 @@ public:
 private:
     point3_t origin_;
     unit_vec3_t direction_; // confirm it is a unit vector
+    mutable Float distance_; // distance from ray to intersection
 };
 
 
@@ -513,22 +517,12 @@ class isect_t
 {
 public:
     isect_t() = default;
-    isect_t(point3_t position, normal_t normal, unit_vec3_t wo) :
+    isect_t(const point3_t& position, const normal_t& normal, unit_vec3_t wo) :
         position{ position },
         normal{ normal },
         wo{ wo }
     {
     }
-    // TODO
-    isect_t(Float distance, point3_t position, unit_vec3_t wo, normal_t normal) :
-        distance{ distance },
-        position{ position },
-        wo{ wo },
-        normal{ normal }
-    {
-    }
-    
-    //isect_t& operator=(isect_t&& isect) = default;
 
 public:
     //void scattering();
@@ -538,33 +532,32 @@ public:
     color_t emission() const { return emission_; }
 
 public:
-    ray_t generate_ray(const unit_vec3_t& direction) const
+    ray_t spawn_ray(const unit_vec3_t& direction) const
     {
         // TODO: offset
         return ray_t(position, direction);
     }
     /* TODO
-    ray_t generate_ray(const point3_t& target) const
+    ray_t spawn_ray_to(const point3_t& target) const
     {
-        return generate_ray(normalize(target - position));
+        return spawn_ray(normalize(target - position));
     }
     */
-    ray_t generate_ray(const isect_t& isect) const
+    ray_t spawn_ray_to(const isect_t& isect) const
     {
-        return generate_ray(normalize(isect.position - position));
+        return spawn_ray(normalize(isect.position - position));
     }
 
 public:
-    Float distance{ k_infinity }; // distance from ray to intersection // TODO: remove
     point3_t position{}; // world position of intersection
     normal_t normal{};
     unit_vec3_t wo{};
 
 private:
-    friend surface_t;
-
     bsdf_uptr_t bsdf_{};
     color_t emission_{};
+
+    friend surface_t;
 };
 
 #pragma endregion
@@ -814,13 +807,13 @@ public:
 class shape_t
 {
 public:
-    virtual bool intersect(const ray_t& ray, isect_t& out_isect) const = 0;
+    virtual bool intersect(const ray_t& ray, isect_t* out_isect) const = 0;
 
     virtual bounds3_t world_bound() const = 0;
     virtual Float area() const = 0;
 
 public:
-    // sample direction on front vertexs, and sample area on last vertex
+    // sample direction on front vertexs, and sample area/position on last vertex
     virtual isect_t sample_area(const point2_t& random, Float* out_pdf) const = 0;
     virtual Float pdf_area(const isect_t& isect) const { return 1 / area(); }
 
@@ -844,10 +837,10 @@ public:
     }
     virtual Float pdf_solid_angle(const isect_t& isect, const unit_vec3_t& world_wi) const
     {
-        ray_t ray = isect.generate_ray(world_wi);
+        ray_t ray = isect.spawn_ray(world_wi);
         isect_t light_isect;
 
-        if (!intersect(ray, light_isect))
+        if (!intersect(ray, &light_isect))
             return 0;
 
         // convert light sample weight to solid angle measure
@@ -860,7 +853,7 @@ public:
     }
 
 protected:
-    static constexpr Float epsilon = 1e-6;// TODO
+    static constexpr Float epsilon = 1e-3;// TODO
 };
 
 using shape_sp = std::shared_ptr<shape_t>; 
@@ -894,8 +887,7 @@ public:
         normal_ = normal;
     }
 
-    // TODO: intersect(const ray_t& ray, isect_t* out_isect)
-    bool intersect(const ray_t& ray, isect_t& out_isect) const override
+    bool intersect(const ray_t& ray, isect_t* out_isect) const override
     {
         if (is_equal(dot(ray.direction(), normal_), (Float)0))
             return false;
@@ -903,10 +895,11 @@ public:
         const vec3_t op = p_ - ray.origin();
         const Float distance = dot(normal_, op) / dot(normal_, ray.direction());
 
-        if ((distance > epsilon) && (distance < out_isect.distance))
+        if ((distance > epsilon) && (distance < ray.distance()))
         {
+            ray.set_distance(distance);
             point3_t hit_point = ray(distance);
-            out_isect = isect_t(distance, hit_point, -ray.direction(), normal_);
+            *out_isect = isect_t(hit_point, normal_, -ray.direction());
 
             return true;
         }
@@ -936,7 +929,7 @@ public:
         normal_ = normalize(cross(p1_ - p0_, p2_ - p0_));
     }
 
-    bool intersect(const ray_t& ray, isect_t& out_isect) const override
+    bool intersect(const ray_t& ray, isect_t* out_isect) const override
     {
         // https://github.com/SmallVCM/SmallVCM/blob/master/src/geometry.hxx#L125-L156
 
@@ -961,10 +954,11 @@ public:
             //    by `distance * dot(normal, ray.direction()) = vertical_distance`
             const Float distance = dot(normal_, oa) / dot(normal_, ray.direction());
 
-            if ((distance > epsilon) && (distance < out_isect.distance))
+            if ((distance > epsilon) && (distance < ray.distance()))
             {
+                ray.set_distance(distance);
                 point3_t hit_point = ray(distance);
-                out_isect = isect_t(distance, hit_point, -ray.direction(), normal_);
+                *out_isect = isect_t(hit_point, normal_, -ray.direction());
 
                 return true;
             }
@@ -1014,7 +1008,7 @@ public:
         normal_ = normalize(cross(p1_ - p0_, p2_ - p0_));
     }
 
-    bool intersect(const ray_t& ray, isect_t& out_isect) const override
+    bool intersect(const ray_t& ray, isect_t* out_isect) const override
     {
         // https://github.com/SmallVCM/SmallVCM/blob/master/src/geometry.hxx#L125-L156
 
@@ -1038,10 +1032,11 @@ public:
         {
             const Float distance = dot(normal_, oa) / dot(normal_, ray.direction());
 
-            if ((distance > epsilon) && (distance < out_isect.distance))
+            if ((distance > epsilon) && (distance < ray.distance()))
             {
+                ray.set_distance(distance);
                 point3_t hit_point = ray(distance);
-                out_isect = isect_t(distance, hit_point, -ray.direction(), normal_);
+                *out_isect = isect_t(hit_point, normal_, -ray.direction());
 
                 return true;
             }
@@ -1086,7 +1081,7 @@ public:
     {
     }
 
-    bool intersect(const ray_t& ray, isect_t& out_isect) const override
+    bool intersect(const ray_t& ray, isect_t* out_isect) const override
     { 
         /*
           ||o + t*d - c||^2 = r^2
@@ -1111,17 +1106,17 @@ public:
         Float neg_b = dot(co, ray.direction());
         Float discr = neg_b * neg_b - dot(co, co) + radius_sq_;
 
-        Float t = 0;
+        Float distance = 0;
         bool hit = false;
         if (discr >= 0)
          {
             Float sqrt_discr = sqrt(discr);
 
-            if (t = neg_b - sqrt_discr; t > epsilon && t < out_isect.distance)
+            if (distance = neg_b - sqrt_discr; distance > epsilon && distance < ray.distance())
             {
                 hit = true;
             }
-            else if (t = neg_b + sqrt_discr; t > epsilon && t < out_isect.distance)
+            else if (distance = neg_b + sqrt_discr; distance > epsilon && distance < ray.distance())
             {
                 hit = true;
             }
@@ -1129,8 +1124,9 @@ public:
 
         if (hit)
         {
-            point3_t hit_point = ray(t);
-            out_isect = isect_t(t, hit_point, -ray.direction(), (hit_point - center_).normalize());
+            ray.set_distance(distance);
+            point3_t hit_point = ray(distance);
+            *out_isect = isect_t(hit_point, (hit_point - center_).normalize(), -ray.direction());
         }
 
         return hit;
@@ -1353,6 +1349,7 @@ public:
     // https://github.com/skywind3000/RenderHelp/blob/master/RenderHelp.h#L937-L1018
     static bool store_bmp_impl(const std::string& filename, int width, int height, int channel, const Float* floats)
     {
+        // TODO
         FILE* file = fopen(filename.c_str(), "wb");
         if (file == nullptr) return false;
 
@@ -1900,7 +1897,7 @@ public:
         // or Float Re = fresnel_dielectric(cos_theta(wo), etaA_, etaB_);
         Float Tr = 1 - Re;
 
-        if (random.x < Re)
+        if (random[0] < Re)
         {
             // Compute specular reflection for _FresnelSpecular_
 
@@ -1952,7 +1949,7 @@ public:
         Float Re = fresnel_dielectric_schlick(cos_theta_a, etaA_, etaB_);
         Float Tr = 1 - Re;
 
-        if (random.x < Re)
+        if (random[0] < Re)
         {
             // Compute specular reflection for _FresnelSpecular_
 
@@ -2109,7 +2106,7 @@ public:
 public:
     // Li: camera <-wo isect wi-> light
 
-    // sample_light/sample_area
+    // sample_light/sample_area/sample_position
     virtual color_t sample_Li(
         const isect_t& isect, const point2_t& random,
         vec3_t* out_wi, Float* out_pdf) const = 0;
@@ -2293,8 +2290,8 @@ public:
         Float* pdf_area, Float* pdf_direction) const override
     {
         // sample_area a point on the area light's _Shape_, _pShape_
-        isect_t isect2 = shape_->sample_area(random1, pdf_area);
-        *light_normal = isect2.normal;
+        isect_t light_isect = shape_->sample_area(random1, pdf_area);
+        *light_normal = light_isect.normal;
 
         // sample_area a cosine-weighted outgoing direction _w_ for area light
         vec3_t w;
@@ -2302,11 +2299,11 @@ public:
         *pdf_direction = pdf_hemisphere_cosine(w.z);
 
         // TODO
-        frame_t frame{ isect2.normal };
+        frame_t frame{ light_isect.normal };
         vec3_t w2 = w.x * frame.binormal() + w.y * frame.tangent() + w.z * frame.normal();
-        *ray = isect2.generate_ray(w2);
+        *ray = light_isect.spawn_ray(w2);
 
-        return Le(isect2, w2);
+        return Le(light_isect, w2);
     }
 
     void pdf_Le(
@@ -2314,8 +2311,8 @@ public:
         Float* pdf_area, Float* pdf_direction) const override
     {
         isect_t isect(ray.origin(), light_normal, vec3_t());
-
         *pdf_area = shape_->pdf_area(isect);
+
         *pdf_direction = pdf_hemisphere_cosine(dot(light_normal, ray.direction()));
     }
 
@@ -2324,15 +2321,15 @@ public:
         const isect_t& isect, const point2_t& random,
         vec3_t* out_wi, Float* out_pdf) const override
     {
-        isect_t isect2 = shape_->sample_solid_angle(isect, random, out_pdf);
-        if (*out_pdf == 0 || (isect2.position - isect.position).magnitude_squared() == 0)
+        isect_t light_isect = shape_->sample_solid_angle(isect, random, out_pdf);
+        if (*out_pdf == 0 || (light_isect.position - isect.position).magnitude_squared() == 0)
         {
             *out_pdf = 0;
             return 0.f;
         }
 
-        *out_wi = normalize(isect2.position - isect.position);
-        return Le(isect2, -*out_wi);
+        *out_wi = normalize(light_isect.position - isect.position);
+        return Le(light_isect, -*out_wi);
     }
 
     Float pdf_Li(
@@ -2460,13 +2457,13 @@ struct surface_t
     const material_t* material;
     const area_light_t* area_light;
 
-    bool intersect(const ray_t& ray, isect_t& isect)
+    bool intersect(const ray_t& ray, isect_t* isect)
     {
         bool hit = shape->intersect(ray, isect);
         if (hit)
         {
-            isect.bsdf_ = material->scattering(isect);
-            isect.emission_ = area_light ? area_light->emission() : color_t();
+            isect->bsdf_ = material->scattering(*isect);
+            isect->emission_ = area_light ? area_light->emission() : color_t();
         }
 
         return hit;
@@ -2520,16 +2517,18 @@ public:
     {
     }
 
-    bool intersect(const ray_t& ray, isect_t& isect)
+    bool intersect(const ray_t& ray, isect_t* isect)
     {
-        static Float inf = 1e20;
+        bool is_hit = false;
+        int surface_num = surface_list_.size();
 
-        int n = surface_list_.size();
+        for (int i = 0; i < surface_num; ++i)
+        {
+            if (surface_list_[i].intersect(ray, isect))
+                is_hit = true;
+        }
 
-        for (int i = n; i--;)
-            surface_list_[i].intersect(ray, isect);
-
-        return isect.distance < inf;
+        return is_hit;
     }
 
     bounds3_t world_bound() const
@@ -2859,7 +2858,7 @@ public:
         for (int y = 0; y < height; y += 1)
         {
             auto sampler = sampler_->clone(); // multi thread
-            LOG("\rRendering ({} spp) {:.2f}%", sampler->ge_samples_per_pixel(), 100. * y / (height - 1));
+            LOG("\rrendering... ({} spp) {:.2f}%", sampler->ge_samples_per_pixel(), 100. * y / (height - 1));
 
             for (int x = 0; x < width; x += 1)
             {
@@ -2889,6 +2888,26 @@ public:
 
     }
 
+    void debug(scene_t* scene, const point2_t& film_position)
+    {
+        color_t L{};
+        auto sampler = sampler_->clone(); // multi thread
+        sampler->start_sample();
+        //film_->set_color(x, y, color_t(0, 0, 0));
+
+        do
+        {
+            auto sample = sampler->get_camera_sample(film_position);
+            auto ray = camera_->generate_ray(sample);
+
+            auto dL = Li(ray, scene, sampler.get(), 0) * (1. / sampler->ge_samples_per_pixel());
+            LOG("dL:{}\n", dL.to_string());
+            L = L + dL;
+        }
+        while (sampler->next_sample());
+    }
+
+    // TODO: virtual color_t Li(const ray_t& ray, const scene_t& scene, sampler_t* sampler, int depth) = 0;
     virtual color_t Li(const ray_t& ray, scene_t* scene, sampler_t* sampler, int depth) = 0;
 
 private:
@@ -2950,7 +2969,7 @@ public:
     color_t Li(const ray_t& ray, scene_t* scene, sampler_t* sampler, int depth) override
     {
         isect_t isect;
-        if (!scene->intersect(ray, isect))
+        if (!scene->intersect(ray, &isect))
             return color_t();
 
         vec3_t wi;
@@ -3040,7 +3059,7 @@ int main(int argc, char* argv[])
     clock_t start = clock(); // MILO
 
     int width = 256, height = 256;
-    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 1000; // # samples per pixel
+    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 100; // # samples per pixel
 
     film_t film(width, height); //film.clear(color_t(1., 0., 0.));
     std::unique_ptr<const camera_t> camera = 
@@ -3054,7 +3073,9 @@ int main(int argc, char* argv[])
     scene_t scene = scene_t::create_cornell_box_scene(scene_enum_t::default_scene);
     std::unique_ptr<integrater_t> integrater = 
         std::make_unique<path_tracing_recursion_bsdf_t>(sampler.get(), camera.get(), &film, 10);
+
     integrater->render(&scene);
+    //integrater->debug(&scene, { 160, 150 });
 
     LOG("\n{} sec\n", (Float)(clock() - start) / CLOCKS_PER_SEC); // MILO
 
