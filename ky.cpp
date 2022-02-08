@@ -228,8 +228,8 @@ struct vec3_t
     {
         /*
             |  i  j  k |
-            | ax ay az |
-            | bx by bz |
+            |  x  y  z |
+            | vx vy vz |
         */
         return vec3_t(
             y * v.z - z * v.y,
@@ -1490,16 +1490,16 @@ public:
         degree_t fov, vec2_t resolution):
         position_{ position },
         front_{ front.normalize() },
+        up_{ up },
         resolution_{ resolution }
     {
         // https://github.com/infancy/pbrt-v3/blob/master/src/core/transform.cpp#L394-L397
  
         Float tan_fov = std::tan(radians(fov) / 2);
 
-        right_ = front_.cross(up.normalize()).normalize() * tan_fov * get_aspect();
-
-
-        up_ = right_.cross(front_).normalize() * tan_fov;
+        // left hand
+        right_ = up_.cross(front_).normalize() * tan_fov * get_aspect();
+        up_ = front_.cross(right_).normalize() * tan_fov;
     }
 
 public:
@@ -3111,6 +3111,11 @@ enum class integrater_enum_t
     stochastic_raytracing,
 
     // path tracing
+
+    // Le + T(Le + T(Le + T(...)))
+    simple_path_tracing,
+
+    // Le + T * Le + T(T * Le + T(...))
     path_tracing_recursion_bsdf,
     path_tracing_iteration_bsdf,
 
@@ -3200,7 +3205,7 @@ public:
 
     // Li: input radiance
     // TODO: virtual color_t Li(const ray_t& ray, const scene_t& scene, sampler_t& sampler) = 0;
-    virtual color_t Li(const ray_t& ray, scene_t* scene, sampler_t* sampler, int depth) = 0;
+    virtual color_t Li(ray_t ray, scene_t* scene, sampler_t* sampler, int depth) = 0;
 
 protected:
     color_t sample_single_light_direct_lighting(
@@ -3369,20 +3374,13 @@ protected:
     int max_path_depth_;
 };
 
-// Le + T(Le + T(le + ...))
-// class path_tracing_recursion
-
-// Le + TLe + T^2le + ...
-// class path_tracing_iteration
-
-// sample from BSDF/direction
-class path_tracing_recursion_bsdf_t : public path_integrater_t
+class simple_path_tracing_t : public path_integrater_t
 {
 public:
     using path_integrater_t::path_integrater_t;
 
     // Le + T(Le + T(Le + T(...)))
-    color_t Li(const ray_t& ray, scene_t* scene, sampler_t* sampler, int depth) override
+    color_t Li(ray_t ray, scene_t* scene, sampler_t* sampler, int depth) override
     {
         isect_t isect;
         if (!scene->intersect(ray, &isect))
@@ -3425,13 +3423,79 @@ public:
     }
 };
 
-/*
+// Le + T(Le + T(le + ...))
+// class path_tracing_recursion
+
+// Le + TLe + T^2le + ...
+// class path_tracing_iteration
+
+// sample from BSDF/direction
+class path_tracing_recursion_bsdf_t : public path_integrater_t
+{
+public:
+    using path_integrater_t::path_integrater_t;
+
+    // Le + T(Le + T(Le + T(...)))
+    color_t Li(ray_t ray, scene_t* scene, sampler_t* sampler, int depth) override
+    {
+        isect_t isect;
+        if (!scene->intersect(ray, &isect))
+        {
+            if (auto env_light = scene->environment_light(); env_light != nullptr)
+                return env_light->Le(ray);
+            else
+                return color_t();
+        }
+
+        if (depth >= max_path_depth_)
+            return isect.Le();
+
+        auto bs = isect.bsdf()->sample_f(isect.wo, sampler->get_vec2());
+
+        //russian roulette
+        if (++depth > 3)
+        {
+            Float bsdf_max_comp = bs.f.max_component_value();
+            if (sampler->get_float() < bsdf_max_comp) // continue
+                bs.f *= (1 / bsdf_max_comp);
+            else
+                return isect.Le();
+        }
+
+        color_t Ls{};
+        if (!bs.f.has_negative() && bs.pdf > 0) // pdf == 0 => NaN
+        {
+            /*
+              auto beta = f * abs_dot(wi, isect.normal) / pdf;
+              return beta * Li(wi_ray, scene, sampler, depth));
+            */
+
+            ray_t wi_ray(isect.position, bs.wi);
+            Ls = bs.f * Li(wi_ray, scene, sampler, depth) * abs_dot(bs.wi, isect.normal) / bs.pdf;
+        }
+
+        // TODO: DCHECK
+        return isect.Le() + Ls;
+    }
+};
+
+// sample from light/position
 class path_tracing_recursion_light_t : public path_integrater_t
 {
 public:
-    vec3_t Li(const ray_t& r, int depth, sampler_t* sampler, Float include_le = 1);
+    using path_integrater_t::path_integrater_t;
+
+    // Le + T * Le + T(T * Le + T(...))
+    color_t Li(ray_t ray, scene_t* scene, sampler_t* sampler, int depth) override
+    {
+
+    }
+
+    vec3_t Li(ray_t ray, int depth, sampler_t* sampler, Float include_le = 1);
     // Le(emit), Ld(direct), Li(indirect)
 };
+
+/*
 
 class path_tracing_recursion_mis_t : public path_integrater_t
 {
@@ -3466,9 +3530,8 @@ public:
 
     // Le + T * Le + T(T * Le + T(T * Le + T(...)))
     // Le(emit), Ld(direct), Li(indirect)
-    color_t Li(const ray_t& _ray, scene_t* scene, sampler_t* sampler, int depth) override
+    color_t Li(ray_t ray, scene_t* scene, sampler_t* sampler, int depth) override
     {
-        ray_t ray = _ray; // TODO
         color_t L{};
         color_t beta(1., 1., 1.); // beta holds path throughput weight
         bool is_last_specular = false; // if last vertex's material has perfect specular property
@@ -3592,14 +3655,18 @@ int main(int argc, char* argv[])
     film_t film(width, height); //film.clear(color_t(1., 0., 0.));
     std::unique_ptr<sampler_t> sampler =
         std::make_unique<random_sampler_t>(samples_per_pixel);
-    std::unique_ptr<integrater_t> integrater =
-        std::make_unique<path_tracing_recursion_bsdf_t>(sampler.get(), &film, 10);
 
-    //scene_t scene = scene_t::create_cornell_box_scene(cornell_box_enum_t::default_scene);
-    //scene_t scene = scene_t::create_cornell_box_scene(
-    //  cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_area, film.get_resolution());
+    std::unique_ptr<integrater_t> integrater =
+        std::make_unique<simple_path_tracing_t>(sampler.get(), &film, 10);
+    //std::unique_ptr<integrater_t> integrater =
+    //    std::make_unique<path_tracing_recursion_light_t>(sampler.get(), &film, 10);
+
 
     scene_t scene = scene_t::create_mis_scene(film.get_resolution());
+    //scene_t scene = scene_t::create_cornell_box_scene(cornell_box_enum_t::default_scene);
+    //scene_t scene = scene_t::create_cornell_box_scene(
+    //  cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_point, film.get_resolution());
+
 
     integrater->render(&scene);
     //integrater->debug(&scene, { 160, 150 });
