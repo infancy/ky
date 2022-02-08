@@ -575,12 +575,11 @@ public:
         // TODO: offset
         return ray_t(position + direction * k_epsilon, direction);
     }
-    /* TODO
+
     ray_t spawn_ray_to(const point3_t& target) const
     {
         return spawn_ray(normalize(target - position));
     }
-    */
     ray_t spawn_ray_to(const isect_t& isect) const
     {
         return spawn_ray(normalize(isect.position - position));
@@ -841,55 +840,6 @@ public:
 
 
 #pragma region shape
-
-/*
-  called `LightLeSample` in pbrt - v4, `PositionSample` in mitsuba2
-  mainly for light.sample_Le()
-*/
-struct position_sample_t
-{
-    ray_t ray;
-    std::optional<isect_t> isect;
-    Float pdf_position = 0;
-    Float pdf_direction = 0;
-    color_t Le; // for light
-
-    position_sample_t() = default;
-    position_sample_t(
-        const ray_t& ray, std::optional<isect_t> isect,
-        Float pdf_position, Float pdf_direction, const color_t& emission) :
-        ray(ray),
-        isect{ std::move(isect) },
-        pdf_position(pdf_position),
-        pdf_direction(pdf_direction),
-        Le(emission)
-    {
-    }
-
-    Float abs_cos_theta(vec3_t w) const { return isect ? abs_dot(w, isect->normal) : 1; }
-};
-
-/*
-  called `LightLiSample` in pbrt-v4, `DirectionSample` in mitsuba2
-  mainly for light.sample_Li()
-*/
-struct direction_sample_t // : public position_sample_t
-{
-    isect_t isect; // TODO: replace with point3_t position...
-    vec3_t wi; // isect -> light, alone ray's direction
-    Float pdf; // pdf of direction
-    color_t Li; // for light
-
-    direction_sample_t() = default;
-    direction_sample_t(isect_t& isect, const vec3_t& wi, Float pdf, const color_t& Li) :
-        isect{ std::move(isect) },
-        wi{ wi },
-        pdf{ pdf },
-        Li{ Li }
-    {
-    }
-};
-
 
 class shape_t
 {
@@ -1772,7 +1722,7 @@ public:
 
 #pragma region bsdf
 
-enum class bsdf_type_e
+enum class bsdf_enum_t
 {
     reflection = 1,
     transmission = 2,
@@ -1783,15 +1733,15 @@ enum class bsdf_type_e
     specluar = 16,
 };
 
-// TODO: KY_ENUM_OPERATORS(bsdf_type_e)
-bsdf_type_e operator|(bsdf_type_e a, bsdf_type_e b)
+// TODO: KY_ENUM_OPERATORS(bsdf_enum_t)
+bsdf_enum_t operator|(bsdf_enum_t a, bsdf_enum_t b)
 {
-    return bsdf_type_e((int)a | (int)b);
+    return bsdf_enum_t((int)a | (int)b);
 }
 
-inline bool is_delta_bsdf(bsdf_type_e bsdf_type)
+inline bool is_delta_bsdf(bsdf_enum_t bsdf_type)
 {
-    return ((int)bsdf_type & (int)bsdf_type_e::specluar) > 0;
+    return ((int)bsdf_type & (int)bsdf_enum_t::specluar) > 0;
 }
 
 /* 
@@ -1826,7 +1776,7 @@ struct bsdf_sample_t
     color_t f; // scattering rate 
     vec3_t wi; // world wi
     Float pdf;
-    bsdf_type_e bsdf_type; // flags
+    bsdf_enum_t bsdf_type; // flags
 };
 
 class bsdf_t
@@ -1918,7 +1868,7 @@ public:
 
         sample.pdf = pdf_(wo, sample.wi);
         sample.f = f_(wo, sample.wi);
-        sample.bsdf_type = bsdf_type_e::reflection | bsdf_type_e::diffuse;
+        sample.bsdf_type = bsdf_enum_t::reflection | bsdf_enum_t::diffuse;
 
         return sample;
     }
@@ -1953,7 +1903,7 @@ public:
         sample.wi = vec3_t(-wo.x, -wo.y, wo.z);
         sample.pdf = 1;
         sample.f = R_ / abs_cos_theta(sample.wi);
-        sample.bsdf_type = bsdf_type_e::reflection | bsdf_type_e::specluar;
+        sample.bsdf_type = bsdf_enum_t::reflection | bsdf_enum_t::specluar;
 
         return sample;
     }
@@ -1988,7 +1938,7 @@ public:
         sample.wi = vec3_t(-wo.x, -wo.y, wo.z); // TODO ERROR
         sample.pdf = 1;
         sample.f = T_ / abs_cos_theta(sample.wi);
-        sample.bsdf_type = bsdf_type_e::transmission | bsdf_type_e::specluar;
+        sample.bsdf_type = bsdf_enum_t::transmission | bsdf_enum_t::specluar;
 
         return sample;
     }
@@ -2032,7 +1982,7 @@ public:
             sample.pdf = Re; // Russian roulette???
 
             sample.f = (R_ * Re) / abs_cos_theta(sample.wi);
-            sample.bsdf_type = bsdf_type_e::reflection | bsdf_type_e::specluar;
+            sample.bsdf_type = bsdf_enum_t::reflection | bsdf_enum_t::specluar;
         }
         else
         {
@@ -2051,7 +2001,7 @@ public:
             
             sample.pdf = Tr;
             sample.f = (T_ * Tr) / abs_cos_theta(sample.wi);
-            sample.bsdf_type = bsdf_type_e::transmission | bsdf_type_e::specluar;
+            sample.bsdf_type = bsdf_enum_t::transmission | bsdf_enum_t::specluar;
         }
 
         return sample;
@@ -2060,7 +2010,7 @@ public:
     /*
     // smallpt version
     color_t sample_f_(const vec3_t& wo, const point2_t& random,
-        vec3_t* out_wi, Float* out_pdf_direction, bsdf_type_e* out_bsdf_type) const override
+        vec3_t* out_wi, Float* out_pdf_direction, bsdf_enum_t* out_bsdf_type) const override
     {
         normal_t normal(0, 0, 1);
         bool into = normal.dot(wo) > 0; // ray from outside going in?
@@ -2199,6 +2149,59 @@ inline bool is_delta_light(int flags)
 }
 
 
+/*
+  called `LightLeSample` in pbrt - v4, `PositionSample` in mitsuba2
+  mainly for light.sample_Le()
+*/
+struct position_sample_t
+{
+    bool is_delta;
+    point3_t position; // maybe zero
+    normal_t normal; // maybe zero
+    ray_t ray;
+    Float pdf_position = 0;
+    Float pdf_direction = 0;
+    color_t Le; // for light
+
+    position_sample_t() = default;
+    position_sample_t(
+        const point3_t& position, const normal_t& normal, const ray_t& ray,
+        Float pdf_position, Float pdf_direction,
+        const color_t& emission) :
+        position{ position },
+        normal{ normal },
+        ray(ray),
+        pdf_position(pdf_position),
+        pdf_direction(pdf_direction),
+        Le(emission)
+    {
+    }
+
+    Float abs_cos_theta(vec3_t w) const { return is_delta ? 1 : abs_dot(w, normal); }
+};
+
+/*
+  called `LightLiSample` in pbrt-v4, `DirectionSample` in mitsuba2
+  mainly for light.sample_Li()
+*/
+struct direction_sample_t // : public position_sample_t
+{
+    point3_t position;
+    vec3_t wi; // isect -> light, alone ray's direction
+    Float pdf; // pdf of direction
+    color_t Li; // for light
+
+    direction_sample_t() = default;
+    direction_sample_t(const isect_t& isect, const vec3_t& wi, Float pdf, const color_t& Li) :
+        position{ isect.position },
+        wi{ wi },
+        pdf{ pdf },
+        Li{ Li }
+    {
+    }
+};
+
+
 class scene_t;
 class light_t
 {
@@ -2293,7 +2296,7 @@ public:
     direction_sample_t sample_Li(const isect_t& isect, const point2_t& random) const override
     {
         direction_sample_t sample;
-        sample.isect = isect_t(world_position_, normal_t(), unit_vec3_t());
+        sample.position = world_position_;
         sample.wi = normalize(world_position_ - isect.position);
         sample.pdf = 1.f;
         sample.Li = intensity_ / distance_squared(world_position_, isect.position); // TODO
@@ -2364,7 +2367,7 @@ public:
     direction_sample_t sample_Li(const isect_t& isect, const point2_t& random) const override
     {
         direction_sample_t sample;
-        sample.isect = isect_t(world_position_, normal_t(), unit_vec3_t());
+        sample.position = world_position_;
         sample.wi = world_direction_;
         sample.pdf = 1;
         sample.Li = radiance_;
@@ -2465,16 +2468,17 @@ public:
     direction_sample_t sample_Li(const isect_t& isect, const point2_t& random) const override
     {
         direction_sample_t sample;
-        sample.isect = shape_->sample_direction(isect, random, &sample.pdf);
+        isect_t light_isect = shape_->sample_direction(isect, random, &sample.pdf);
+        sample.position = light_isect.position;
 
-        if (sample.pdf == 0 || (sample.isect.position - isect.position).magnitude_squared() == 0)
+        if (sample.pdf == 0 || (light_isect.position - isect.position).magnitude_squared() == 0)
         {
             sample.Li = color_t();
         }
         else
         {
-            sample.wi = normalize(sample.isect.position - isect.position);
-            sample.Li = Le(sample.isect, -sample.wi);
+            sample.wi = normalize(light_isect.position - isect.position);
+            sample.Li = Le(light_isect, -sample.wi);
         }
 
         return sample;
@@ -2554,7 +2558,7 @@ public:
     direction_sample_t sample_Li(const isect_t& isect, const point2_t& random) const override
     {
         direction_sample_t sample;
-        sample.isect = isect_t(world_position_, normal_t(), unit_vec3_t()); // TODO
+        sample.position = world_position_;
         sample.wi = sample_sphere_uniform(random);
 
         Float theta = spherical_theta(sample.wi);
@@ -2688,6 +2692,14 @@ public:
         float distance) //const
     {
         ray_t ray(point + dir * k_epsilon, dir, distance - 2 * k_epsilon);
+        isect_t unused;
+        return intersect(ray, &unused);
+    }
+    bool occluded(const isect_t& isect1, const point3_t& isect2) //const
+    {
+        auto ray = isect1.spawn_ray_to(isect2);
+        ray.set_distance(
+            distance(isect1.position, isect2) - 2 * k_epsilon);
         isect_t unused;
         return intersect(ray, &unused);
     }
@@ -2995,16 +3007,14 @@ void environment_light_t::preprocess(const scene_t& scene)
           = Le + ∫(Le + ∫Li)
           = Le + ∫Le + ∫∫(Le + ∫Li)) = ...
 */
-// lighting_enum_t
-enum class lighting_type_e
+enum class lighting_enum_t
 {
     emit, // Le = Le
     direct, // Ld = ∫Le
     indirect, // Li = ∫∫(Le + ∫Li)
 };
 
-// integrater_enum_t
-enum class integrater_e
+enum class integrater_enum_t
 {
     // debug
     depth,
@@ -3025,11 +3035,12 @@ enum class integrater_e
 
     // path tracing
     path_tracing_recursion_bsdf,
-    path_tracing_recursion_light,
-    path_tracing_recursion_mis,
-
     path_tracing_iteration_bsdf,
+
+    path_tracing_recursion_light,
     path_tracing_iteration_light,
+
+    path_tracing_recursion_mis,
     path_tracing_iteration_mis
 };
 
@@ -3146,7 +3157,7 @@ protected:
         const light_t& light, const point2_t& random2,
         scene_t* scene, sampler_t& sampler, bool specular)
     {
-        bsdf_type_e bsdfFlags;
+        bsdf_enum_t bsdf_enums;
         color_t Ld{};
 
         if (isect.bsdf()->is_delta() && (specular == false))
@@ -3165,7 +3176,7 @@ protected:
 
             if (!f.is_black())
             {
-                if (scene->occluded(isect, ls.isect))
+                if (scene->occluded(isect, ls.position))
                 {
                     ls.Li = color_t();
                 }
