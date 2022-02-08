@@ -33,6 +33,7 @@
 
 # Other
 .vs
+build
 ky
 out
 style

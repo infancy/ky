@@ -8,6 +8,7 @@
 #include <concepts>
 #include <exception>
 #include <format>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <numbers>
@@ -1115,6 +1116,7 @@ public:
 class sphere_t : public shape_t
 {
 public:
+    // TODO: sphere_t(vec3_t center, Float radius) :
     sphere_t(Float radius, vec3_t center) :
         center_(center),
         radius_(radius),
@@ -1375,9 +1377,7 @@ public:
     // https://github.com/skywind3000/RenderHelp/blob/master/RenderHelp.h#L937-L1018
     static bool store_bmp_impl(const std::string& filename, int width, int height, int channel, const Float* floats)
     {
-        // TODO
-        FILE* file = fopen(filename.c_str(), "wb");
-        if (file == nullptr) return false;
+        std::fstream bmp_file(filename, std::ios::binary | std::ios::out);
 
 
         uint32_t padding_line_bytes = (width * channel + 3) & (~3);
@@ -1387,27 +1387,18 @@ public:
         const uint32_t INFO_HEADER_SIZE = 40; 
 
         // write file header
-        struct BITMAP_FILE_HEADER
+        struct BITMAP_FILE_HEADER_INFO_HEADER
         {
-            char8_t padding[2]{};
-
-            char8_t type[2]{ 'B', 'M' };
+            // file header
+            //char8_t type[2]{ 'B', 'M' };
             uint32_t file_size{};
             uint32_t reserved{ 0 };
             uint32_t databody_offset{};
-        }
-        file_header{ .file_size{ FILE_HEADER_SIZE + INFO_HEADER_SIZE + padding_image_bytes } };
 
-        static_assert(sizeof(file_header) == FILE_HEADER_SIZE + 2);
-        fwrite(&file_header.type, FILE_HEADER_SIZE, 1, file);
-
-
-        // write info header
-        struct BITMAP_INFO_HEADER
-        {
+            // info header
             uint32_t	info_header_size{ INFO_HEADER_SIZE };
 
-            uint32_t	width{};
+            int32_t     width{};
             int32_t		height{};
             uint16_t	planes{ 1 };
             uint16_t	per_pixel_bits{};
@@ -1419,18 +1410,20 @@ public:
             uint32_t	color_used{ 0 };
             uint32_t	color_important{ 0 };
         }
-        info_header
-        { 
-            .width{ (uint32_t)width },
-            .height{ (uint16_t)height },
+        bmp_header
+        {
+            .file_size{ FILE_HEADER_SIZE + INFO_HEADER_SIZE + padding_image_bytes },
+            .width{ width },
+            .height{ height },
             .per_pixel_bits{ (uint16_t)(channel * 8) },
             .image_bytes{ uint32_t(padding_image_bytes) }
         };
 
-        static_assert(sizeof(info_header) == INFO_HEADER_SIZE);
-        fwrite(&info_header, INFO_HEADER_SIZE, 1, file);
-
+        bmp_file
+            .write("BM", 2)
+            .write((char*)&bmp_header, FILE_HEADER_SIZE + INFO_HEADER_SIZE);
         
+
         // without color table
 
 
@@ -1448,11 +1441,10 @@ public:
         // write data body 
         int line_num = width * channel;
         // bmp is stored from bottom to up
-        for(int y = height - 1; y >= 0; --y)
-            fwrite(bytes.get() + y * line_num, line_num, 1, file);
+        for (int y = height - 1; y >= 0; --y)
+            bmp_file.write((char*)(bytes.get() + y * line_num), line_num);
 
 
-        fclose(file);
         return true;
     }
 
@@ -2927,11 +2919,11 @@ public:
 
         surface_list_t surface_list
         {
-            {   left.get(),  green.get(), nullptr},
-            {  right.get(),    red.get(), nullptr },
+            {   left.get(),    red.get(), nullptr},
+            {  right.get(),   blue.get(), nullptr },
             {    top.get(),  white.get(), nullptr },
             { bottom.get(),  white.get(), nullptr },
-            {   back.get(),  white.get(), nullptr },
+            {   back.get(),  green.get(), nullptr },
         };
 
         if ((scene_enum & cornell_box_enum_t::glossy_floor) != cornell_box_enum_t::none)
@@ -2965,9 +2957,79 @@ public:
         return scene_t{ camera, shape_list, material_list, light_list, surface_list, environment_light };
     }
 
-    static scene_t create_mis_scene()
+    static scene_t create_mis_scene(point2_t film_resolution)
     {
+        const_camera_sptr_t camera = std::make_unique<camera_t>(
+            vec3_t{ 0, 5, -5 },
+            vec3_t{ 0, 0, 1 },
+            vec3_t{ 0, 1, 0 },
+            105, film_resolution);
 
+        material_sp black = std::make_shared<matte_material_t>(color_t());
+        material_sp gray = std::make_shared<matte_material_t>(color_t(.2, .2, .2));
+        material_sp white = std::make_shared<matte_material_t>(color_t(.9, .9, .9));
+
+        material_sp mirror_mat = std::make_shared<mirror_material_t>(color_t(1, 1, 1));
+        material_sp glass_mat = std::make_shared<glass_material_t>(color_t(1, 1, 1), color_t(1, 1, 1), 1.6);
+        material_list_t material_list{ black, gray, white, mirror_mat, glass_mat };
+
+#pragma region shape
+
+        shape_sp bottom = std::make_shared<rectangle_t>(
+            point3_t(-50, 0, -50), point3_t(-50, 0, 50), point3_t(50, 0, 50), point3_t(50, 0, -50));
+        shape_sp back = std::make_shared<rectangle_t>(
+            point3_t(-50, -50, 20), point3_t(-50, 50, 20), point3_t(50, 50, 20), point3_t(50, -50, 20));
+
+        shape_sp plank0 = std::make_shared<rectangle_t>(
+            point3_t(-5, 0.1, 5), point3_t(-5, 0.3, 6), point3_t(5, 0.3, 6), point3_t(5, 0.1, 5));
+        shape_sp plank1 = std::make_shared<rectangle_t>(
+            point3_t(-5, 0.4, 7), point3_t(-5, 0.8, 8), point3_t(5, 0.8, 8), point3_t(5, 0.4, 7));
+        shape_sp plank2 = std::make_shared<rectangle_t>(
+            point3_t(-5, 1.1, 9), point3_t(-5, 1.9, 10), point3_t(5, 1.9, 10), point3_t(5, 1.1, 9));
+        shape_sp plank3 = std::make_shared<rectangle_t>(
+            point3_t(-5, 2.2, 11), point3_t(-5, 4, 12), point3_t(5, 4, 12), point3_t(5, 2.2, 11));
+
+        shape_sp ball0 = std::make_shared<sphere_t>(0.1, point3_t(-4, 6, 8));
+        shape_sp ball1 = std::make_shared<sphere_t>(0.4, point3_t(-2, 6, 8));
+        shape_sp ball2 = std::make_shared<sphere_t>(0.9, point3_t(0.2, 6, 8));
+        shape_sp ball3 = std::make_shared<sphere_t>(1.6, point3_t( 4, 6, 8));
+
+        shape_list_t shape_list
+        {
+            bottom, back,
+            plank0, plank1, plank2, plank3,
+            ball0, ball1, ball2, ball3
+        };
+
+#pragma endregion
+
+        auto light0 = std::make_shared<area_light_t>(point3_t(), 1, color_t(25, 25, 25), ball0.get());
+        auto light1 = std::make_shared<area_light_t>(point3_t(), 1, color_t(25, 25, 25), ball1.get());
+        auto light2 = std::make_shared<area_light_t>(point3_t(), 1, color_t(25, 25, 25), ball2.get());
+        auto light3 = std::make_shared<area_light_t>(point3_t(), 1, color_t(25, 25, 25), ball3.get());
+
+        light_list_t light_list
+        {
+            light0, light1, light2, light3
+        };
+
+        surface_list_t surface_list
+        {
+            { bottom.get(), gray.get(), nullptr},
+            {   back.get(), gray.get(), nullptr},
+
+            { plank0.get(), white.get(), nullptr},
+            { plank1.get(), white.get(), nullptr},
+            { plank2.get(), white.get(), nullptr},
+            { plank3.get(), white.get(), nullptr},
+
+            { ball0.get(),  black.get(), light0.get() },
+            { ball1.get(),  black.get(), light1.get() },
+            { ball2.get(),  black.get(), light2.get() },
+            { ball3.get(),  black.get(), light3.get() },
+        };
+
+        return scene_t{ camera, shape_list, material_list, light_list, surface_list, nullptr };
     }
 
 private:
@@ -3533,9 +3595,10 @@ int main(int argc, char* argv[])
         std::make_unique<path_tracing_recursion_bsdf_t>(sampler.get(), &film, 10);
 
     //scene_t scene = scene_t::create_cornell_box_scene(cornell_box_enum_t::default_scene);
-    scene_t scene = scene_t::create_cornell_box_scene(
-        cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_environment,
-        film.get_resolution());
+    //scene_t scene = scene_t::create_cornell_box_scene(
+    //  cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_area, film.get_resolution());
+
+    scene_t scene = scene_t::create_mis_scene(film.get_resolution());
 
     integrater->render(&scene);
     //integrater->debug(&scene, { 160, 150 });
