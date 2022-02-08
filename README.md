@@ -83,6 +83,8 @@ ky is based on smallpt at first, gradually rewritten into a PBRT style
 
 * mmp/pbrt-v3: Source code for pbrt, the renderer described in the third edition of "Physically Based Rendering: From Theory To Implementation", by Matt Pharr, Wenzel Jakob, and Greg Humphreys. https://github.com/mmp/pbrt-v3
 
+* https://github.com/mmp/pbrt-v4
+
 * https://github.com/mitsuba-renderer/mitsuba2
 
 * xelatihy/yocto-gl: Yocto/GL: Tiny C++ Libraries for Data-Driven Physically-based Graphics https://github.com/xelatihy/yocto-gl
