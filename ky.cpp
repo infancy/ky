@@ -1116,8 +1116,7 @@ public:
 class sphere_t : public shape_t
 {
 public:
-    // TODO: sphere_t(vec3_t center, Float radius) :
-    sphere_t(Float radius, vec3_t center) :
+    sphere_t(vec3_t center, Float radius) :
         center_(center),
         radius_(radius),
         radius_sq_(radius * radius)
@@ -2098,6 +2097,8 @@ private:
     Float eta_;
 };
 
+// TODO: Normalizing Bling-Phong BRDF
+
 #pragma endregion
 
 
@@ -2842,9 +2843,9 @@ public:
         vec3_t left_center  = left_wall_center  + vec3_t(2.f * length_x / 7.f, 0, 0);
         vec3_t right_center = right_wall_center - vec3_t(2.f * length_x / 7.f, 0, 0);
 
-        shape_sp large_ball  = std::make_shared<sphere_t>(large_radius, large_center);
-        shape_sp left_ball   = std::make_shared<sphere_t>(small_radius, left_center);
-        shape_sp right_ball  = std::make_shared<sphere_t>(small_radius, right_center);
+        shape_sp large_ball  = std::make_shared<sphere_t>(large_center, large_radius);
+        shape_sp left_ball   = std::make_shared<sphere_t>(left_center, small_radius);
+        shape_sp right_ball  = std::make_shared<sphere_t>(right_center, small_radius);
 
 
         // small light box at the ceiling
@@ -2989,10 +2990,10 @@ public:
         shape_sp plank3 = std::make_shared<rectangle_t>(
             point3_t(-5, 2.2, 11), point3_t(-5, 4, 12), point3_t(5, 4, 12), point3_t(5, 2.2, 11));
 
-        shape_sp ball0 = std::make_shared<sphere_t>(0.1, point3_t(-4, 6, 8));
-        shape_sp ball1 = std::make_shared<sphere_t>(0.4, point3_t(-2, 6, 8));
-        shape_sp ball2 = std::make_shared<sphere_t>(0.9, point3_t(0.2, 6, 8));
-        shape_sp ball3 = std::make_shared<sphere_t>(1.6, point3_t( 4, 6, 8));
+        shape_sp ball0 = std::make_shared<sphere_t>(point3_t(-4, 6, 8), 0.1);
+        shape_sp ball1 = std::make_shared<sphere_t>(point3_t(-2, 6, 8), 0.4);
+        shape_sp ball2 = std::make_shared<sphere_t>(point3_t(0.2, 6, 8), 0.9);
+        shape_sp ball3 = std::make_shared<sphere_t>(point3_t( 4, 6, 8), 1.6);
 
         shape_list_t shape_list
         {
