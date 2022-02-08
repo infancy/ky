@@ -1297,29 +1297,6 @@ private:
 
 #pragma endregion
 
-#pragma region accelerator
-
-enum class accel_enum_t
-{
-    trivial
-    // bvh
-};
-
-// TODO
-class accel_t
-{
-public:
-    accel_t(surface_list_t surface_list) :
-        surface_list_{ surface_list }
-    {
-    }
-
-private:
-    surface_list_t surface_list_;
-};
-
-#pragma endregion
-
 
 
 #pragma region filter
@@ -1558,6 +1535,8 @@ private:
 
     vec2_t resolution_;
 };
+
+using const_camera_sptr_t = std::shared_ptr<const camera_t>;
 
 // TODO: smallpt_camera
 
@@ -2623,9 +2602,32 @@ using surface_list_t = std::vector<surface_t>;
 
 #pragma endregion
 
+#pragma region accelerator
+
+enum class accel_enum_t
+{
+    trivial
+    // bvh
+};
+
+// TODO
+class accel_t
+{
+public:
+    accel_t(surface_list_t surface_list) :
+        surface_list_{ surface_list }
+    {
+    }
+
+private:
+    surface_list_t surface_list_;
+};
+
+#pragma endregion
+
 #pragma region scene
 
-enum class scene_enum_t
+enum class cornell_box_enum_t
 {
     // point_light_diffuse_ball,
     // area_light_specular_ball,
@@ -2650,16 +2652,18 @@ enum class scene_enum_t
     default_scene = both_small_spheres | light_area,
 };
 
-constexpr scene_enum_t operator&(scene_enum_t a, scene_enum_t b) { return (scene_enum_t)((int)a & (int)b); }
-constexpr scene_enum_t operator|(scene_enum_t a, scene_enum_t b) { return (scene_enum_t)((int)a | (int)b); }
+constexpr cornell_box_enum_t operator&(cornell_box_enum_t a, cornell_box_enum_t b) { return (cornell_box_enum_t)((int)a & (int)b); }
+constexpr cornell_box_enum_t operator|(cornell_box_enum_t a, cornell_box_enum_t b) { return (cornell_box_enum_t)((int)a | (int)b); }
 
 class scene_t : public reference_type_t
 {
 public:
     scene_t() = default;
     scene_t(
+        const_camera_sptr_t camera,
         shape_list_t shape_list, material_list_t material_list, light_list_t light_list, 
         surface_list_t surface_list, environment_light_t* env_light = nullptr) :
+        camera_{ camera },
         shape_list_{ shape_list },
         material_list_{ material_list },
         light_list_{ light_list },
@@ -2726,7 +2730,7 @@ public:
     }
 
 public:
-    //const camera_t camera() const { return camera_; }
+    const camera_t* camera() const { return camera_.get(); }
 
     int light_count() const { return light_list_.size(); }
     const light_list_t& light_list() const
@@ -2737,7 +2741,8 @@ public:
     const environment_light_t* environment_light() const { return environment_light_; }
 
 public:
-    static scene_t create_smallpt_scene(scene_enum_t scene_type)
+    /*
+    static scene_t create_smallpt_scene()
     {
         bool is_double = std::is_same_v<Float, double>;
         KY_CHECK(is_double);
@@ -2786,14 +2791,20 @@ public:
 
         return scene_t{ shape_list, material_list, light_list, surface_list};
     }
+    */
 
-    static scene_t create_cornell_box_scene(scene_enum_t scene_enum)
+    static scene_t create_cornell_box_scene(cornell_box_enum_t scene_enum, point2_t film_resolution)
     {
-        if ((scene_enum & scene_enum_t::both_large_spheres) == scene_enum_t::both_large_spheres)
+        if ((scene_enum & cornell_box_enum_t::both_large_spheres) == cornell_box_enum_t::both_large_spheres)
         {
             LOG_ERROR("Cannot have both large balls, using mirror\n\n");
         }
 
+        const_camera_sptr_t camera = std::make_unique<camera_t>(
+                vec3_t{ -0.0439815f, -4.12529f,  0.222539f },
+                vec3_t{ 0.00688625f, 0.998505f, -0.0542161f },
+                vec3_t{ 3.73896e-4f, 0.0542148f, 0.998529f },
+                80, film_resolution);
 
         material_sp black = std::make_shared<matte_material_t>(color_t());
         material_sp white = std::make_shared<matte_material_t>(color_t(.8, .8, .8));
@@ -2874,10 +2885,10 @@ public:
 
         #pragma region light
 
-        bool light_area = (scene_enum & scene_enum_t::light_area) != scene_enum_t::none;
-        bool light_directional = (scene_enum & scene_enum_t::light_directional) != scene_enum_t::none;
-        bool light_point = (scene_enum & scene_enum_t::light_point) != scene_enum_t::none;
-        bool light_environment = (scene_enum & scene_enum_t::light_environment) != scene_enum_t::none;
+        bool light_area = (scene_enum & cornell_box_enum_t::light_area) != cornell_box_enum_t::none;
+        bool light_directional = (scene_enum & cornell_box_enum_t::light_directional) != cornell_box_enum_t::none;
+        bool light_point = (scene_enum & cornell_box_enum_t::light_point) != cornell_box_enum_t::none;
+        bool light_environment = (scene_enum & cornell_box_enum_t::light_environment) != cornell_box_enum_t::none;
 
         light_list_t light_list{};
         if (light_area)
@@ -2923,20 +2934,20 @@ public:
             {   back.get(),  white.get(), nullptr },
         };
 
-        if ((scene_enum & scene_enum_t::glossy_floor) != scene_enum_t::none)
+        if ((scene_enum & cornell_box_enum_t::glossy_floor) != cornell_box_enum_t::none)
         {
             surface_list[3].material = blue.get();
             surface_list[4].material = white.get(); // TODO
         }
 
-        if ((scene_enum & scene_enum_t::large_mirror_sphere) != scene_enum_t::none)
+        if ((scene_enum & cornell_box_enum_t::large_mirror_sphere) != cornell_box_enum_t::none)
             surface_list.push_back({ large_ball.get(), mirror_mat.get(), nullptr });
-        else if ((scene_enum & scene_enum_t::large_glass_sphere) != scene_enum_t::none)
+        else if ((scene_enum & cornell_box_enum_t::large_glass_sphere) != cornell_box_enum_t::none)
             surface_list.push_back({ large_ball.get(), glass_mat.get(), nullptr });
 
-        if ((scene_enum & scene_enum_t::small_mirror_sphere) != scene_enum_t::none)
+        if ((scene_enum & cornell_box_enum_t::small_mirror_sphere) != cornell_box_enum_t::none)
             surface_list.push_back({ left_ball.get(), mirror_mat.get(), nullptr });
-        if ((scene_enum & scene_enum_t::small_glass_sphere) != scene_enum_t::none)
+        if ((scene_enum & cornell_box_enum_t::small_glass_sphere) != cornell_box_enum_t::none)
             surface_list.push_back({ right_ball.get(), glass_mat.get(), nullptr });
 
         if (light_area)
@@ -2951,12 +2962,17 @@ public:
         #pragma endregion
 
 
-        return scene_t{ shape_list, material_list, light_list, surface_list, environment_light };
+        return scene_t{ camera, shape_list, material_list, light_list, surface_list, environment_light };
     }
 
-    static scene_t create_mis_scene(scene_enum_t scene_enum);
+    static scene_t create_mis_scene()
+    {
+
+    }
 
 private:
+    const_camera_sptr_t camera_;
+
     shape_list_t shape_list_;
     material_list_t material_list_;
 
@@ -2966,8 +2982,6 @@ private:
     // TODO: std::vector<std::function<intersect(ray_t ray), result_t> surfaces_;
     surface_list_t surface_list_;
     accel_t accel_;
-
-    //camera_t camera_;
 };
 
 
@@ -3052,9 +3066,8 @@ class integrater_t
 {
 public:
     ~integrater_t() = default;
-    integrater_t(sampler_t* sampler, const camera_t* camera, film_t* film):
+    integrater_t(sampler_t* sampler, film_t* film):
         sampler_{ sampler },
-        camera_{ camera },
         film_{ film }
     {
     }
@@ -3071,6 +3084,7 @@ public:
         for (int y = 0; y < height; y += 1)
         {
             auto sampler = sampler_->clone(); // multi thread
+            auto camera = scene->camera();
             LOG("\rrendering... ({} spp) {:.2f}%", sampler->ge_samples_per_pixel(), 100. * y / (height - 1));
 
             for (int x = 0; x < width; x += 1)
@@ -3082,7 +3096,7 @@ public:
                 do
                 {
                     auto sample = sampler->get_camera_sample({ (Float)x, (Float)y });
-                    auto ray = camera_->generate_ray(sample);
+                    auto ray = camera->generate_ray(sample);
 
                     L = L + Li(ray, scene, sampler.get(), 0) * (1. / sampler->ge_samples_per_pixel());
                 }
@@ -3104,6 +3118,7 @@ public:
     void debug(scene_t* scene, const point2_t& film_position)
     {
         color_t L{};
+        auto camera = scene->camera();
         auto sampler = sampler_->clone(); // multi thread
         sampler->start_sample();
         //film_->set_color(x, y, color_t(0, 0, 0));
@@ -3111,7 +3126,7 @@ public:
         do
         {
             auto sample = sampler->get_camera_sample(film_position);
-            auto ray = camera_->generate_ray(sample);
+            auto ray = camera->generate_ray(sample);
 
             auto dL = Li(ray, scene, sampler.get(), 0) * (1. / sampler->ge_samples_per_pixel());
             LOG("dL:{}\n", dL.to_string());
@@ -3249,7 +3264,6 @@ protected:
 
 private:
     sampler_t* sampler_;
-    const camera_t* camera_;
     film_t* film_;
 };
 
@@ -3282,8 +3296,8 @@ protected:
 class path_integrater_t : public integrater_t
 {
 public:
-    path_integrater_t(sampler_t* sampler, const camera_t* camera, film_t* film, int max_path_depth):
-        integrater_t(sampler, camera, film),
+    path_integrater_t(sampler_t* sampler, film_t* film, int max_path_depth):
+        integrater_t(sampler, film),
         max_path_depth_{ max_path_depth }
     {
     }
@@ -3510,22 +3524,18 @@ int main(int argc, char* argv[])
     clock_t start = clock(); // MILO
 
     int width = 256, height = 256;
-    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 1000; // # samples per pixel
+    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 100; // # samples per pixel
 
     film_t film(width, height); //film.clear(color_t(1., 0., 0.));
-    std::unique_ptr<const camera_t> camera = 
-        std::make_unique<camera_t>(
-            vec3_t{ -0.0439815f, -4.12529f,  0.222539f }, 
-            vec3_t{ 0.00688625f, 0.998505f, -0.0542161f },
-            vec3_t{ 3.73896e-4f, 0.0542148f, 0.998529f },
-            80, film.get_resolution());
-    std::unique_ptr<sampler_t> sampler = std::make_unique<random_sampler_t>(samples_per_pixel);
+    std::unique_ptr<sampler_t> sampler =
+        std::make_unique<random_sampler_t>(samples_per_pixel);
+    std::unique_ptr<integrater_t> integrater =
+        std::make_unique<path_tracing_recursion_bsdf_t>(sampler.get(), &film, 10);
 
-    //scene_t scene = scene_t::create_cornell_box_scene(scene_enum_t::default_scene);
-    scene_t scene = scene_t::create_cornell_box_scene(scene_enum_t::both_small_spheres | scene_enum_t::light_point);
-
-    std::unique_ptr<integrater_t> integrater = 
-        std::make_unique<path_tracing_recursion_bsdf_t>(sampler.get(), camera.get(), &film, 10);
+    //scene_t scene = scene_t::create_cornell_box_scene(cornell_box_enum_t::default_scene);
+    scene_t scene = scene_t::create_cornell_box_scene(
+        cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_environment,
+        film.get_resolution());
 
     integrater->render(&scene);
     //integrater->debug(&scene, { 160, 150 });
