@@ -3292,7 +3292,7 @@ protected:
 
         for (const auto& light : scene->light_list())
         {
-            Ld += estimate_direct_lighting_both(
+            Ld += estimate_direct_lighting_both_mis(
                 isect, *light, sampler.get_vec2(), sampler.get_vec2(),
                 scene, sampler, skip_specular);
         }
@@ -3388,25 +3388,21 @@ protected:
         const point2_t& random_light, const point2_t& random_bsdf,
         scene_t* scene, sampler_t& sampler, bool skip_specular)
     {
-        bsdf_enum_t bsdf_enums;
         color_t Ld{};
 
-        if (isect.bsdf()->is_delta() && (skip_specular == false))
+        bool sample_specular = isect.bsdf()->is_delta();
+        if (skip_specular && sample_specular)
             return Ld;
 
         // Sample BSDF with multiple importance sampling
-        // bsdf.Sample_f + light.Li/Pdf_Li
         if (!light.is_delta())
         {
             // Sample scattered direction for surface isect_ts
             auto bs = isect.bsdf()->sample_f(isect.wo, random_bsdf);
             bs.f *= abs_dot(bs.wi, isect.normal);
-            bool sample_specular = is_delta_bsdf(bs.bsdf_type);
 
             if (!bs.f.is_black() && bs.pdf > 0)
             {
-                // Account for light contributions along sampled direction _wi_
-
                 Float weight = 1;
                 if (!sample_specular)
                 {
@@ -3419,22 +3415,21 @@ protected:
                 // else 
                 //    weight = 1;
 
-
-                // Find intersection and compute transmittance
-                isect_t light_isect;
                 ray_t ray = isect.spawn_ray(bs.wi);
-                bool is_hit = scene->intersect(ray, &light_isect);
+                isect_t light_isect;
+                bool is_hit_light = scene->intersect(ray, &light_isect);
 
-                // Add light contribution from material sampling
                 color_t Li{};
-                if (is_hit)
+                if (is_hit_light)
                 {
                     if (light_isect.surface()->area_light == &light)
                         Li = light_isect.Le();
                 }
                 else
+                {
+                    // for environment light
                     Li = light.Le(ray);
-
+                }
 
                 if (!Li.is_black())
                     Ld += bs.f * Li * weight / bs.pdf;
@@ -3450,16 +3445,14 @@ protected:
         const point2_t& random_light, const point2_t& random_bsdf,
         scene_t* scene, sampler_t& sampler, bool skip_specular)
     {
-        bsdf_enum_t bsdf_enums;
         color_t Ld{};
 
-        if (isect.bsdf()->is_delta() && (skip_specular == false))
+        if (skip_specular && isect.bsdf()->is_delta())
             return Ld;
 
         // Sample light source with multiple importance sampling
-        // light.Sample_Li + bsdf.f/pdf
         auto ls = light.sample_Li(isect, random_light);
-        if (ls.pdf > 0 && !ls.Li.is_black())
+        if (!ls.Li.is_black() && ls.pdf > 0)
         {
             // Compute BSDF or phase function's value for light sample
             color_t f = isect.bsdf()->f(isect.wo, ls.wi) * abs_dot(ls.wi, isect.normal);
@@ -3494,92 +3487,9 @@ protected:
         const point2_t& random_light, const point2_t& random_bsdf,
         scene_t* scene, sampler_t& sampler, bool skip_specular)
     {
-        bsdf_enum_t bsdf_enums;
-        color_t Ld{};
-
-        if (isect.bsdf()->is_delta() && (skip_specular == false))
-            return Ld;
-
-
-        // Sample light source with multiple importance sampling
-        // light.Sample_Li + bsdf.f/pdf
-        auto ls = light.sample_Li(isect, random_light);
-        if (ls.pdf > 0 && !ls.Li.is_black())
-        {
-            // Compute BSDF or phase function's value for light sample
-            color_t f = isect.bsdf()->f(isect.wo, ls.wi) * abs_dot(ls.wi, isect.normal);
-            Float pdf_bsdf = isect.bsdf()->pdf(isect.wo, ls.wi);
-
-            if (!f.is_black())
-            {
-                if (scene->occluded(isect, ls.position))
-                {
-                    ls.Li = color_t();
-                }
-
-                // Add light's contribution to reflected radiance
-                if (!ls.Li.is_black())
-                {
-                    if (light.is_delta())	
-                        Ld += f * ls.Li / ls.pdf;	// return f * Li / pdf_light;
-                    else
-                    {
-                        Float weight = power_heuristic(1, ls.pdf, 1, pdf_bsdf);
-                        Ld += f * ls.Li * weight / ls.pdf;
-                    }
-                }
-            }
-        }
-
-
-        // Sample BSDF with multiple importance sampling
-        // bsdf.Sample_f + light.Li/Pdf_Li
-        if (!light.is_delta())
-        {
-            // Sample scattered direction for surface isect_ts
-            auto bs = isect.bsdf()->sample_f(isect.wo, random_bsdf);
-            bs.f *= abs_dot(bs.wi, isect.normal);
-            bool sample_specular = is_delta_bsdf(bs.bsdf_type);
-
-            if (!bs.f.is_black() && bs.pdf > 0)
-            {
-                // Account for light contributions along sampled direction _wi_
-
-                Float weight = 1;
-                if (!sample_specular)
-                {
-                    Float pdf_light = light.pdf_Li(isect, bs.wi);
-                    if (pdf_light == 0)
-                        return Ld;
-
-                    weight = power_heuristic(1, bs.pdf, 1, pdf_light);
-                }
-                // else 
-                //    weight = 1;
-
-
-                // Find intersection and compute transmittance
-                isect_t light_isect;
-                ray_t ray = isect.spawn_ray(bs.wi);
-                bool is_hit = scene->intersect(ray, &light_isect);
-
-                // Add light contribution from material sampling
-                color_t Li{};
-                if (is_hit)
-                {
-                    if (light_isect.surface()->area_light == &light)    
-                        Li = light_isect.Le();
-                }
-                else
-                    Li = light.Le(ray);
-
-
-                if (!Li.is_black())
-                    Ld += bs.f * Li * weight / bs.pdf;
-            }
-        }
-
-        return Ld;
+        return
+            estimate_direct_lighting_direction_mis(isect, light, random_light, random_bsdf, scene, sampler, skip_specular) +
+            estimate_direct_lighting_position_mis(isect, light, random_light, random_bsdf, scene, sampler, skip_specular);
     }
 
 private:
