@@ -2530,8 +2530,8 @@ public:
     direction_sample_t sample_Li(const isect_t& isect, const point2_t& random) const override
     {
         direction_sample_t sample;
-        sample.position = world_position_;
         sample.wi = sample_sphere_uniform(random);
+        sample.position = isect.position + sample.wi * 2 * world_radius_;
 
         Float theta = spherical_theta(sample.wi);
         Float sin_theta = std::sin(theta);
@@ -2664,6 +2664,13 @@ public:
         surface_list_{ surface_list },
         accel_{ surface_list_ }
     {
+		// TODO
+        for (auto& light : light_list_)
+        {
+            light->preprocess(*this);
+        }
+		
+		// TODO: environment light
     }
 
 public:
@@ -3068,12 +3075,16 @@ void direction_light_t::preprocess(const scene_t& scene)
 
 void environment_light_t::preprocess(const scene_t& scene)
 {
+    // TODO
+    world_radius_ = 1000;
+    /*
     auto world_bound = scene.world_bound();
 
     world_bound.bounding_sphere(&world_center_, &world_radius_);
 
     area_ = k_pi * world_radius_ * world_radius_;
     power_ = radiance_ * area_;
+    */
 }
 
 #pragma endregion
@@ -3281,7 +3292,7 @@ protected:
 
         for (const auto& light : scene->light_list())
         {
-            Ld += estimate_direct_lighting_position(
+            Ld += estimate_direct_lighting_both(
                 isect, *light, sampler.get_vec2(), sampler.get_vec2(),
                 scene, sampler, skip_specular);
         }
@@ -3955,13 +3966,13 @@ int main(int argc, char* argv[])
     //std::unique_ptr<integrater_t> integrater =
     //    std::make_unique<simple_path_tracing_recursion_t>(sampler.get(), &film, 10);
     std::unique_ptr<integrater_t> integrater =
-        std::make_unique<path_tracing_recursion_t>(sampler.get(), &film, 10, direct_sample_enum_t::bsdf);
+        std::make_unique<path_tracing_iteration_t>(sampler.get(), &film, 10, direct_sample_enum_t::bsdf);
 
 
     //scene_t scene = scene_t::create_mis_scene(film.get_resolution());
     //scene_t scene = scene_t::create_cornell_box_scene(cornell_box_enum_t::default_scene);
     scene_t scene = scene_t::create_cornell_box_scene(
-      cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_directional, film.get_resolution());
+      cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_environment, film.get_resolution());
 
 
     integrater->render(&scene);
