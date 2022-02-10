@@ -196,7 +196,7 @@ struct vec3_t
         //std::array<Float, 3> a_{};
     };
 
-    vec3_t() = default;
+    vec3_t() : x{ 0 }, y{ 0 }, z{ 0 } {}
     vec3_t(Float x, Float y, Float z) { this->x = x; this->y = y; this->z = z; }
 
     Float operator[](int i) const { DCHECK(i >= 0 && i < 3); return (&x)[i]; }
@@ -2340,7 +2340,7 @@ public:
     {
         direction_sample_t sample;
         sample.position = world_position_;
-        sample.wi = world_direction_;
+        sample.wi = -world_direction_;
         sample.pdf = 1;
         sample.Li = radiance_;
 
@@ -2893,7 +2893,7 @@ public:
         if (light_directional)
         {
             light_list.push_back(
-                std::make_shared<direction_light_t>(point3_t(), 1, color_t(10, 4, 0), vec3_t(-1, 1.5, -1)));
+                std::make_shared<direction_light_t>(point3_t(-5., 5., -5.), 1, color_t(1, 1, 1), vec3_t(1, -1.5, 1)));
         }
 
         if (light_point)
@@ -3055,12 +3055,15 @@ void light_t::preprocess(const scene_t& scene)
 
 void direction_light_t::preprocess(const scene_t& scene)
 {
+    //TODO
+    /*
     auto world_bound = scene.world_bound();
 
     world_bound.bounding_sphere(&world_center_, &world_radius_);
 
     area_ = k_pi * world_radius_ * world_radius_;
     power_ = radiance_ * area_;
+    */
 }
 
 void environment_light_t::preprocess(const scene_t& scene)
@@ -3251,7 +3254,7 @@ protected:
     }
 
     static color_t sample_single_light(
-        const isect_t& isect, scene_t* scene, sampler_t& sampler)
+        const isect_t& isect, scene_t* scene, sampler_t& sampler, bool skip_specular)
     {
         // Randomly choose a single light to sample
         int light_count = int(scene->light_count());
@@ -3268,19 +3271,19 @@ protected:
 
         // default skip perfectly specular BSDF due to its delta distribution
         return estimate_direct_lighting_both_mis(isect, *light, uLight, uScattering,
-            scene, sampler, true) / pdf_light; // for all light
+            scene, sampler, skip_specular) / pdf_light; // for all light
     }
 
     static color_t sample_all_light(
-        const isect_t& isect, scene_t* scene, sampler_t& sampler)
+        const isect_t& isect, scene_t* scene, sampler_t& sampler, bool skip_specular)
     {
         color_t Ld;
 
         for (const auto& light : scene->light_list())
         {
-            Ld += estimate_direct_lighting_direction(
+            Ld += estimate_direct_lighting_position(
                 isect, *light, sampler.get_vec2(), sampler.get_vec2(),
-                scene, sampler, true);
+                scene, sampler, skip_specular);
         }
 
         return Ld;
@@ -3343,7 +3346,7 @@ protected:
         if (ls.Li.is_black() || ls.pdf == 0)
             return Ld;
 
-        if (!scene->occluded(isect, ls.position))
+        if (scene->occluded(isect, ls.position))
             return Ld;
 
         color_t f = isect.bsdf()->f(isect.wo, ls.wi);
@@ -3744,6 +3747,7 @@ public:
     }
 
 private:
+    /// <param name="is_last_specular">last vertex is specular</param>
     color_t Li(ray_t ray, scene_t* scene, sampler_t* sampler, int depth, bool is_last_specular)
     {
         isect_t isect;
@@ -3786,9 +3790,10 @@ private:
         const isect_t& isect)
     {
         color_t Ld{};
+        // skip specular bsdf
         if (!isect.bsdf()->is_delta())
         {
-            Ld = sample_all_light(isect, scene, *sampler);
+            Ld = sample_all_light(isect, scene, *sampler, true);
         }
         return Ld;
     }
@@ -3866,7 +3871,7 @@ public:
             // (But skip this for perfectly specular BSDFs.)
             if (!isect.bsdf()->is_delta())
             {
-                color_t Ld = beta * sample_all_light(isect, scene, *sampler);
+                color_t Ld = beta * sample_all_light(isect, scene, *sampler, true);
                 L += Ld;
             }
 
@@ -3956,7 +3961,7 @@ int main(int argc, char* argv[])
     //scene_t scene = scene_t::create_mis_scene(film.get_resolution());
     //scene_t scene = scene_t::create_cornell_box_scene(cornell_box_enum_t::default_scene);
     scene_t scene = scene_t::create_cornell_box_scene(
-      cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_area, film.get_resolution());
+      cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_directional, film.get_resolution());
 
 
     integrater->render(&scene);
