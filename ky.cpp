@@ -774,6 +774,10 @@ public:
     {
         return samples_per_pixel_;
     }
+    virtual void set_samples_per_pixel(int samples_per_pixel)
+    {
+        samples_per_pixel_ = samples_per_pixel;
+    }
 
     virtual std::unique_ptr<sampler_t> clone() = 0;
 
@@ -3946,15 +3950,16 @@ void render_multiple_scene(int argc, char* argv[])
     std::unique_ptr<integrater_t> integrater =
         std::make_unique<path_tracing_iteration_t>(10, direct_sample_enum_t::bsdf);
 
-    auto scene_enums = std::vector<cornell_box_enum_t>
+    auto scene_params = std::vector<std::pair<cornell_box_enum_t, int>>
     {
-        cornell_box_enum_t::light_point,
-        cornell_box_enum_t::light_area,
-        cornell_box_enum_t::light_directional,
-        cornell_box_enum_t::light_environment,
+        { cornell_box_enum_t::light_point, 100 },
+        { cornell_box_enum_t::light_area, 1 },
+        { cornell_box_enum_t::light_directional, 10 },
+        { cornell_box_enum_t::light_environment, 10 },
     };
-    for (auto scene_enum : scene_enums)
+    for (auto [scene_enum, spp] : scene_params)
     {
+        sampler->set_samples_per_pixel(spp);
         scene_t scene = scene_t::create_cornell_box_scene(
             cornell_box_enum_t::both_small_spheres | scene_enum, film.get_resolution());
 
