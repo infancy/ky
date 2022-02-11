@@ -3927,35 +3927,33 @@ void render_single_scene(int argc, char* argv[])
     //scene_t scene = scene_t::create_mis_scene(film.get_resolution());
     //scene_t scene = scene_t::create_cornell_box_scene(cornell_box_enum_t::default_scene);
     scene_t scene = scene_t::create_cornell_box_scene(
-        cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_environment, film.get_resolution());
+        cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_point, film.get_resolution());
 
     integrater->render(&scene, sampler.get(), &film);
     //integrater->debug(&scene, { 160, 150 });
 
-    film.store_image("image.bmp"s);
+    film.store_image("single.bmp"s);
 #ifdef KY_WINDOWS
-    system("mspaint image.bmp");
+    system("mspaint single.bmp");
 #endif
 }
 
 void render_multiple_scene(int argc, char* argv[])
 {
     int width = 256, height = 256;
-    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 10; // # samples per pixel
 
-    // 1, 4
-    film_grid_t film(1, 4, width, height); //film.clear(color_t(1., 0., 0.));
+    film_grid_t film(2, 4, width, height); //film.clear(color_t(1., 0., 0.));
     std::unique_ptr<sampler_t> sampler =
-        std::make_unique<random_sampler_t>(samples_per_pixel);
+        std::make_unique<random_sampler_t>(10);
     std::unique_ptr<integrater_t> integrater =
         std::make_unique<path_tracing_iteration_t>(10, direct_sample_enum_t::bsdf);
 
     auto scene_params = std::vector<std::pair<cornell_box_enum_t, int>>
     {
-        { cornell_box_enum_t::light_point, 100 },
         { cornell_box_enum_t::light_area, 1 },
-        { cornell_box_enum_t::light_directional, 10 },
-        { cornell_box_enum_t::light_environment, 10 },
+        { cornell_box_enum_t::light_directional, 1 },
+        { cornell_box_enum_t::light_environment, 1 },
+        { cornell_box_enum_t::light_point, 1 },
     };
     for (auto [scene_enum, spp] : scene_params)
     {
@@ -3969,9 +3967,9 @@ void render_multiple_scene(int argc, char* argv[])
         film.next_cell();
     }
 
-    film.store_image("image.bmp"s);
+    film.store_image("multi.bmp"s);
 #ifdef KY_WINDOWS
-    system("mspaint image.bmp");
+    system("mspaint multi.bmp");
 #endif
 }
 
@@ -3979,7 +3977,8 @@ int main(int argc, char* argv[])
 {
     clock_t start = clock(); // MILO
 
-    render_multiple_scene(argc, argv);
+    render_single_scene(argc, argv);
+    //render_multiple_scene(argc, argv);
 
     LOG("\n{} sec\n", (Float)(clock() - start) / CLOCKS_PER_SEC); // MILO
     return 0;
