@@ -113,12 +113,14 @@ inline void LOG_ERROR(const std::string_view fmt, const Ts&... args)
     #endif
 
     #ifndef DCHECK
+        #define EXPAND( x ) x
+
         #define DCHECK1(condition)      if(!(condition)) LOG_ERROR("{}", #condition)
         #define DCHECK2(condition, msg) if(!(condition)) LOG_ERROR("{}", msg)
-        #define DCHECK3(condition, ...) if(!(condition)) LOG_ERROR(__VA_ARGS__)
+        #define DCHECK3(condition, ...) EXPAND( if(!(condition)) LOG_ERROR(__VA_ARGS__) )
 
-        #define GET_MACRO_(_1, _2, _3, NAME, ...) NAME
-        #define DCHECK(...) GET_MACRO_(__VA_ARGS__, DCHECK3, DCHECK2, DCHECK1, UNUSED)(__VA_ARGS__)
+        #define GET_MACRO_(_1, _2, _3, _4, _5, NAME, ...) NAME
+        #define DCHECK(...) EXPAND( GET_MACRO_(__VA_ARGS__, DCHECK3, DCHECK3, DCHECK3, DCHECK2, DCHECK1, UNUSED)(__VA_ARGS__) )
     #endif
 #else
     #ifndef LOG_DEBUG
@@ -1338,11 +1340,12 @@ public:
     int get_height() const { return height_; }
     int get_pixel_num() const { return width_ * height_; }
     int get_channels() const { return 3; }
-    vec2_t get_resolution() const { return { (Float)width_, (Float)height_ }; }
-
+    
+    virtual vec2_t get_resolution() const { return { (Float)width_, (Float)height_ }; }
     virtual color_t& operator()(int x, int y)
     {
-        DCHECK(x >= 0 && x < width_&& y >= 0 && y < height_);
+        DCHECK(x >= 0 && x < width_ && y >= 0 && y < height_, 
+            "out of bound: {}, {}", x, y);
         return *(pixels_.get() + get_width() * y + x);
     }
 
@@ -1459,7 +1462,7 @@ class film_grid_t : public film_t
 {
 public:
     film_grid_t(int row, int column, int width, int height) :
-        film_t(row* width, column* height),
+        film_t(width * column, height * row),
         row_{ row },
         column_{ column },
         sub_width_{ width },
@@ -1468,16 +1471,18 @@ public:
     }
 
 public:
-    void next_cell()
-    {
-        ++currrent_index_;
-    }
+    vec2_t get_resolution() const override { return { (Float)sub_width_, (Float)sub_height_ }; }
 
     color_t& operator()(int x, int y) override
     {
-        int row_index = currrent_index_ % row_;
-        int col_index = currrent_index_ / column_;
-        return film_t::operator()(x + row_index * sub_width_ , y + col_index * sub_height_);
+        int col_index = currrent_index_ % column_;
+        int row_index = currrent_index_ / column_;
+        return film_t::operator()(x + col_index * sub_width_ , y + row_index * sub_height_);
+    }
+
+    void next_cell()
+    {
+        ++currrent_index_;
     }
 
 private:
@@ -3240,8 +3245,9 @@ public:
 public:
     void render(/*const*/ scene_t* scene, sampler_t* original_sampler, film_t* film)
     {
-        int height = film->get_height();
-        int width = film->get_width();
+        auto resolution = film->get_resolution();
+        int width = (int)resolution.x;
+        int height = (int)resolution.y;
 
     #ifndef KY_DEBUG
         #pragma omp parallel for schedule(dynamic, 1) // OpenMP
@@ -3902,38 +3908,75 @@ class build_t_
 
 };
 
-int main(int argc, char* argv[])
-{
-    clock_t start = clock(); // MILO
 
+void render_single_scene(int argc, char* argv[])
+{
     int width = 256, height = 256;
     int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 100; // # samples per pixel
 
     film_t film(width, height); //film.clear(color_t(1., 0., 0.));
     std::unique_ptr<sampler_t> sampler =
         std::make_unique<random_sampler_t>(samples_per_pixel);
-
-    //std::unique_ptr<integrater_t> integrater =
-    //    std::make_unique<simple_path_tracing_recursion_t>(sampler.get(), &film, 10);
     std::unique_ptr<integrater_t> integrater =
         std::make_unique<path_tracing_iteration_t>(10, direct_sample_enum_t::bsdf);
-
 
     //scene_t scene = scene_t::create_mis_scene(film.get_resolution());
     //scene_t scene = scene_t::create_cornell_box_scene(cornell_box_enum_t::default_scene);
     scene_t scene = scene_t::create_cornell_box_scene(
-      cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_environment, film.get_resolution());
-
+        cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_environment, film.get_resolution());
 
     integrater->render(&scene, sampler.get(), &film);
     //integrater->debug(&scene, { 160, 150 });
-
-    LOG("\n{} sec\n", (Float)(clock() - start) / CLOCKS_PER_SEC); // MILO
 
     film.store_image("image.bmp"s);
 #ifdef KY_WINDOWS
     system("mspaint image.bmp");
 #endif
+}
+
+void render_multiple_scene(int argc, char* argv[])
+{
+    int width = 256, height = 256;
+    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 10; // # samples per pixel
+
+    // 1, 4
+    film_grid_t film(1, 4, width, height); //film.clear(color_t(1., 0., 0.));
+    std::unique_ptr<sampler_t> sampler =
+        std::make_unique<random_sampler_t>(samples_per_pixel);
+    std::unique_ptr<integrater_t> integrater =
+        std::make_unique<path_tracing_iteration_t>(10, direct_sample_enum_t::bsdf);
+
+    auto scene_enums = std::vector<cornell_box_enum_t>
+    {
+        cornell_box_enum_t::light_point,
+        cornell_box_enum_t::light_area,
+        cornell_box_enum_t::light_directional,
+        cornell_box_enum_t::light_environment,
+    };
+    for (auto scene_enum : scene_enums)
+    {
+        scene_t scene = scene_t::create_cornell_box_scene(
+            cornell_box_enum_t::both_small_spheres | scene_enum, film.get_resolution());
+
+        integrater->render(&scene, sampler.get(), &film);
+        //integrater->debug(&scene, { 160, 150 });
+
+        film.next_cell();
+    }
+
+    film.store_image("image.bmp"s);
+#ifdef KY_WINDOWS
+    system("mspaint image.bmp");
+#endif
+}
+
+int main(int argc, char* argv[])
+{
+    clock_t start = clock(); // MILO
+
+    render_multiple_scene(argc, argv);
+
+    LOG("\n{} sec\n", (Float)(clock() - start) / CLOCKS_PER_SEC); // MILO
     return 0;
 }
 
