@@ -1340,7 +1340,7 @@ public:
     int get_channels() const { return 3; }
     vec2_t get_resolution() const { return { (Float)width_, (Float)height_ }; }
 
-    color_t& operator()(int x, int y)
+    virtual color_t& operator()(int x, int y)
     {
         DCHECK(x >= 0 && x < width_&& y >= 0 && y < height_);
         return *(pixels_.get() + get_width() * y + x);
@@ -1454,6 +1454,40 @@ private:
     std::unique_ptr<color_t[]> pixels_;
 };
 
+// multi film
+class film_grid_t : public film_t
+{
+public:
+    film_grid_t(int row, int column, int width, int height) :
+        film_t(row* width, column* height),
+        row_{ row },
+        column_{ column },
+        sub_width_{ width },
+        sub_height_{ height }
+    {
+    }
+
+public:
+    void next_cell()
+    {
+        ++currrent_index_;
+    }
+
+    color_t& operator()(int x, int y) override
+    {
+        int row_index = currrent_index_ % row_;
+        int col_index = currrent_index_ / column_;
+        return film_t::operator()(x + row_index * sub_width_ , y + col_index * sub_height_);
+    }
+
+private:
+    int row_;
+    int column_;
+    int currrent_index_{};
+
+    int sub_width_;
+    int sub_height_;
+};
 
 #pragma endregion
 
@@ -1848,7 +1882,6 @@ private:
 };
 
 
-
 class specular_reflection_t : public bsdf_t
 {
 public:
@@ -1882,8 +1915,6 @@ private:
     color_t R_;
 };
 
-
-
 // TODO
 class specular_transmission_t : public bsdf_t
 {
@@ -1916,7 +1947,6 @@ public:
 private:
     color_t T_;
 };
-
 
 
 class fresnel_specular_t : public bsdf_t
@@ -2024,6 +2054,35 @@ private:
     color_t T_;
     Float etaA_;
     Float etaB_;
+};
+
+
+class phong_reflection_t : public bsdf_t
+{
+public:
+    phong_reflection_t(const frame_t& shading_frame, const color_t& R) :
+        bsdf_t(shading_frame), R_{ R }
+    {
+    }
+
+    bool is_delta() const override { return false; }
+
+    color_t f_(const vec3_t& wo, const vec3_t& wi) const override
+    {
+    }
+
+    Float pdf_(const vec3_t& wo, const vec3_t& wi) const override { return 0; }
+
+    bsdf_sample_t sample_f_(const vec3_t& wo, const point2_t& random) const override
+    {
+        bsdf_sample_t sample;
+
+
+        return sample;
+    }
+
+private:
+    color_t R_;
 };
 
 #pragma endregion
@@ -3113,10 +3172,9 @@ enum class direct_sample_enum_t
 
     bsdf = 4, // direction
     light = 8, // position
-    both = bsdf | light,
 
-    bsdf_mis = 16,
-    light_mis = 32,
+    bsdf_mis = 16, // for debug
+    light_mis = 32, // for debug
     both_mis = bsdf_mis | light_mis,
 
     default_stragtgy = sample_all_light | both_mis
@@ -3175,24 +3233,22 @@ class integrater_t
 {
 public:
     ~integrater_t() = default;
-    integrater_t(sampler_t* sampler, film_t* film):
-        sampler_{ sampler },
-        film_{ film }
+    integrater_t()
     {
     }
 
 public:
-    void render(/*const*/ scene_t* scene)
+    void render(/*const*/ scene_t* scene, sampler_t* original_sampler, film_t* film)
     {
-        int height = film_->get_height();
-        int width = film_->get_width();
+        int height = film->get_height();
+        int width = film->get_width();
 
     #ifndef KY_DEBUG
         #pragma omp parallel for schedule(dynamic, 1) // OpenMP
     #endif // !KY_DEBUG
         for (int y = 0; y < height; y += 1)
         {
-            auto sampler = sampler_->clone(); // multi thread
+            auto sampler = original_sampler->clone(); // multi thread
             auto camera = scene->camera();
             LOG("\rrendering... ({} spp) {:.2f}%", sampler->ge_samples_per_pixel(), 100. * y / (height - 1));
 
@@ -3212,7 +3268,7 @@ public:
                 while (sampler->next_sample());
 
                 // TODO
-                film_->add_color(x, y, clamp01(L));
+                film->add_color(x, y, clamp01(L));
             }
         }
     }
@@ -3224,11 +3280,11 @@ public:
 
     }
 
-    void debug(scene_t* scene, const point2_t& film_position)
+    void debug(scene_t* scene, sampler_t* original_sampler, film_t* film, const point2_t& film_position)
     {
         color_t L{};
         auto camera = scene->camera();
-        auto sampler = sampler_->clone(); // multi thread
+        auto sampler = original_sampler->clone(); // multi thread
         sampler->start_sample();
         //film_->set_color(x, y, color_t(0, 0, 0));
 
@@ -3303,7 +3359,7 @@ protected:
 protected:
     // sample direct lighting
 
-    // sample from BSDF/direction
+    // sample from bsdf/direction
     static color_t estimate_direct_lighting_direction(
         const isect_t& isect, const light_t& light,
         const point2_t& random_light, const point2_t& random_bsdf,
@@ -3369,20 +3425,9 @@ protected:
         return Ld;
     }
 
-    static color_t estimate_direct_lighting_both(
-        const isect_t& isect, const light_t& light,
-        const point2_t& random_light, const point2_t& random_bsdf,
-        scene_t* scene, sampler_t& sampler, bool skip_specular)
-    {
-        return
-            estimate_direct_lighting_direction(isect, light, random_light, random_bsdf, scene, sampler, skip_specular) +
-            estimate_direct_lighting_position(isect, light, random_light, random_bsdf, scene, sampler, skip_specular);
-    }
 
-protected:
     // sample direct lighting with MIS
 
-    // sample from bsdf
     static color_t estimate_direct_lighting_direction_mis(
         const isect_t& isect, const light_t& light,
         const point2_t& random_light, const point2_t& random_bsdf,
@@ -3439,7 +3484,6 @@ protected:
         return Ld;
     }
 
-    // sample from light
     static color_t estimate_direct_lighting_position_mis(
         const isect_t& isect, const light_t& light,
         const point2_t& random_light, const point2_t& random_bsdf,
@@ -3491,10 +3535,6 @@ protected:
             estimate_direct_lighting_direction_mis(isect, light, random_light, random_bsdf, scene, sampler, skip_specular) +
             estimate_direct_lighting_position_mis(isect, light, random_light, random_bsdf, scene, sampler, skip_specular);
     }
-
-private:
-    sampler_t* sampler_;
-    film_t* film_;
 };
 
 
@@ -3525,8 +3565,7 @@ protected:
 class path_integrater_t : public integrater_t
 {
 public:
-    path_integrater_t(sampler_t* sampler, film_t* film, int max_path_depth):
-        integrater_t(sampler, film),
+    path_integrater_t(int max_path_depth):
         max_path_depth_{ max_path_depth }
     {
     }
@@ -3599,8 +3638,9 @@ public:
 class path_integrater_sample_t : public path_integrater_t
 {
 public:
-    path_integrater_sample_t(sampler_t* sampler, film_t* film, int max_path_depth, direct_sample_enum_t sample_enum) :
-        path_integrater_t(sampler, film, max_path_depth)
+    path_integrater_sample_t(int max_path_depth, direct_sample_enum_t sample_enum) :
+        path_integrater_t(max_path_depth),
+        sample_enum_{ sample_enum }
     {
     }
 
@@ -3876,7 +3916,7 @@ int main(int argc, char* argv[])
     //std::unique_ptr<integrater_t> integrater =
     //    std::make_unique<simple_path_tracing_recursion_t>(sampler.get(), &film, 10);
     std::unique_ptr<integrater_t> integrater =
-        std::make_unique<path_tracing_iteration_t>(sampler.get(), &film, 10, direct_sample_enum_t::bsdf);
+        std::make_unique<path_tracing_iteration_t>(10, direct_sample_enum_t::bsdf);
 
 
     //scene_t scene = scene_t::create_mis_scene(film.get_resolution());
@@ -3885,7 +3925,7 @@ int main(int argc, char* argv[])
       cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_environment, film.get_resolution());
 
 
-    integrater->render(&scene);
+    integrater->render(&scene, sampler.get(), &film);
     //integrater->debug(&scene, { 160, 150 });
 
     LOG("\n{} sec\n", (Float)(clock() - start) / CLOCKS_PER_SEC); // MILO
