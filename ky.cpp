@@ -9,6 +9,7 @@
 #include <exception>
 #include <format>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <numbers>
@@ -104,8 +105,14 @@ inline void LOG_ERROR(const std::string_view fmt, const Ts&... args)
     throw std::exception(msg.c_str());
 }
 
-// TODO
-#define KY_CHECK(condition) if(!(condition)) LOG_ERROR("{}", #condition)
+
+#define EXPAND( x ) x
+#define CHECK1(condition)      if(!(condition)) LOG_ERROR("{}", #condition)
+#define CHECK2(condition, msg) if(!(condition)) LOG_ERROR("{}", msg)
+#define CHECK3(condition, ...) EXPAND( if(!(condition)) LOG_ERROR(__VA_ARGS__) )
+#define GET_MACRO_(_1, _2, _3, _4, _5, NAME, ...) NAME
+
+#define CHECK(...) EXPAND( GET_MACRO_(__VA_ARGS__, CHECK3, CHECK3, CHECK3, CHECK2, CHECK1, UNUSED)(__VA_ARGS__) )
 
 #ifdef KY_DEBUG
     #ifndef LOG_DEBUG
@@ -113,14 +120,7 @@ inline void LOG_ERROR(const std::string_view fmt, const Ts&... args)
     #endif
 
     #ifndef DCHECK
-        #define EXPAND( x ) x
-
-        #define DCHECK1(condition)      if(!(condition)) LOG_ERROR("{}", #condition)
-        #define DCHECK2(condition, msg) if(!(condition)) LOG_ERROR("{}", msg)
-        #define DCHECK3(condition, ...) EXPAND( if(!(condition)) LOG_ERROR(__VA_ARGS__) )
-
-        #define GET_MACRO_(_1, _2, _3, _4, _5, NAME, ...) NAME
-        #define DCHECK(...) EXPAND( GET_MACRO_(__VA_ARGS__, DCHECK3, DCHECK3, DCHECK3, DCHECK2, DCHECK1, UNUSED)(__VA_ARGS__) )
+        #define DCHECK(...) EXPAND( CHECK(__VA_ARGS__) )
     #endif
 #else
     #ifndef LOG_DEBUG
@@ -131,7 +131,6 @@ inline void LOG_ERROR(const std::string_view fmt, const Ts&... args)
         #define DCHECK(...)
     #endif
 #endif
-
 
 #pragma endregion
 
@@ -3352,13 +3351,35 @@ protected:
     }
 
     static color_t sample_all_light(
-        const isect_t& isect, scene_t* scene, sampler_t& sampler, bool skip_specular)
+        const isect_t& isect, scene_t* scene, sampler_t& sampler, bool skip_specular, direct_sample_enum_t sample_enum)
     {
         color_t Ld;
 
+        std::function<decltype(estimate_direct_lighting_both_mis)> estimate_direct_lighting;
+        switch (sample_enum)
+        {
+        case direct_sample_enum_t::bsdf:
+            estimate_direct_lighting = estimate_direct_lighting_direction;
+            break;
+        case direct_sample_enum_t::light:
+            estimate_direct_lighting = estimate_direct_lighting_position;
+            break;
+        case direct_sample_enum_t::bsdf_mis:
+            estimate_direct_lighting = estimate_direct_lighting_direction_mis;
+            break;
+        case direct_sample_enum_t::light_mis:
+            estimate_direct_lighting = estimate_direct_lighting_direction_mis;
+            break;
+        case direct_sample_enum_t::both_mis:
+            estimate_direct_lighting = estimate_direct_lighting_both_mis;
+            break;
+        default:
+            break;
+        }
+
         for (const auto& light : scene->light_list())
         {
-            Ld += estimate_direct_lighting_both_mis(
+            Ld += estimate_direct_lighting(
                 isect, *light, sampler.get_vec2(), sampler.get_vec2(),
                 scene, sampler, skip_specular);
         }
@@ -3764,7 +3785,7 @@ private:
         // skip specular bsdf
         if (!isect.bsdf()->is_delta())
         {
-            Ld = sample_all_light(isect, scene, *sampler, true);
+            Ld = sample_all_light(isect, scene, *sampler, true, sample_enum_);
         }
         return Ld;
     }
@@ -3842,7 +3863,7 @@ public:
             // (But skip this for perfectly specular BSDFs.)
             if (!isect.bsdf()->is_delta())
             {
-                color_t Ld = beta * sample_all_light(isect, scene, *sampler, true);
+                color_t Ld = beta * sample_all_light(isect, scene, *sampler, true, sample_enum_);
                 L += Ld;
             }
 
@@ -3916,7 +3937,7 @@ class build_t_
 void render_single_scene(int argc, char* argv[])
 {
     int width = 256, height = 256;
-    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 100; // # samples per pixel
+    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 1; // # samples per pixel
 
     film_t film(width, height); //film.clear(color_t(1., 0., 0.));
     std::unique_ptr<sampler_t> sampler =
@@ -3940,32 +3961,57 @@ void render_single_scene(int argc, char* argv[])
 
 void render_multiple_scene(int argc, char* argv[])
 {
-    int width = 256, height = 256;
-
-    film_grid_t film(2, 4, width, height); //film.clear(color_t(1., 0., 0.));
-    std::unique_ptr<sampler_t> sampler =
-        std::make_unique<random_sampler_t>(10);
-    std::unique_ptr<integrater_t> integrater =
-        std::make_unique<path_tracing_iteration_t>(10, direct_sample_enum_t::bsdf);
-
     auto scene_params = std::vector<std::pair<cornell_box_enum_t, int>>
     {
-        { cornell_box_enum_t::light_area, 1 },
+        { cornell_box_enum_t::light_point, 10 },
         { cornell_box_enum_t::light_directional, 1 },
+        { cornell_box_enum_t::light_area, 1 },
         { cornell_box_enum_t::light_environment, 1 },
-        { cornell_box_enum_t::light_point, 1 },
     };
+
+    auto sample_enums = std::vector<direct_sample_enum_t>
+    {
+        direct_sample_enum_t::bsdf,
+        direct_sample_enum_t::light,
+        direct_sample_enum_t::both_mis,
+    };
+
+    film_grid_t film(3, 4, 256, 256); //film.clear(color_t(1., 0., 0.));
+    for (auto sample_enum : sample_enums)
+    {
+        std::unique_ptr<integrater_t> integrater =
+            std::make_unique<path_tracing_iteration_t>(5, sample_enum);
+
+        for (auto [scene_enum, spp] : scene_params)
+        {
+            std::unique_ptr<sampler_t> sampler =
+                std::make_unique<random_sampler_t>(spp);
+            scene_t scene = scene_t::create_cornell_box_scene(
+                cornell_box_enum_t::both_small_spheres | scene_enum, film.get_resolution());
+
+            integrater->render(&scene, sampler.get(), &film);
+            film.next_cell();
+        }
+    }
+
+    /*
     for (auto [scene_enum, spp] : scene_params)
     {
-        sampler->set_samples_per_pixel(spp);
+        std::unique_ptr<sampler_t> sampler =
+            std::make_unique<random_sampler_t>(spp);
         scene_t scene = scene_t::create_cornell_box_scene(
             cornell_box_enum_t::both_small_spheres | scene_enum, film.get_resolution());
 
-        integrater->render(&scene, sampler.get(), &film);
-        //integrater->debug(&scene, { 160, 150 });
-
-        film.next_cell();
+        for (auto sample_enum : sample_enums)
+        {
+            std::unique_ptr<integrater_t> integrater =
+                std::make_unique<path_tracing_iteration_t>(5, sample_enum);
+            integrater->render(&scene, sampler.get(), &film);
+            
+            film.next_cell();
+        }
     }
+    */
 
     film.store_image("multi.bmp"s);
 #ifdef KY_WINDOWS
@@ -3977,8 +4023,8 @@ int main(int argc, char* argv[])
 {
     clock_t start = clock(); // MILO
 
-    render_single_scene(argc, argv);
-    //render_multiple_scene(argc, argv);
+    //render_single_scene(argc, argv);
+    render_multiple_scene(argc, argv);
 
     LOG("\n{} sec\n", (Float)(clock() - start) / CLOCKS_PER_SEC); // MILO
     return 0;
