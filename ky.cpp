@@ -15,6 +15,7 @@
 #include <numbers>
 #include <optional>
 #include <random>
+#include <source_location>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -90,21 +91,26 @@ protected:
 
 
 template <typename... Ts>
-inline void LOG(const std::string_view fmt, const Ts&... args)
+inline void _LOG(const std::source_location& location, const std::string_view fmt, Ts&&... args)
 {
-    auto msg = std::vformat(fmt, std::make_format_args(args...));
+    auto msg = std::format("{}(...) line{}: ", location.function_name(), location.line()) + 
+        std::format(fmt, std::forward<Ts>(args)...);
     std::printf("%s", msg.c_str());
 }
 
 // TODO: file, line
 template <typename... Ts>
-inline void LOG_ERROR(const std::string_view fmt, const Ts&... args)
+inline void _LOG_ERROR(const std::source_location& location, const std::string_view fmt, Ts&&... args)
 {
-    auto msg = std::vformat(fmt, std::make_format_args(args...));
+    auto msg = std::format("{}(...) line{}: ", location.function_name(), location.line()) + 
+        std::format(fmt, std::forward<Ts>(args)...);
     std::printf("%s", msg.c_str());
+
     throw std::exception(msg.c_str());
 }
 
+#define LOG(...) _LOG(std::source_location::current(), __VA_ARGS__)
+#define LOG_ERROR(...) _LOG_ERROR(std::source_location::current(), __VA_ARGS__)
 
 #define EXPAND( x ) x
 #define CHECK1(condition)      if(!(condition)) LOG_ERROR("{}", #condition)
@@ -119,16 +125,16 @@ inline void LOG_ERROR(const std::string_view fmt, const Ts&... args)
         #define LOG_DEBUG(...) LOG(__VA_ARGS__)
     #endif
 
-    #ifndef DCHECK
-        #define DCHECK(...) EXPAND( CHECK(__VA_ARGS__) )
+    #ifndef CHECK_DEBUG
+        #define CHECK_DEBUG(...) EXPAND( CHECK(__VA_ARGS__) )
     #endif
 #else
     #ifndef LOG_DEBUG
         #define LOG_DEBUG(...) 
     #endif
 
-    #ifndef DCHECK
-        #define DCHECK(...)
+    #ifndef CHECK_DEBUG
+        #define CHECK_DEBUG(...)
     #endif
 #endif
 
@@ -171,7 +177,7 @@ struct vec2_t
 
     Float operator[](int index) const
     {
-        DCHECK((index >= 0) && (index <= 1));
+        CHECK_DEBUG((index >= 0) && (index <= 1));
 
         if (index == 0) return x;
         else return y;
@@ -200,7 +206,7 @@ struct vec3_t
     vec3_t() : x{ 0 }, y{ 0 }, z{ 0 } {}
     vec3_t(Float x, Float y, Float z) { this->x = x; this->y = y; this->z = z; }
 
-    Float operator[](int i) const { DCHECK(i >= 0 && i < 3); return (&x)[i]; }
+    Float operator[](int i) const { CHECK_DEBUG(i >= 0 && i < 3); return (&x)[i]; }
     vec3_t operator-() const { return vec3_t(-x, -y, -z); }
 
     vec3_t& operator+=(const vec3_t& v) { x += v.x; y += v.y; z += v.z; return *this; }
@@ -283,6 +289,7 @@ public:
 public:
     // deubg
     bool is_valid() const { return ::is_valid(x) && ::is_valid(y) && ::is_valid(z); }
+    bool is_zero() const { return (x == 0) && (y == 0) && (z == 0); }
     bool has_negative() const { return (x < 0) || (y < 0) || (z < 0); }
     bool small_than(vec3_t vec3) const { return (x < vec3.x) || (y < vec3.y) || (z < vec3.z); }
 
@@ -498,15 +505,9 @@ public:
         direction_{ direction },
         distance_{ distance }
     {
-        /* TODO
-        DCHECK(direction_.is_unit());
-        DCHECK(direction_.is_unit(), "aabb");
-        DCHECK(direction_.is_unit(), "not unit vector magnitude is {}", direction_.magnitude());
-
-        GET_MACRO_(direction_.is_unit(), DCHECK3, DCHECK2, DCHECK1) (direction_.is_unit());
-        GET_MACRO_(direction_.is_unit(), "aabb", DCHECK3, DCHECK2, DCHECK1) (direction_.is_unit(), "aabb");
-        GET_MACRO_(__VA_ARGS__, DCHECK3, DCHECK2, DCHECK1, UNUSED)(__VA_ARGS__);
-        */
+        // TODO: move to unit_vec3_t
+        // CHECK_DEBUG(direction_.is_unit(), "ray.direction {} magnitude {:.6f} not a unit vector", 
+        //     direction_.to_string(), direction_.magnitude());
     }
 
     point3_t origin() const { return origin_; }
@@ -518,7 +519,7 @@ public:
 
     point3_t operator()(Float t) const
     {
-        DCHECK(t >= 0);
+        CHECK_DEBUG(t >= 0);
         return origin_ + t * direction_;
     }
 
@@ -1050,7 +1051,7 @@ public:
         p1_ = p1;
         p2_ = p2;
         p3_ = p3;
-        // TODO: DCHECK
+        // TODO: CHECK_DEBUG
 
         normal_ = normalize(cross(p1_ - p0_, p2_ - p0_));
     }
@@ -1347,7 +1348,7 @@ public:
     virtual vec2_t get_resolution() const { return { (Float)width_, (Float)height_ }; }
     virtual color_t& operator()(int x, int y)
     {
-        DCHECK(x >= 0 && x < width_ && y >= 0 && y < height_, 
+        CHECK_DEBUG(x >= 0 && x < width_ && y >= 0 && y < height_, 
             "out of bound: {}, {}", x, y);
         return *(pixels_.get() + get_width() * y + x);
     }
@@ -1607,6 +1608,7 @@ inline bool refract(const vec3_t& wo, const normal_t& normal, Float eta, vec3_t*
 
     Float cos_theta_t = std::sqrt(1 - sin_theta_t_sq);
     *out_wt = eta * -wo + (eta * cos_theta_i - cos_theta_t) * vec3_t(normal);
+    CHECK_DEBUG(out_wt->is_valid() && !out_wt->is_zero());
 
     return true;
 }
@@ -1882,6 +1884,7 @@ public:
         sample.f = f_(wo, sample.wi);
         sample.bsdf_type = bsdf_enum_t::reflection | bsdf_enum_t::diffuse;
 
+        CHECK_DEBUG(sample.f.is_valid());
         return sample;
     }
 
@@ -1916,6 +1919,7 @@ public:
         sample.f = R_ / abs_cos_theta(sample.wi);
         sample.bsdf_type = bsdf_enum_t::reflection | bsdf_enum_t::specluar;
 
+        CHECK_DEBUG(sample.f.is_valid());
         return sample;
     }
 
@@ -1949,6 +1953,7 @@ public:
         sample.f = T_ / abs_cos_theta(sample.wi);
         sample.bsdf_type = bsdf_enum_t::transmission | bsdf_enum_t::specluar;
 
+        CHECK_DEBUG(sample.f.is_valid());
         return sample;
     }
 
@@ -1991,25 +1996,30 @@ public:
 
             sample.f = (R_ * Re) / abs_cos_theta(sample.wi);
             sample.bsdf_type = bsdf_enum_t::reflection | bsdf_enum_t::specluar;
+
+            CHECK_DEBUG(sample.f.is_valid());
         }
         else
         {
             // Compute specular transmission for _FresnelSpecular_
 
-            normal_t normal(0, 0, 1);
+            normal_t normal(0, 0, 1); // use `z` as normal
             bool into = normal.dot(wo) > 0; // ray from outside going in?
 
             normal_t wo_normal = into ? normal : normal * -1;
             Float eta = into ? etaA_ / etaB_ : etaB_ / etaA_;
 
-            if (!refract(wo, wo_normal, eta, &sample.wi))
+            if (refract(wo, wo_normal, eta, &sample.wi))
+            {
+                sample.pdf = Tr;
+                sample.f = (T_ * Tr) / abs_cos_theta(sample.wi);
+                sample.bsdf_type = bsdf_enum_t::transmission | bsdf_enum_t::specluar;
+                CHECK_DEBUG(sample.f.is_valid());
+            }
+            else
             {
                 sample.f = color_t(); // total internal reflection
             }
-            
-            sample.pdf = Tr;
-            sample.f = (T_ * Tr) / abs_cos_theta(sample.wi);
-            sample.bsdf_type = bsdf_enum_t::transmission | bsdf_enum_t::specluar;
         }
 
         return sample;
@@ -3259,7 +3269,7 @@ public:
         {
             auto sampler = original_sampler->clone(); // multi thread
             auto camera = scene->camera();
-            LOG("\rrendering... ({} spp) {:.2f}%", sampler->ge_samples_per_pixel(), 100. * y / (height - 1));
+            LOG("rendering... ({} spp) {:.2f}%\r", sampler->ge_samples_per_pixel(), 100. * y / (height - 1));
 
             for (int x = 0; x < width; x += 1)
             {
@@ -3368,7 +3378,7 @@ protected:
             estimate_direct_lighting = estimate_direct_lighting_direction_mis;
             break;
         case direct_sample_enum_t::light_mis:
-            estimate_direct_lighting = estimate_direct_lighting_direction_mis;
+            estimate_direct_lighting = estimate_direct_lighting_position_mis;
             break;
         case direct_sample_enum_t::both_mis:
             estimate_direct_lighting = estimate_direct_lighting_both_mis;
@@ -3653,7 +3663,7 @@ public:
         ray_t wi_ray(isect.position, bs.wi);
         color_t Ls = bs.f * Li(wi_ray, scene, sampler, depth) * abs_dot(bs.wi, isect.normal) / bs.pdf;
 
-        // TODO: DCHECK
+        // TODO: CHECK_DEBUG
         return isect.Le() + Ls;
     }
 };
@@ -3878,8 +3888,8 @@ public:
 
             // update path throughout
             beta *= bs.f * abs_dot(bs.wi, isect.normal) / bs.pdf;
-            DCHECK(beta.luminance() > 0.f);
-            DCHECK(!std::isinf(beta.luminance()));
+            CHECK_DEBUG(beta.luminance() > 0.f, "{}", beta.to_string());
+            CHECK_DEBUG(!std::isinf(beta.luminance()));
 
             // TODO
             is_last_specular = is_delta_bsdf(bs.bsdf_type);
@@ -3897,7 +3907,7 @@ public:
                 else
                 {
                     beta *= 1 / (1 - q);
-                    DCHECK(!std::isinf(beta.luminance()));
+                    CHECK_DEBUG(!std::isinf(beta.luminance()));
                 }
             }
         }
@@ -3937,18 +3947,18 @@ class build_t_
 void render_single_scene(int argc, char* argv[])
 {
     int width = 256, height = 256;
-    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 1; // # samples per pixel
+    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 10; // # samples per pixel
 
     film_t film(width, height); //film.clear(color_t(1., 0., 0.));
     std::unique_ptr<sampler_t> sampler =
         std::make_unique<random_sampler_t>(samples_per_pixel);
     std::unique_ptr<integrater_t> integrater =
-        std::make_unique<path_tracing_iteration_t>(10, direct_sample_enum_t::bsdf);
+        std::make_unique<path_tracing_iteration_t>(10, direct_sample_enum_t::both_mis);
 
     //scene_t scene = scene_t::create_mis_scene(film.get_resolution());
     //scene_t scene = scene_t::create_cornell_box_scene(cornell_box_enum_t::default_scene);
     scene_t scene = scene_t::create_cornell_box_scene(
-        cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_point, film.get_resolution());
+        cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_environment, film.get_resolution());
 
     integrater->render(&scene, sampler.get(), &film);
     //integrater->debug(&scene, { 160, 150 });
@@ -3959,11 +3969,54 @@ void render_single_scene(int argc, char* argv[])
 #endif
 }
 
+void render_multiple_scene_(int argc, char* argv[])
+{
+    auto scene_params = std::vector<std::pair<cornell_box_enum_t, int>>
+    {
+        //{ cornell_box_enum_t::light_point, 1 },
+        //{ cornell_box_enum_t::light_directional, 1 },
+        //{ cornell_box_enum_t::light_area, 1 },
+        { cornell_box_enum_t::light_environment, 10 },
+    };
+
+    auto sample_enums = std::vector<direct_sample_enum_t>
+    {
+        direct_sample_enum_t::bsdf,
+        direct_sample_enum_t::light,
+        direct_sample_enum_t::bsdf_mis,
+        direct_sample_enum_t::light_mis,
+        direct_sample_enum_t::both_mis,
+    };
+
+    film_grid_t film(3, 2, 256, 256); //film.clear(color_t(1., 0., 0.));
+    for (auto [scene_enum, spp] : scene_params)
+    {
+        std::unique_ptr<sampler_t> sampler =
+            std::make_unique<random_sampler_t>(spp);
+        scene_t scene = scene_t::create_cornell_box_scene(
+            cornell_box_enum_t::both_small_spheres | scene_enum, film.get_resolution());
+
+        for (auto sample_enum : sample_enums)
+        {
+            std::unique_ptr<integrater_t> integrater =
+                std::make_unique<path_tracing_iteration_t>(5, sample_enum);
+            integrater->render(&scene, sampler.get(), &film);
+
+            film.next_cell();
+        }
+    }
+
+    film.store_image("multi.bmp"s);
+#ifdef KY_WINDOWS
+    system("mspaint multi.bmp");
+#endif
+}
+
 void render_multiple_scene(int argc, char* argv[])
 {
     auto scene_params = std::vector<std::pair<cornell_box_enum_t, int>>
     {
-        { cornell_box_enum_t::light_point, 10 },
+        { cornell_box_enum_t::light_point, 1 },
         { cornell_box_enum_t::light_directional, 1 },
         { cornell_box_enum_t::light_area, 1 },
         { cornell_box_enum_t::light_environment, 1 },
@@ -3973,10 +4026,12 @@ void render_multiple_scene(int argc, char* argv[])
     {
         direct_sample_enum_t::bsdf,
         direct_sample_enum_t::light,
+        direct_sample_enum_t::bsdf_mis,
+        direct_sample_enum_t::light_mis,
         direct_sample_enum_t::both_mis,
     };
 
-    film_grid_t film(3, 4, 256, 256); //film.clear(color_t(1., 0., 0.));
+    film_grid_t film(5, 4, 256, 256); //film.clear(color_t(1., 0., 0.));
     for (auto sample_enum : sample_enums)
     {
         std::unique_ptr<integrater_t> integrater =
@@ -4024,7 +4079,8 @@ int main(int argc, char* argv[])
     clock_t start = clock(); // MILO
 
     //render_single_scene(argc, argv);
-    render_multiple_scene(argc, argv);
+    render_multiple_scene_(argc, argv);
+    //render_multiple_scene(argc, argv);
 
     LOG("\n{} sec\n", (Float)(clock() - start) / CLOCKS_PER_SEC); // MILO
     return 0;
