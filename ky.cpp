@@ -18,6 +18,7 @@
 #include <source_location>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 using namespace std::literals::string_literals;
 
@@ -2339,7 +2340,7 @@ public:
     virtual Float pdf_Li(const isect_t& isect, const vec3_t& world_wi) const = 0;
 
 protected:
-    const point3_t& world_position_;
+    point3_t world_position_;
     int samples_num_;
 };
 
@@ -4018,7 +4019,7 @@ class build_t_
 void render_single_scene(int argc, char* argv[])
 {
     int width = 256, height = 256;
-    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 1000; // # samples per pixel
+    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 100; // # samples per pixel
 
     film_t film(width, height); //film.clear(color_t(1., 0., 0.));
     std::unique_ptr<sampler_t> sampler =
@@ -4029,28 +4030,35 @@ void render_single_scene(int argc, char* argv[])
     //scene_t scene = scene_t::create_mis_scene(film.get_resolution());
     //scene_t scene = scene_t::create_cornell_box_scene(cornell_box_enum_t::default_scene);
     scene_t scene = scene_t::create_cornell_box_scene(
-        cornell_box_enum_t::large_mirror_sphere | cornell_box_enum_t::light_area, film.get_resolution());
+        cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_point, film.get_resolution());
 
 #ifndef KY_DEBUG
     integrater->render(&scene, sampler.get(), &film);
 #else
-    integrater->debug(&scene, sampler.get(), &film, { 30, 33 }, { 31, 170 });
+    integrater->debug(&scene, sampler.get(), &film, { 16, 250 }, { 17, 251 });
 #endif
 
     film.store_image("single.bmp"s);
 #ifdef KY_WINDOWS
     system("mspaint single.bmp");
+    /*
+    std::thread([]()
+    {
+        system("mspaint single.bmp");
+    })
+    .detach();
+    */
 #endif
 }
 
-void render_multiple_scene_(int argc, char* argv[])
+void render_multiple_direct_sample_enum(int argc, char* argv[])
 {
     auto scene_params = std::vector<std::pair<cornell_box_enum_t, int>>
     {
         //{ cornell_box_enum_t::light_point, 1 },
         //{ cornell_box_enum_t::light_direction, 1 },
         //{ cornell_box_enum_t::light_area, 1 },
-        { cornell_box_enum_t::light_environment, 10 },
+        { cornell_box_enum_t::light_point, 10 },
     };
 
     auto sample_enums = std::vector<direct_sample_enum_t>
@@ -4153,7 +4161,7 @@ int main(int argc, char* argv[])
     clock_t start = clock(); // MILO
 
     render_single_scene(argc, argv);
-    //render_multiple_scene_(argc, argv);
+    //render_multiple_direct_sample_enum(argc, argv);
     //render_multiple_scene(argc, argv);
 
     LOG("\n{} sec\n", (Float)(clock() - start) / CLOCKS_PER_SEC); // MILO
