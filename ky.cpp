@@ -885,8 +885,8 @@ public:
         else
         {
             wi = normalize(wi);
-            // 1 / (projected area / distance squared)
-            *out_pdf_direction *= distance_squared(light_isect.position, isect.position) / abs_dot(isect.normal, -wi);
+            // 1 / (projected light area / distance squared)
+            *out_pdf_direction *= distance_squared(light_isect.position, isect.position) / abs_dot(light_isect.normal, -wi);
             if (std::isinf(*out_pdf_direction))
                 *out_pdf_direction = 0.f;
         }
@@ -902,7 +902,7 @@ public:
             return 0;
 
         // convert light sample weight to solid angle measure
-        // 1 / (projected area / distance squared)
+        // 1 / (projected light area / distance squared)
         Float pdf = distance_squared(isect.position, light_isect.position) / (abs_dot(light_isect.normal, -world_wi) * area());
         if (std::isinf(pdf))
             pdf = 0.f;
@@ -1909,6 +1909,7 @@ public:
     color_t f_(const vec3_t& wo, const vec3_t& wi) const override { return R_ * k_inv_pi; }
     Float pdf_(const vec3_t& wo, const vec3_t& wi) const override
     {
+        // TODO
         return same_hemi_sphere(wo, wi) ? abs_cos_theta(wi) * k_inv_pi : 0;
     }
 
@@ -3375,7 +3376,7 @@ public:
 
     void debug(scene_t* scene, sampler_t* original_sampler, film_t* film, const point2_t& film_position)
     {
-        debug(scene, original_sampler, film, film_position, film_position);
+        debug(scene, original_sampler, film, film_position, film_position + vec2_t(1, 1));
     }
 
     // estimate input radiance
@@ -3493,7 +3494,13 @@ protected:
         }
 
         if (!Li.is_black())
-            Ld = bs.f * Li * abs_dot(bs.wi, isect.normal) / bs.pdf;
+        {
+            auto cos_theta = abs_dot(bs.wi, isect.normal);
+            Ld = bs.f * Li * cos_theta / bs.pdf;
+
+            LOG_DEBUG("{}, {}\n", bs.wi.to_string(), isect.normal.to_string());
+            //LOG_DEBUG("{}, {}, {}, {}\n", bs.f.to_string(), Li.to_string(), cos_theta, bs.pdf);
+        }
 
         return Ld;
     }
@@ -3519,7 +3526,12 @@ protected:
         color_t f = isect.bsdf()->f(isect.wo, ls.wi);
         if (!f.is_black())
         {
-            Ld += f * ls.Li * abs_dot(ls.wi, isect.normal) / ls.pdf;
+            auto cos_theta = abs_dot(ls.wi, isect.normal);
+            auto dL = f * ls.Li * cos_theta / ls.pdf;
+            Ld += dL;
+
+            LOG_DEBUG("{}, {}\n", ls.wi.to_string(), isect.normal.to_string());
+            //LOG_DEBUG("{}, {}, {}, {}\n", f.to_string(), ls.Li.to_string(), cos_theta, ls.pdf);
         }
 
         return Ld;
@@ -4012,15 +4024,18 @@ void render_single_scene(int argc, char* argv[])
     std::unique_ptr<sampler_t> sampler =
         std::make_unique<random_sampler_t>(samples_per_pixel);
     std::unique_ptr<integrater_t> integrater =
-        std::make_unique<path_tracing_iteration_t>(10, direct_sample_enum_t::bsdf);
+        std::make_unique<path_tracing_iteration_t>(10, direct_sample_enum_t::light);
 
     //scene_t scene = scene_t::create_mis_scene(film.get_resolution());
     //scene_t scene = scene_t::create_cornell_box_scene(cornell_box_enum_t::default_scene);
     scene_t scene = scene_t::create_cornell_box_scene(
         cornell_box_enum_t::large_mirror_sphere | cornell_box_enum_t::light_area, film.get_resolution());
 
+#ifndef KY_DEBUG
     integrater->render(&scene, sampler.get(), &film);
-    //integrater->debug(&scene, sampler.get(), &film, { 120, 120 }, {150, 150});
+#else
+    integrater->debug(&scene, sampler.get(), &film, { 30, 33 }, { 31, 170 });
+#endif
 
     film.store_image("single.bmp"s);
 #ifdef KY_WINDOWS
