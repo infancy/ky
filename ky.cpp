@@ -1322,6 +1322,12 @@ private:
 
 #pragma region film
 
+enum class image_enum_t
+{
+    ppm,
+    bmp
+};
+
 // film_option_t
 struct film_desc_t
 {
@@ -1332,7 +1338,7 @@ struct film_desc_t
 constexpr Float clamp01(Float x) { return std::clamp(x, (Float)0, (Float)1); }
 inline vec3_t clamp01(vec3_t vec3) { return vec3_t(clamp01(vec3.x), clamp01(vec3.y), clamp01(vec3.z)); }
 
-inline std::byte gamma_encoding(Float x) { return std::byte(pow(clamp01(x), 1 / 2.2) * 255 + .5); }
+inline uint8_t gamma_encoding(Float x) { return pow(clamp01(x), 1 / 2.2) * 255 + .5; }
 
 /*
   warpper of `color_t pixels[]`
@@ -1387,13 +1393,38 @@ public:
     virtual bool store_image(std::string filename, bool with_alpha = false) const
     {
         return store_bmp_impl(filename, get_width(), get_height(), get_channels(), (Float*)pixels_.get());
+        /*
+        switch (image_type)
+        {
+        case image_enum_t::ppm:
+            return store_ppm_impl(filename, get_width(), get_height(), get_channels(), (Float*)pixels_.get());
+        case image_enum_t::bmp:
+            return store_bmp_impl(filename, get_width(), get_height(), get_channels(), (Float*)pixels_.get());
+        default:
+            break;
+        }
+        */
+    }
+
+    static bool store_ppm_impl(const std::string& filename, int width, int height, int channel, const Float* pixels)
+    {
+        std::fstream img_file(filename, std::ios::binary | std::ios::out);
+        img_file << std::format("P3\n{} {}\n{}\n", width, height, 255);
+
+        int pixel_num = width * height * channel;
+        for (int i = 0; i < pixel_num; ++i)
+        {
+            img_file << std::format("{} ", gamma_encoding(pixels[i]));
+        }
+
+        return true;
     }
    
     // https://github.com/SmallVCM/SmallVCM/blob/master/src/framebuffer.hxx#L149-L215
     // https://github.com/skywind3000/RenderHelp/blob/master/RenderHelp.h#L937-L1018
     static bool store_bmp_impl(const std::string& filename, int width, int height, int channel, const Float* floats)
     {
-        std::fstream bmp_file(filename, std::ios::binary | std::ios::out);
+        std::fstream img_file(filename, std::ios::binary | std::ios::out);
 
 
         uint32_t padding_line_bytes = (width * channel + 3) & (~3);
@@ -1409,20 +1440,20 @@ public:
             //char8_t type[2]{ 'B', 'M' };
             uint32_t file_size{};
             uint32_t reserved{ 0 };
-            uint32_t databody_offset{};
+            uint32_t databody_offset{ FILE_HEADER_SIZE + INFO_HEADER_SIZE };
 
             // info header
             uint32_t	info_header_size{ INFO_HEADER_SIZE };
 
             int32_t     width{};
             int32_t		height{};
-            uint16_t	planes{ 1 };
-            uint16_t	per_pixel_bits{};
+            int16_t	    color_planes{ 1 };
+            int16_t	    per_pixel_bits{};
             uint32_t	compression{ 0 };
-            uint32_t	image_bytes{};
+            uint32_t	image_bytes{ 0 };
 
-            uint32_t	x_pixels_per_meter{ 0xb12 };
-            uint32_t	y_pixels_per_meter{ 0xb12 };
+            uint32_t	x_pixels_per_meter{ 0 };
+            uint32_t	y_pixels_per_meter{ 0 };
             uint32_t	color_used{ 0 };
             uint32_t	color_important{ 0 };
         }
@@ -1431,13 +1462,13 @@ public:
             .file_size{ FILE_HEADER_SIZE + INFO_HEADER_SIZE + padding_image_bytes },
             .width{ width },
             .height{ height },
-            .per_pixel_bits{ (uint16_t)(channel * 8) },
-            .image_bytes{ uint32_t(padding_image_bytes) }
+            .per_pixel_bits{ (int16_t)(channel * 8) },
+            //.image_bytes{ padding_image_bytes }
         };
 
-        bmp_file
+        img_file
             .write("BM", 2)
-            .write((char*)&bmp_header, FILE_HEADER_SIZE + INFO_HEADER_SIZE);
+            .write((char*)&bmp_header, sizeof(bmp_header));
         
 
         // without color table
@@ -1445,7 +1476,7 @@ public:
 
         // gamma encoding
         int byte_num = width * height * channel;
-        auto bytes = std::make_unique<std::byte[]>(byte_num);
+        auto bytes = std::make_unique<uint8_t[]>(byte_num);
         for (int i = 0; i < byte_num; i += 3)
         {
             // BGR
@@ -1458,7 +1489,7 @@ public:
         int line_num = width * channel;
         // bmp is stored from bottom to up
         for (int y = height - 1; y >= 0; --y)
-            bmp_file.write((char*)(bytes.get() + y * line_num), line_num);
+            img_file.write((char*)(bytes.get() + y * line_num), line_num);
 
 
         return true;
@@ -2953,6 +2984,7 @@ public:
         shape_sp left_ball   = std::make_shared<sphere_t>(left_center, small_radius);
         shape_sp right_ball  = std::make_shared<sphere_t>(right_center, small_radius);
 
+
         // small light box at the ceiling
         vec3_t lb[8] = 
         {
@@ -3045,11 +3077,11 @@ public:
 
         if (enum_have(scene_enum, light_area))
         {
-            surface_list.push_back({   left2.get(),   red.get(), nullptr });
-            surface_list.push_back({  right2.get(),  blue.get(), nullptr });
+            surface_list.push_back({   left2.get(), white.get(), nullptr });
+            surface_list.push_back({  right2.get(), white.get(), nullptr });
             surface_list.push_back({  front2.get(), white.get(), nullptr });
             surface_list.push_back({   back2.get(), white.get(), nullptr });
-            surface_list.push_back({ bottom2.get(), white.get(), (area_light_t*)light_list[0].get() });
+            surface_list.push_back({ bottom2.get(), black.get(), (area_light_t*)light_list[0].get() });
         }
 
         #pragma endregion
@@ -3274,6 +3306,7 @@ public:
 public:
     void render(/*const*/ scene_t* scene, sampler_t* original_sampler, film_t* film)
     {
+        auto camera = scene->camera();
         auto resolution = film->get_resolution();
         int width = (int)resolution.x;
         int height = (int)resolution.y;
@@ -3284,7 +3317,6 @@ public:
         for (int y = 0; y < height; y += 1)
         {
             auto sampler = original_sampler->clone(); // multi thread
-            auto camera = scene->camera();
             LOG("rendering... ({} spp) {:.2f}%\r", sampler->ge_samples_per_pixel(), 100. * y / (height - 1));
 
             for (int x = 0; x < width; x += 1)
@@ -3311,31 +3343,39 @@ public:
         }
     }
 
-
-    // render_phase    
-    void debug()
+    // render_phase
+    void debug(/*const*/ scene_t* scene, sampler_t* original_sampler, film_t* film, vec2_t begin, vec2_t end)
     {
+        for (int y = begin.y; y < end.y; y += 1)
+        {
+            auto sampler = original_sampler->clone(); // multi thread
+            auto camera = scene->camera();
 
+            for (int x = begin.x; x < end.x; x += 1)
+            {
+                color_t L{};
+                sampler->start_sample();
+
+                do
+                {
+                    auto sample = sampler->get_camera_sample({ (Float)x, (Float)y });
+                    auto ray = camera->generate_ray(sample);
+
+                    auto dL = Li(ray, scene, sampler.get()) * (1. / sampler->ge_samples_per_pixel());
+                    //LOG("dL:{}\n", dL.to_string());
+                    L = L + dL;
+                }
+                while (sampler->next_sample());
+
+                LOG("L:{}\n", L.to_string());
+                film->add_color(x, y, clamp01(L));
+            }
+        }
     }
 
     void debug(scene_t* scene, sampler_t* original_sampler, film_t* film, const point2_t& film_position)
     {
-        color_t L{};
-        auto camera = scene->camera();
-        auto sampler = original_sampler->clone(); // multi thread
-        sampler->start_sample();
-        //film_->set_color(x, y, color_t(0, 0, 0));
-
-        do
-        {
-            auto sample = sampler->get_camera_sample(film_position);
-            auto ray = camera->generate_ray(sample);
-
-            auto dL = Li(ray, scene, sampler.get()) * (1. / sampler->ge_samples_per_pixel());
-            LOG("dL:{}\n", dL.to_string());
-            L = L + dL;
-        }
-        while (sampler->next_sample());
+        debug(scene, original_sampler, film, film_position, film_position);
     }
 
     // estimate input radiance
@@ -3966,7 +4006,7 @@ class build_t_
 void render_single_scene(int argc, char* argv[])
 {
     int width = 256, height = 256;
-    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 10; // # samples per pixel
+    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 1; // # samples per pixel
 
     film_t film(width, height); //film.clear(color_t(1., 0., 0.));
     std::unique_ptr<sampler_t> sampler =
@@ -3980,7 +4020,7 @@ void render_single_scene(int argc, char* argv[])
         cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_area, film.get_resolution());
 
     integrater->render(&scene, sampler.get(), &film);
-    //integrater->debug(&scene, { 160, 150 });
+    //integrater->debug(&scene, sampler.get(), &film, { 120, 120 }, {150, 150});
 
     film.store_image("single.bmp"s);
 #ifdef KY_WINDOWS
