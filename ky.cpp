@@ -138,6 +138,16 @@ inline void _LOG_ERROR(const std::source_location& location, const std::string_v
     #endif
 #endif
 
+
+
+#define KY_ENUM_OPERATORS(enum_t)                                                                                                     \
+constexpr enum_t  operator~(const enum_t a)                 { return (enum_t)(~(int)a); }         \
+constexpr enum_t  operator|(const enum_t a, const enum_t b) { return (enum_t)((int)a | (int)b); } \
+constexpr enum_t  operator&(const enum_t a, const enum_t b) { return (enum_t)((int)a & (int)b); } \
+constexpr enum_t& operator|=(enum_t& a, const enum_t b) { a = a | b; return a; };                 \
+constexpr enum_t& operator&=(enum_t& a, const enum_t b) { a = a & b; return a; };                 \
+constexpr bool enum_have(const enum_t group, const enum_t value) { return (group & value) != (enum_t)0; }
+
 #pragma endregion
 
 
@@ -1533,14 +1543,14 @@ public:
         degree_t fov, vec2_t resolution):
         position_{ position },
         front_{ front.normalize() },
-        up_{ up },
+        up_{ up.normalize()},
         resolution_{ resolution }
     {
         // https://github.com/infancy/pbrt-v3/blob/master/src/core/transform.cpp#L394-L397
  
         Float tan_fov = std::tan(radians(fov) / 2);
 
-        // left hand
+        // left hand, clockwise
         right_ = up_.cross(front_).normalize() * tan_fov * get_aspect();
         up_ = front_.cross(right_).normalize() * tan_fov;
     }
@@ -2705,7 +2715,7 @@ enum class cornell_box_enum_t
     none,
 
     light_area = 1,
-    light_directional = 2,
+    light_direction = 2,
     light_point = 4,
     light_environment = 8,
 
@@ -2721,9 +2731,7 @@ enum class cornell_box_enum_t
 
     default_scene = both_small_spheres | light_area,
 };
-
-constexpr cornell_box_enum_t operator&(cornell_box_enum_t a, cornell_box_enum_t b) { return (cornell_box_enum_t)((int)a & (int)b); }
-constexpr cornell_box_enum_t operator|(cornell_box_enum_t a, cornell_box_enum_t b) { return (cornell_box_enum_t)((int)a | (int)b); }
+KY_ENUM_OPERATORS(cornell_box_enum_t)
 
 class scene_t : public reference_type_t
 {
@@ -2741,13 +2749,13 @@ public:
         surface_list_{ surface_list },
         accel_{ surface_list_ }
     {
-		// TODO
+        // TODO
         for (auto& light : light_list_)
         {
             light->preprocess(*this);
         }
-		
-		// TODO: environment light
+        
+        // TODO: environment light
     }
 
 public:
@@ -2872,16 +2880,12 @@ public:
 
     static scene_t create_cornell_box_scene(cornell_box_enum_t scene_enum, point2_t film_resolution)
     {
-        if ((scene_enum & cornell_box_enum_t::both_large_spheres) == cornell_box_enum_t::both_large_spheres)
-        {
-            LOG_ERROR("Cannot have both large balls, using mirror\n\n");
-        }
+        using enum cornell_box_enum_t;
 
-        const_camera_sptr_t camera = std::make_unique<camera_t>(
-                vec3_t{ -0.0439815f, -4.12529f,  0.222539f },
-                vec3_t{ 0.00688625f, 0.998505f, -0.0542161f },
-                vec3_t{ 3.73896e-4f, 0.0542148f, 0.998529f },
-                80, film_resolution);
+        if (enum_have(scene_enum, both_large_spheres))
+        {
+            LOG_ERROR("cannot set both large balls\n");
+        }
 
         material_sp black = std::make_shared<matte_material_t>(color_t());
         material_sp white = std::make_shared<matte_material_t>(color_t(.8, .8, .8));
@@ -2895,17 +2899,35 @@ public:
 
         #pragma region shape
 
-        // cornell box
+        const_camera_sptr_t camera = std::make_shared<camera_t>(
+            vec3_t{ -0.0439815f, 4.12529f,  0.222539f },
+            vec3_t{ 0.00688625f, -0.998505f, -0.0542161f },
+            vec3_t{ 3.73896e-4f, -0.0542148f, 0.998529f },
+            80, film_resolution);
+
+        /*
+           cornell box
+                                    z   /
+              3-------2             |  /
+             /|      /|             | /
+            7-------6 |             |/
+            | |     | |     - - - - o - - - x
+            | 0-----|-1            /|
+            |/      |/            / |
+            4-------5            /  |
+                                y   |
+                              camera
+        */
         vec3_t cb[8] = 
         {
-            vec3_t(-1.27029f,  1.30455f, -1.28002f),
-            vec3_t( 1.28975f,  1.30455f, -1.28002f),
-            vec3_t( 1.28975f,  1.30455f,  1.28002f),
-            vec3_t(-1.27029f,  1.30455f,  1.28002f),
-            vec3_t(-1.27029f, -1.25549f, -1.28002f),
-            vec3_t( 1.28975f, -1.25549f, -1.28002f),
-            vec3_t( 1.28975f, -1.25549f,  1.28002f),
-            vec3_t(-1.27029f, -1.25549f,  1.28002f)
+            vec3_t(-1.27029f, -1.30455f, -1.28002f), // 0
+            vec3_t( 1.28975f, -1.30455f, -1.28002f), // 1
+            vec3_t( 1.28975f, -1.30455f,  1.28002f), // 2
+            vec3_t(-1.27029f, -1.30455f,  1.28002f), // 3
+            vec3_t(-1.27029f,  1.25549f, -1.28002f), // 4
+            vec3_t( 1.28975f,  1.25549f, -1.28002f), // 5
+            vec3_t( 1.28975f,  1.25549f,  1.28002f), // 6
+            vec3_t(-1.27029f,  1.25549f,  1.28002f)  // 7
         };
         shape_sp left   = std::make_shared<rectangle_t>(cb[3], cb[0], cb[4], cb[7]);
         shape_sp right  = std::make_shared<rectangle_t>(cb[1], cb[2], cb[6], cb[5]);
@@ -2931,24 +2953,23 @@ public:
         shape_sp left_ball   = std::make_shared<sphere_t>(left_center, small_radius);
         shape_sp right_ball  = std::make_shared<sphere_t>(right_center, small_radius);
 
-
         // small light box at the ceiling
         vec3_t lb[8] = 
         {
-            vec3_t(-0.25f,  0.25f, 1.26002f),
-            vec3_t( 0.25f,  0.25f, 1.26002f),
-            vec3_t( 0.25f,  0.25f, 1.28002f),
-            vec3_t(-0.25f,  0.25f, 1.28002f),
             vec3_t(-0.25f, -0.25f, 1.26002f),
             vec3_t( 0.25f, -0.25f, 1.26002f),
             vec3_t( 0.25f, -0.25f, 1.28002f),
-            vec3_t(-0.25f, -0.25f, 1.28002f)
+            vec3_t(-0.25f, -0.25f, 1.28002f),
+            vec3_t(-0.25f,  0.25f, 1.26002f),
+            vec3_t( 0.25f,  0.25f, 1.26002f),
+            vec3_t( 0.25f,  0.25f, 1.28002f),
+            vec3_t(-0.25f,  0.25f, 1.28002f)
         };
-        shape_sp left2   = std::make_shared<rectangle_t>(lb[3], lb[0], lb[4], lb[7]);
-        shape_sp right2  = std::make_shared<rectangle_t>(lb[1], lb[2], lb[6], lb[5]);
-        shape_sp front2  = std::make_shared<rectangle_t>(lb[4], lb[5], lb[6], lb[7]);
-        shape_sp back2   = std::make_shared<rectangle_t>(lb[0], lb[3], lb[2], lb[1]);
-        shape_sp bottom2 = std::make_shared<rectangle_t>(lb[0], lb[1], lb[5], lb[4]);
+        shape_sp left2   = std::make_shared<rectangle_t>(lb[3], lb[7], lb[4], lb[0]);
+        shape_sp right2  = std::make_shared<rectangle_t>(lb[1], lb[5], lb[6], lb[2]);
+        shape_sp front2  = std::make_shared<rectangle_t>(lb[4], lb[7], lb[6], lb[5]);
+        shape_sp back2   = std::make_shared<rectangle_t>(lb[0], lb[1], lb[2], lb[3]);
+        shape_sp bottom2 = std::make_shared<rectangle_t>(lb[0], lb[4], lb[5], lb[1]);
 
         shape_list_t shape_list
         { 
@@ -2962,33 +2983,28 @@ public:
 
         #pragma region light
 
-        bool light_area = (scene_enum & cornell_box_enum_t::light_area) != cornell_box_enum_t::none;
-        bool light_directional = (scene_enum & cornell_box_enum_t::light_directional) != cornell_box_enum_t::none;
-        bool light_point = (scene_enum & cornell_box_enum_t::light_point) != cornell_box_enum_t::none;
-        bool light_environment = (scene_enum & cornell_box_enum_t::light_environment) != cornell_box_enum_t::none;
-
         light_list_t light_list{};
-        if (light_area)
+        if (enum_have(scene_enum, light_area))
         {
             light_list.push_back(
                 std::make_shared<area_light_t>(point3_t(), 1, color_t(25, 25, 25), bottom2.get()));
         }
 
-        if (light_directional)
+        if (enum_have(scene_enum, light_direction))
         {
             light_list.push_back(
-                std::make_shared<direction_light_t>(point3_t(-5., 5., -5.), 1, color_t(1, 1, 1), vec3_t(1, -1.5, 1)));
+                std::make_shared<direction_light_t>(point3_t(-5., 5., 5.), 1, color_t(1, 1, 1), vec3_t(1, -1.5, -1)));
         }
 
-        if (light_point)
+        if (enum_have(scene_enum, light_point))
         {
             Float I = 70 * k_inv_4pi;
             light_list.push_back(
-                std::make_shared<point_light_t>(point3_t(0.0, -0.5, 1.0), 1, color_t(I, I, I)));
+                std::make_shared<point_light_t>(point3_t(0.0, 0.5, 1.0), 1, color_t(I, I, I)));
         }
 
         environment_light_t* environment_light{};
-        if (light_environment)
+        if (enum_have(scene_enum, light_environment))
         {
             color_t L = vec3_t(135. / 255, 206. / 255, 250. / 255);
             auto light = std::make_shared<environment_light_t>(point3_t(), 1, L);
@@ -3004,30 +3020,30 @@ public:
 
         surface_list_t surface_list
         {
-            {   left.get(),    red.get(), nullptr},
-            {  right.get(),   blue.get(), nullptr },
+            {   left.get(),  green.get(), nullptr},
+            {  right.get(),    red.get(), nullptr },
             {    top.get(),  white.get(), nullptr },
             { bottom.get(),  white.get(), nullptr },
-            {   back.get(),  green.get(), nullptr },
+            {   back.get(),   blue.get(), nullptr },
         };
 
-        if ((scene_enum & cornell_box_enum_t::glossy_floor) != cornell_box_enum_t::none)
+        if (enum_have(scene_enum, glossy_floor))
         {
             surface_list[3].material = blue.get();
             surface_list[4].material = white.get(); // TODO
         }
 
-        if ((scene_enum & cornell_box_enum_t::large_mirror_sphere) != cornell_box_enum_t::none)
+        if (enum_have(scene_enum, large_mirror_sphere))
             surface_list.push_back({ large_ball.get(), mirror_mat.get(), nullptr });
-        else if ((scene_enum & cornell_box_enum_t::large_glass_sphere) != cornell_box_enum_t::none)
+        else if (enum_have(scene_enum, large_glass_sphere))
             surface_list.push_back({ large_ball.get(), glass_mat.get(), nullptr });
 
-        if ((scene_enum & cornell_box_enum_t::small_mirror_sphere) != cornell_box_enum_t::none)
+        if (enum_have(scene_enum, small_mirror_sphere))
             surface_list.push_back({ left_ball.get(), mirror_mat.get(), nullptr });
-        if ((scene_enum & cornell_box_enum_t::small_glass_sphere) != cornell_box_enum_t::none)
+        if (enum_have(scene_enum, small_glass_sphere))
             surface_list.push_back({ right_ball.get(), glass_mat.get(), nullptr });
 
-        if (light_area)
+        if (enum_have(scene_enum, light_area))
         {
             surface_list.push_back({   left2.get(),   red.get(), nullptr });
             surface_list.push_back({  right2.get(),  blue.get(), nullptr });
@@ -3282,7 +3298,10 @@ public:
                     auto sample = sampler->get_camera_sample({ (Float)x, (Float)y });
                     auto ray = camera->generate_ray(sample);
 
-                    L = L + Li(ray, scene, sampler.get()) * (1. / sampler->ge_samples_per_pixel());
+                    auto dL = Li(ray, scene, sampler.get()) * (1. / sampler->ge_samples_per_pixel());
+                    CHECK_DEBUG(dL.is_valid(), "{}", dL.to_string());
+
+                    L = L + dL;
                 }
                 while (sampler->next_sample());
 
@@ -3953,12 +3972,12 @@ void render_single_scene(int argc, char* argv[])
     std::unique_ptr<sampler_t> sampler =
         std::make_unique<random_sampler_t>(samples_per_pixel);
     std::unique_ptr<integrater_t> integrater =
-        std::make_unique<path_tracing_iteration_t>(10, direct_sample_enum_t::both_mis);
+        std::make_unique<path_tracing_iteration_t>(10, direct_sample_enum_t::light);
 
     //scene_t scene = scene_t::create_mis_scene(film.get_resolution());
     //scene_t scene = scene_t::create_cornell_box_scene(cornell_box_enum_t::default_scene);
     scene_t scene = scene_t::create_cornell_box_scene(
-        cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_environment, film.get_resolution());
+        cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_area, film.get_resolution());
 
     integrater->render(&scene, sampler.get(), &film);
     //integrater->debug(&scene, { 160, 150 });
@@ -3974,7 +3993,7 @@ void render_multiple_scene_(int argc, char* argv[])
     auto scene_params = std::vector<std::pair<cornell_box_enum_t, int>>
     {
         //{ cornell_box_enum_t::light_point, 1 },
-        //{ cornell_box_enum_t::light_directional, 1 },
+        //{ cornell_box_enum_t::light_direction, 1 },
         //{ cornell_box_enum_t::light_area, 1 },
         { cornell_box_enum_t::light_environment, 10 },
     };
@@ -4017,7 +4036,7 @@ void render_multiple_scene(int argc, char* argv[])
     auto scene_params = std::vector<std::pair<cornell_box_enum_t, int>>
     {
         { cornell_box_enum_t::light_point, 1 },
-        { cornell_box_enum_t::light_directional, 1 },
+        { cornell_box_enum_t::light_direction, 1 },
         { cornell_box_enum_t::light_area, 1 },
         { cornell_box_enum_t::light_environment, 1 },
     };
@@ -4078,8 +4097,8 @@ int main(int argc, char* argv[])
 {
     clock_t start = clock(); // MILO
 
-    //render_single_scene(argc, argv);
-    render_multiple_scene_(argc, argv);
+    render_single_scene(argc, argv);
+    //render_multiple_scene_(argc, argv);
     //render_multiple_scene(argc, argv);
 
     LOG("\n{} sec\n", (Float)(clock() - start) / CLOCKS_PER_SEC); // MILO
