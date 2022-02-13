@@ -938,14 +938,15 @@ y(0, 1, 0)
    https://www.pbr-book.org/3ed-2018/Shapes/Spheres
 */
 
-// TODO: disk
-class plane_t : public shape_t
+class disk_t : public shape_t
 {
 public:
-    plane_t(const point3_t& p, const normal_t& normal)
+    disk_t(const point3_t& position, const normal_t& normal, Float radius):
+        position_{ position },
+        normal_{ normalize(normal) },
+        radius_{ radius }
+
     {
-        p_ = p;
-        normal_ = normal;
     }
 
     bool intersect(const ray_t& ray, isect_t* out_isect) const override
@@ -953,29 +954,52 @@ public:
         if (is_equal(dot(ray.direction(), normal_), (Float)0))
             return false;
  
-        const vec3_t op = p_ - ray.origin();
+        const vec3_t op = position_ - ray.origin();
         const Float distance = dot(normal_, op) / dot(normal_, ray.direction());
 
         if ((distance > epsilon) && (distance < ray.distance()))
         {
-            ray.set_distance(distance);
             point3_t hit_point = ray(distance);
-            *out_isect = isect_t(hit_point, normal_, -ray.direction());
+            if (::distance(position_, hit_point) <= radius_)
+            {
+                ray.set_distance(distance);
+                *out_isect = isect_t(hit_point, normal_, -ray.direction());
 
-            return true;
+                return true;
+            }
         }
+
+        return false;
     }
 
     bounds3_t world_bound() const override
     {
-        return bounds3_t(); // TODO
+        frame_t frame{ normal_ };
+        auto offset = frame.binormal() * radius_ + frame.tangent() * radius_;
+        return bounds3_t(position_ - offset, position_ + offset);
     }
 
-    Float area() const override { return k_infinity; } // TODO
+    Float area() const override { return k_pi * radius_ * radius_; }
 
 public:
-    point3_t p_;
+    isect_t sample_position(const point2_t& random, Float* pdf) const override
+    {
+        isect_t isect;
+
+        frame_t frame{ normal_ };
+        point2_t sample_point = sample_disk_concentric(random);
+        isect.position = position_ + radius_ * (frame.binormal() * sample_point.x + frame.tangent() * sample_point.y);
+
+        isect.normal = normalize(normal_);
+
+        *pdf = 1 / area();
+        return std::move(isect);
+    }
+
+public:
+    point3_t position_;
     normal_t normal_;
+    Float radius_;
 };
 
 class triangle_t : public shape_t
@@ -2438,6 +2462,7 @@ public:
         ray_t* ray, normal_t* light_normal,
         Float* pdf_position, Float* pdf_direction) const override
     {
+        // TODO: sample from disk_t
         point2_t sample_point = sample_disk_concentric(random1);
         point3_t disk_position = world_center_ + world_radius_ * (frame_.binormal() * sample_point.x + frame_.tangent() * sample_point.y);
 
@@ -3104,7 +3129,7 @@ public:
             105, film_resolution);
 
         material_sp black = std::make_shared<matte_material_t>(color_t());
-        material_sp gray = std::make_shared<matte_material_t>(color_t(.2, .2, .2));
+        material_sp gray = std::make_shared<matte_material_t>(color_t(.5, .5, .5));
         material_sp white = std::make_shared<matte_material_t>(color_t(.9, .9, .9));
 
         material_sp mirror_mat = std::make_shared<mirror_material_t>(color_t(1, 1, 1));
@@ -3113,10 +3138,8 @@ public:
 
 #pragma region shape
 
-        shape_sp bottom = std::make_shared<rectangle_t>(
-            point3_t(-50, 0, -50), point3_t(-50, 0, 50), point3_t(50, 0, 50), point3_t(50, 0, -50));
-        shape_sp back = std::make_shared<rectangle_t>(
-            point3_t(-50, -50, 20), point3_t(-50, 50, 20), point3_t(50, 50, 20), point3_t(50, -50, 20));
+        shape_sp bottom = std::make_shared<disk_t>(point3_t(0, 0, 0), point3_t(0, 1, 0), 50);
+        shape_sp back = std::make_shared<disk_t>(point3_t(0, 0, 20), point3_t(0, 0, -1), 50);
 
         shape_sp plank0 = std::make_shared<rectangle_t>(
             point3_t(-5, 0.1, 5), point3_t(-5, 0.3, 6), point3_t(5, 0.3, 6), point3_t(5, 0.1, 5));
@@ -3141,14 +3164,17 @@ public:
 
 #pragma endregion
 
-        auto light0 = std::make_shared<area_light_t>(point3_t(), 1, color_t(25, 25, 25), ball0.get());
-        auto light1 = std::make_shared<area_light_t>(point3_t(), 1, color_t(25, 25, 25), ball1.get());
-        auto light2 = std::make_shared<area_light_t>(point3_t(), 1, color_t(25, 25, 25), ball2.get());
-        auto light3 = std::make_shared<area_light_t>(point3_t(), 1, color_t(25, 25, 25), ball3.get());
+        auto L = color_t(100, 100, 100);
+        auto light0 = std::make_shared<area_light_t>(point3_t(), 1, L, ball0.get());
+        auto light1 = std::make_shared<area_light_t>(point3_t(), 1, L, ball1.get());
+        auto light2 = std::make_shared<area_light_t>(point3_t(), 1, L, ball2.get());
+        auto light3 = std::make_shared<area_light_t>(point3_t(), 1, L, ball3.get());
+        //auto env_light = std::make_shared<environment_light_t>(point3_t(), 1, vec3_t(0.1, 0.1, 0.1));
+
 
         light_list_t light_list
         {
-            light0, light1, light2, light3
+           light0, light1, light2, light3//, env_light
         };
 
         surface_list_t surface_list
@@ -3167,6 +3193,7 @@ public:
             { ball3.get(),  black.get(), light3.get() },
         };
 
+        // TODO
         return scene_t{ camera, shape_list, material_list, light_list, surface_list, nullptr };
     }
 
@@ -3496,7 +3523,7 @@ protected:
             auto cos_theta = abs_dot(bs.wi, isect.normal);
             Ld = bs.f * Li * cos_theta / bs.pdf;
 
-            LOG_DEBUG("{}, {}\n", bs.wi.to_string(), isect.normal.to_string());
+            //LOG_DEBUG("{}, {}\n", bs.wi.to_string(), isect.normal.to_string());
             //LOG_DEBUG("{}, {}, {}, {}\n", bs.f.to_string(), Li.to_string(), cos_theta, bs.pdf);
         }
 
@@ -4023,7 +4050,7 @@ class build_t_
 void render_single_scene(int argc, char* argv[])
 {
     int width = 256, height = 256;
-    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 10; // # samples per pixel
+    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 100; // # samples per pixel
 
     film_t film(width, height); //film.clear(color_t(1., 0., 0.));
     std::unique_ptr<sampler_t> sampler =
@@ -4031,15 +4058,14 @@ void render_single_scene(int argc, char* argv[])
     std::unique_ptr<integrater_t> integrater =
         std::make_unique<path_tracing_iteration_t>(5, direct_sample_enum_t::both_mis);
 
-    //scene_t scene = scene_t::create_mis_scene(film.get_resolution());
-    //scene_t scene = scene_t::create_cornell_box_scene(cornell_box_enum_t::default_scene);
-    scene_t scene = scene_t::create_cornell_box_scene(
-        cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_environment, film.get_resolution());
+    scene_t scene = scene_t::create_mis_scene(film.get_resolution());
+    //scene_t scene = scene_t::create_cornell_box_scene(
+    //    cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_point, film.get_resolution());
 
 #ifndef KY_DEBUG
     integrater->render(&scene, sampler.get(), &film);
 #else
-    integrater->debug(&scene, sampler.get(), &film, { 115, 120 }, { 120, 125 });
+    integrater->debug(&scene, sampler.get(), &film, { 10, 4 }, { 16, 12 });
 #endif
 
     film.store_image("single.bmp"s);
@@ -4102,10 +4128,10 @@ void render_multiple_scene(int argc, char* argv[])
 {
     auto scene_params = std::vector<std::pair<cornell_box_enum_t, int>>
     {
-        { cornell_box_enum_t::light_point, 10 },
-        { cornell_box_enum_t::light_direction, 10 },
-        { cornell_box_enum_t::light_area, 10 },
-        { cornell_box_enum_t::light_environment, 10 },
+        { cornell_box_enum_t::light_point, 100 },
+        { cornell_box_enum_t::light_direction, 100 },
+        { cornell_box_enum_t::light_area, 100 },
+        { cornell_box_enum_t::light_environment, 100 },
     };
 
     auto sample_enums = std::vector<direct_sample_enum_t>
@@ -4160,13 +4186,48 @@ void render_multiple_scene(int argc, char* argv[])
 #endif
 }
 
+void render_mis_scene(int argc, char* argv[])
+{
+    int width = 256, height = 256;
+    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 10; // # samples per pixel
+
+    film_grid_t film(3, 2, 256, 256); //film.clear(color_t(1., 0., 0.));
+    std::unique_ptr<sampler_t> sampler =
+        std::make_unique<random_sampler_t>(samples_per_pixel);
+    scene_t scene = scene_t::create_mis_scene(film.get_resolution());
+
+    auto sample_enums = std::vector<direct_sample_enum_t>
+    {
+        direct_sample_enum_t::bsdf,
+        direct_sample_enum_t::light,
+        //direct_sample_enum_t::bsdf_mis,
+        //direct_sample_enum_t::light_mis,
+        direct_sample_enum_t::both_mis,
+    };
+
+    for (auto sample_enum : sample_enums)
+    {
+        std::unique_ptr<integrater_t> integrater =
+            std::make_unique<path_tracing_iteration_t>(5, sample_enum);
+        integrater->render(&scene, sampler.get(), &film);
+
+        film.next_cell();
+    }
+
+    film.store_image("single.bmp"s);
+#ifdef KY_WINDOWS
+    system("mspaint single.bmp");
+#endif
+}
+
 int main(int argc, char* argv[])
 {
     clock_t start = clock(); // MILO
 
-    //render_single_scene(argc, argv);
+    render_single_scene(argc, argv);
     //render_multiple_direct_sample_enum(argc, argv);
-    render_multiple_scene(argc, argv);
+    //render_multiple_scene(argc, argv);
+    //render_mis_scene(argc, argv);
 
     LOG("\n{} sec\n", (Float)(clock() - start) / CLOCKS_PER_SEC); // MILO
     return 0;
