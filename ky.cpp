@@ -586,17 +586,19 @@ public:
 public:
     ray_t spawn_ray(const unit_vec3_t& direction) const
     {
-        // TODO: offset
+        //auto offset = normal * 1e-3; // TODO
         return ray_t(position + direction * k_epsilon, direction);
     }
 
     ray_t spawn_ray_to(const point3_t& target) const
     {
-        return spawn_ray(normalize(target - position));
+        auto offset = normal * 1e-3; // TODO
+        return ray_t(position + offset, normalize(target - position));
     }
     ray_t spawn_ray_to(const isect_t& isect) const
     {
-        return spawn_ray(normalize(isect.position - position));
+        auto offset = normal * 1e-3; // TODO
+        return ray_t(position + offset, normalize(isect.position - position));
     }
 
 public:
@@ -1622,6 +1624,7 @@ using const_camera_sptr_t = std::shared_ptr<const camera_t>;
 
 #pragma region bsdf utility
 
+// local shading coordinate
 inline Float cos_theta(const vec3_t& w) { return w.z; }
 inline Float abs_cos_theta(const vec3_t& w) { return std::abs(w.z); }
 
@@ -2413,7 +2416,7 @@ public:
     direction_light_t(const point3_t& world_position, int samples_num, color_t radiance, const vec3_t world_direction) :
         light_t(world_position, samples_num),
         radiance_{ radiance },
-        world_direction_{ world_direction },
+        world_direction_{ normalize(world_direction) },
         frame_{ world_direction }
     {
     }
@@ -2459,8 +2462,8 @@ public:
     direction_sample_t sample_Li(const isect_t& isect, const point2_t& random) const override
     {
         direction_sample_t sample;
-        sample.position = world_position_;
         sample.wi = -world_direction_;
+        sample.position = isect.position + sample.wi * 2 * world_radius_;
         sample.pdf = 1;
         sample.Li = radiance_;
 
@@ -2481,7 +2484,7 @@ private:
     Float area_;
     color_t power_;
 
-    vec3_t world_direction_;
+    unit_vec3_t world_direction_;
     frame_t frame_;
 };
 
@@ -3027,7 +3030,7 @@ public:
         if (enum_have(scene_enum, light_direction))
         {
             light_list.push_back(
-                std::make_shared<direction_light_t>(point3_t(-5., 5., 5.), 1, color_t(1, 1, 1), vec3_t(1, -1.5, -1)));
+                std::make_shared<direction_light_t>(point3_t(), 1, color_t(10, 4, 0), vec3_t(-1, -1.5, -1)));
         }
 
         if (enum_have(scene_enum, light_point))
@@ -3189,15 +3192,12 @@ void light_t::preprocess(const scene_t& scene)
 
 void direction_light_t::preprocess(const scene_t& scene)
 {
-    //TODO
-    /*
     auto world_bound = scene.world_bound();
 
     world_bound.bounding_sphere(&world_center_, &world_radius_);
 
     area_ = k_pi * world_radius_ * world_radius_;
     power_ = radiance_ * area_;
-    */
 }
 
 void environment_light_t::preprocess(const scene_t& scene)
@@ -3333,6 +3333,7 @@ public:
                     auto ray = camera->generate_ray(sample);
 
                     auto dL = Li(ray, scene, sampler.get()) * (1. / sampler->ge_samples_per_pixel());
+                    //LOG_DEBUG("dL: {}", dL.to_string());
                     CHECK_DEBUG(dL.is_valid(), "{}", dL.to_string());
 
                     L = L + dL;
@@ -3369,7 +3370,7 @@ public:
                 }
                 while (sampler->next_sample());
 
-                LOG("L:{}\n", L.to_string());
+                //LOG("L:{}\n", L.to_string());
                 film->add_color(x, y, clamp01(L));
             }
         }
@@ -3521,6 +3522,10 @@ protected:
         if (ls.Li.is_black() || ls.pdf == 0)
             return Ld;
 
+        // TODO
+        //if (dot(ls.wi, isect.normal) < 0)
+        //    return Ld;
+
         if (scene->occluded(isect, ls.position))
             return Ld;
 
@@ -3531,8 +3536,8 @@ protected:
             auto dL = f * ls.Li * cos_theta / ls.pdf;
             Ld += dL;
 
-            LOG_DEBUG("{}, {}\n", ls.wi.to_string(), isect.normal.to_string());
-            //LOG_DEBUG("{}, {}, {}, {}\n", f.to_string(), ls.Li.to_string(), cos_theta, ls.pdf);
+            //LOG_DEBUG("{}, {}\n", ls.wi.to_string(), isect.normal.to_string());
+            LOG_DEBUG("{}, {}, {}, {}, {}\n", dL.to_string(), f.to_string(), ls.Li.to_string(), cos_theta, ls.pdf);
         }
 
         return Ld;
@@ -4025,17 +4030,17 @@ void render_single_scene(int argc, char* argv[])
     std::unique_ptr<sampler_t> sampler =
         std::make_unique<random_sampler_t>(samples_per_pixel);
     std::unique_ptr<integrater_t> integrater =
-        std::make_unique<path_tracing_iteration_t>(10, direct_sample_enum_t::light);
+        std::make_unique<path_tracing_iteration_t>(5, direct_sample_enum_t::light);
 
     //scene_t scene = scene_t::create_mis_scene(film.get_resolution());
     //scene_t scene = scene_t::create_cornell_box_scene(cornell_box_enum_t::default_scene);
     scene_t scene = scene_t::create_cornell_box_scene(
-        cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_point, film.get_resolution());
+        cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_direction, film.get_resolution());
 
 #ifndef KY_DEBUG
     integrater->render(&scene, sampler.get(), &film);
 #else
-    integrater->debug(&scene, sampler.get(), &film, { 16, 250 }, { 17, 251 });
+    integrater->debug(&scene, sampler.get(), &film, { 430, 140 }, { 440, 150 });
 #endif
 
     film.store_image("single.bmp"s);
@@ -4058,7 +4063,7 @@ void render_multiple_direct_sample_enum(int argc, char* argv[])
         //{ cornell_box_enum_t::light_point, 1 },
         //{ cornell_box_enum_t::light_direction, 1 },
         //{ cornell_box_enum_t::light_area, 1 },
-        { cornell_box_enum_t::light_point, 10 },
+        { cornell_box_enum_t::light_direction, 10 },
     };
 
     auto sample_enums = std::vector<direct_sample_enum_t>
