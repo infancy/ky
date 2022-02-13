@@ -3202,16 +3202,12 @@ void direction_light_t::preprocess(const scene_t& scene)
 
 void environment_light_t::preprocess(const scene_t& scene)
 {
-    // TODO
-    world_radius_ = 1000;
-    /*
     auto world_bound = scene.world_bound();
 
     world_bound.bounding_sphere(&world_center_, &world_radius_);
 
     area_ = k_pi * world_radius_ * world_radius_;
     power_ = radiance_ * area_;
-    */
 }
 
 #pragma endregion
@@ -3649,9 +3645,12 @@ protected:
         const point2_t& random_light, const point2_t& random_bsdf,
         scene_t* scene, sampler_t& sampler, bool skip_specular)
     {
-        return
-            estimate_direct_lighting_direction_mis(isect, light, random_light, random_bsdf, scene, sampler, skip_specular) +
-            estimate_direct_lighting_position_mis(isect, light, random_light, random_bsdf, scene, sampler, skip_specular);
+        auto Lb = estimate_direct_lighting_direction_mis(isect, light, random_light, random_bsdf, scene, sampler, skip_specular);
+        auto Ll = estimate_direct_lighting_position_mis(isect, light, random_light, random_bsdf, scene, sampler, skip_specular);
+        auto Ld = Lb + Ll;
+        LOG_DEBUG("{}, {}, {}\n", Ld.to_string(), Lb.to_string(), Ll.to_string());
+
+        return Ld;
     }
 };
 
@@ -4024,23 +4023,23 @@ class build_t_
 void render_single_scene(int argc, char* argv[])
 {
     int width = 256, height = 256;
-    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 100; // # samples per pixel
+    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 10; // # samples per pixel
 
     film_t film(width, height); //film.clear(color_t(1., 0., 0.));
     std::unique_ptr<sampler_t> sampler =
         std::make_unique<random_sampler_t>(samples_per_pixel);
     std::unique_ptr<integrater_t> integrater =
-        std::make_unique<path_tracing_iteration_t>(5, direct_sample_enum_t::light);
+        std::make_unique<path_tracing_iteration_t>(5, direct_sample_enum_t::both_mis);
 
     //scene_t scene = scene_t::create_mis_scene(film.get_resolution());
     //scene_t scene = scene_t::create_cornell_box_scene(cornell_box_enum_t::default_scene);
     scene_t scene = scene_t::create_cornell_box_scene(
-        cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_direction, film.get_resolution());
+        cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_environment, film.get_resolution());
 
 #ifndef KY_DEBUG
     integrater->render(&scene, sampler.get(), &film);
 #else
-    integrater->debug(&scene, sampler.get(), &film, { 430, 140 }, { 440, 150 });
+    integrater->debug(&scene, sampler.get(), &film, { 115, 120 }, { 120, 125 });
 #endif
 
     film.store_image("single.bmp"s);
@@ -4063,13 +4062,13 @@ void render_multiple_direct_sample_enum(int argc, char* argv[])
         //{ cornell_box_enum_t::light_point, 1 },
         //{ cornell_box_enum_t::light_direction, 1 },
         //{ cornell_box_enum_t::light_area, 1 },
-        { cornell_box_enum_t::light_direction, 10 },
+        { cornell_box_enum_t::light_environment, 3 },
     };
 
     auto sample_enums = std::vector<direct_sample_enum_t>
     {
-        direct_sample_enum_t::bsdf,
-        direct_sample_enum_t::light,
+        //direct_sample_enum_t::bsdf,
+        //direct_sample_enum_t::light,
         direct_sample_enum_t::bsdf_mis,
         direct_sample_enum_t::light_mis,
         direct_sample_enum_t::both_mis,
@@ -4103,22 +4102,22 @@ void render_multiple_scene(int argc, char* argv[])
 {
     auto scene_params = std::vector<std::pair<cornell_box_enum_t, int>>
     {
-        { cornell_box_enum_t::light_point, 1 },
-        { cornell_box_enum_t::light_direction, 1 },
-        { cornell_box_enum_t::light_area, 1 },
-        { cornell_box_enum_t::light_environment, 1 },
+        { cornell_box_enum_t::light_point, 10 },
+        { cornell_box_enum_t::light_direction, 10 },
+        { cornell_box_enum_t::light_area, 10 },
+        { cornell_box_enum_t::light_environment, 10 },
     };
 
     auto sample_enums = std::vector<direct_sample_enum_t>
     {
         direct_sample_enum_t::bsdf,
         direct_sample_enum_t::light,
-        direct_sample_enum_t::bsdf_mis,
-        direct_sample_enum_t::light_mis,
+        //direct_sample_enum_t::bsdf_mis,
+        //direct_sample_enum_t::light_mis,
         direct_sample_enum_t::both_mis,
     };
 
-    film_grid_t film(5, 4, 256, 256); //film.clear(color_t(1., 0., 0.));
+    film_grid_t film(3, 4, 256, 256); //film.clear(color_t(1., 0., 0.));
     for (auto sample_enum : sample_enums)
     {
         std::unique_ptr<integrater_t> integrater =
@@ -4165,9 +4164,9 @@ int main(int argc, char* argv[])
 {
     clock_t start = clock(); // MILO
 
-    render_single_scene(argc, argv);
+    //render_single_scene(argc, argv);
     //render_multiple_direct_sample_enum(argc, argv);
-    //render_multiple_scene(argc, argv);
+    render_multiple_scene(argc, argv);
 
     LOG("\n{} sec\n", (Float)(clock() - start) / CLOCKS_PER_SEC); // MILO
     return 0;
