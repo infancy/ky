@@ -1108,13 +1108,13 @@ public:
         return bounds3_t(p0_, p1_).join(p2_).join(p3_);
     }
 
-    Float area() const override { return cross(p1_ - p0_, p2_ - p0_).magnitude(); }
+    Float area() const override { return cross(p0_ - p1_, p2_ - p1_).magnitude(); }
 
 public:
     isect_t sample_position(const point2_t& random, Float* pdf) const override
     {
         isect_t isect;
-        isect.position = p1_ + (p1_ - p0_) * random[0] + (p1_ - p2_) * random[1];
+        isect.position = p1_ + (p0_ - p1_) * random[0] + (p2_ - p1_) * random[1];
         isect.normal = normalize(normal_);
 
         *pdf = 1 / area();
@@ -2278,7 +2278,7 @@ struct direction_sample_t // : public position_sample_t
 {
     point3_t position;
     vec3_t wi; // isect -> light, alone ray's direction
-    Float pdf; // pdf of direction
+    Float pdf{}; // pdf of direction
     color_t Li; // for light
 
     direction_sample_t() = default;
@@ -2516,9 +2516,9 @@ public:
          light_isect
     */
     // TODO
-    color_t Le(const isect_t& isect, const vec3_t& wo) const
+    color_t Le(const isect_t& light_isect, const vec3_t& wo) const
     {
-        return (dot(isect.normal, wo) > 0) ? radiance_ : color_t();
+        return (dot(light_isect.normal, wo) > 0) ? radiance_ : color_t();
     }
 
     color_t sample_Le(
@@ -2913,7 +2913,7 @@ public:
     {
         using enum cornell_box_enum_t;
 
-        if (enum_have(scene_enum, both_large_spheres))
+        if (enum_have(scene_enum, large_mirror_sphere) && enum_have(scene_enum, large_glass_sphere))
         {
             LOG_ERROR("cannot set both large balls\n");
         }
@@ -4006,18 +4006,18 @@ class build_t_
 void render_single_scene(int argc, char* argv[])
 {
     int width = 256, height = 256;
-    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 1; // # samples per pixel
+    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 1000; // # samples per pixel
 
     film_t film(width, height); //film.clear(color_t(1., 0., 0.));
     std::unique_ptr<sampler_t> sampler =
         std::make_unique<random_sampler_t>(samples_per_pixel);
     std::unique_ptr<integrater_t> integrater =
-        std::make_unique<path_tracing_iteration_t>(10, direct_sample_enum_t::light);
+        std::make_unique<path_tracing_iteration_t>(10, direct_sample_enum_t::bsdf);
 
     //scene_t scene = scene_t::create_mis_scene(film.get_resolution());
     //scene_t scene = scene_t::create_cornell_box_scene(cornell_box_enum_t::default_scene);
     scene_t scene = scene_t::create_cornell_box_scene(
-        cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_area, film.get_resolution());
+        cornell_box_enum_t::large_mirror_sphere | cornell_box_enum_t::light_area, film.get_resolution());
 
     integrater->render(&scene, sampler.get(), &film);
     //integrater->debug(&scene, sampler.get(), &film, { 120, 120 }, {150, 150});
