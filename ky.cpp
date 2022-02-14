@@ -113,13 +113,13 @@ inline void _LOG_ERROR(const std::source_location& location, const std::string_v
 #define LOG(...) _LOG(std::source_location::current(), __VA_ARGS__)
 #define LOG_ERROR(...) _LOG_ERROR(std::source_location::current(), __VA_ARGS__)
 
-#define EXPAND( x ) x
-#define CHECK1(condition)      if(!(condition)) LOG_ERROR("{}", #condition)
-#define CHECK2(condition, msg) if(!(condition)) LOG_ERROR("{}", msg)
-#define CHECK3(condition, ...) EXPAND( if(!(condition)) LOG_ERROR(__VA_ARGS__) )
-#define GET_MACRO_(_1, _2, _3, _4, _5, NAME, ...) NAME
+#define _EXPAND( x ) x
+#define _CHECK1(condition)      if(!(condition)) LOG_ERROR("{}", #condition)
+#define _CHECK2(condition, msg) if(!(condition)) LOG_ERROR("{}", msg)
+#define _CHECK3(condition, ...) _EXPAND( if(!(condition)) LOG_ERROR(__VA_ARGS__) )
+#define _GET_MACRO_(_1, _2, _3, _4, _5, NAME, ...) NAME
 
-#define CHECK(...) EXPAND( GET_MACRO_(__VA_ARGS__, CHECK3, CHECK3, CHECK3, CHECK2, CHECK1, UNUSED)(__VA_ARGS__) )
+#define CHECK(...) _EXPAND( _GET_MACRO_(__VA_ARGS__, _CHECK3, _CHECK3, _CHECK3, _CHECK2, _CHECK1, UNUSED)(__VA_ARGS__) )
 
 #ifdef KY_DEBUG
     #ifndef LOG_DEBUG
@@ -127,7 +127,7 @@ inline void _LOG_ERROR(const std::source_location& location, const std::string_v
     #endif
 
     #ifndef CHECK_DEBUG
-        #define CHECK_DEBUG(...) EXPAND( CHECK(__VA_ARGS__) )
+        #define CHECK_DEBUG(...) _EXPAND( CHECK(__VA_ARGS__) )
     #endif
 #else
     #ifndef LOG_DEBUG
@@ -1946,7 +1946,6 @@ public:
         bsdf_sample_t sample;
         // Cosine-sample the hemisphere, flipping the direction if necessary
         sample.wi = sample_hemisphere_cosine(random);
-
         if (wo.z < 0) 
             sample.wi.z *= -1;
 
@@ -1986,7 +1985,7 @@ public:
         //sample.wi = reflect(wo, vec3_t(0, 0, 1));
         sample.wi = vec3_t(-wo.x, -wo.y, wo.z);
         sample.pdf = 1;
-        sample.f = R_ / abs_cos_theta(sample.wi);
+        sample.f = R_ / abs_cos_theta(sample.wi); // f_spec * Li * cos_theta / pdf = R_ * Li
         sample.bsdf_type = bsdf_enum_t::reflection | bsdf_enum_t::specluar;
 
         CHECK_DEBUG(sample.f.is_valid());
@@ -2145,32 +2144,81 @@ private:
 };
 
 
+// physically based(energy conservation) Phong specular reflection model
+// Lafortune and Willems, “Using the modified Phong reflectance model for physically based rendering”, Technical Report http://graphics.cs.kuleuven.be/publications/Phong/
 class phong_reflection_t : public bsdf_t
 {
 public:
-    phong_reflection_t(const frame_t& shading_frame, const color_t& R) :
-        bsdf_t(shading_frame), R_{ R }
+    phong_reflection_t(const frame_t& shading_frame, /*const color_t& Kd,*/ const color_t& Ks, Float exponent) :
+        bsdf_t(shading_frame), /*Kd_{Kd},*/ Ks_{Ks}, exponent_{exponent}
     {
+        //CHECK_DEBUG((Kd_ + Ks_).small_than({ 1, 1, 1 }));
     }
 
     bool is_delta() const override { return false; }
 
     color_t f_(const vec3_t& wo, const vec3_t& wi) const override
     {
+        const vec3_t wr = reflect(wo, vec3_t(0, 0, 1));
+        const float cos_alpha = dot(wr, wi);
+
+        const vec3_t rho = Ks_ * (exponent_ + 2.f) * k_inv_2pi;
+        return rho * std::pow(cos_alpha, exponent_);
     }
 
-    Float pdf_(const vec3_t& wo, const vec3_t& wi) const override { return 0; }
+    Float pdf_(const vec3_t& wo, const vec3_t& wi) const override
+    {
+        const vec3_t wr = reflect(wo, vec3_t(0, 0, 1));
+        //const float cos_alpha = dot(wr, wi);
+
+        return pdf_hemisphere_cosine_phong(wr, wi);
+    }
 
     bsdf_sample_t sample_f_(const vec3_t& wo, const point2_t& random) const override
     {
         bsdf_sample_t sample;
 
+        sample.wi = sample_hemisphere_cosine_phong(random);
 
+        const vec3_t wr = reflect(wo, vec3_t(0, 0, 1));
+        frame_t frame{ wr };
+        sample.wi = frame.to_world(sample.wi);
+
+        if (wo.z < 0)
+            sample.wi.z *= -1;
+
+        sample.f = f_(wo, sample.wi);
+        sample.pdf = pdf_(wo, sample.wi);
+        sample.bsdf_type = bsdf_enum_t::reflection | bsdf_enum_t::specluar;
+        
         return sample;
     }
 
 private:
-    color_t R_;
+    // Cosine lobe hemisphere sampling
+    vec3_t sample_hemisphere_cosine_phong(const vec2_t& random) const
+    {
+        const float phi = 2.f * k_pi * random[0];
+        const float cos_theta = std::pow(random[1], 1.f / (exponent_ + 1.f));
+        const float sin_theta = std::sqrt(1.f - cos_theta * cos_theta);
+
+        return vec3_t(
+            std::cos(phi) * sin_theta,
+            std::sin(phi) * sin_theta,
+            cos_theta);
+    }
+
+    float pdf_hemisphere_cosine_phong(
+        const vec3_t& aNormal, const vec3_t& aDirection) const
+    {
+        const float cosTheta = std::max(0.f, dot(aNormal, aDirection));
+        return (exponent_ + 1.f) * std::pow(cosTheta, exponent_) * k_inv_2pi;
+    }
+
+private:
+    //color_t Kd_;
+    color_t Ks_;
+    Float exponent_;
 };
 
 #pragma endregion
@@ -2242,6 +2290,25 @@ private:
     color_t Kr_;
     color_t Kt_;
     Float eta_;
+};
+
+class plastic_material_t : public material_t
+{
+public:
+    plastic_material_t(/*const color_t& Kd,*/ const color_t& Ks, Float exponent) :
+        /*Kd_{Kd},*/ Ks_{Ks}, exponent_{exponent}
+    {
+    }
+
+    bsdf_uptr_t scattering(const isect_t& isect) const override
+    {
+        return std::make_unique<phong_reflection_t>(frame_t(isect.normal), Ks_, exponent_);
+    }
+
+private:
+    //color_t Kd_;
+    color_t Ks_;
+    Float exponent_;
 };
 
 // TODO: Normalizing Bling-Phong BRDF
@@ -2954,9 +3021,10 @@ public:
         material_sp green = std::make_shared<matte_material_t>(color_t(0.156863f, 0.803922f, 0.172549f));
         material_sp blue  = std::make_shared<matte_material_t>(color_t(0.156863f, 0.172549f, 0.803922f));
 
+        material_sp glossy = std::make_shared<plastic_material_t>(color_t(.8, .8, .8), 90.);
         material_sp mirror_mat = std::make_shared<mirror_material_t>(color_t(1, 1, 1));
         material_sp glass_mat = std::make_shared<glass_material_t>(color_t(1, 1, 1), color_t(1, 1, 1), 1.6);
-        material_list_t material_list{ black, white, red, green, blue, mirror_mat, glass_mat };
+        material_list_t material_list{ black, white, red, green, blue, glossy, mirror_mat, glass_mat };
 
         #pragma region shape
 
@@ -3082,18 +3150,12 @@ public:
 
         surface_list_t surface_list
         {
-            {   left.get(),  green.get(), nullptr},
-            {  right.get(),    red.get(), nullptr },
-            {    top.get(),  white.get(), nullptr },
-            { bottom.get(),  white.get(), nullptr },
-            {   back.get(),   blue.get(), nullptr },
+            {   left.get(),   green.get(), nullptr},
+            {  right.get(),     red.get(), nullptr },
+            {    top.get(),   white.get(), nullptr },
+            { bottom.get(),  glossy.get(), nullptr },
+            {   back.get(),    blue.get(), nullptr },
         };
-
-        if (enum_have(scene_enum, glossy_floor))
-        {
-            surface_list[3].material = blue.get();
-            surface_list[4].material = white.get(); // TODO
-        }
 
         if (enum_have(scene_enum, large_mirror_sphere))
             surface_list.push_back({ large_ball.get(), mirror_mat.get(), nullptr });
@@ -3253,6 +3315,9 @@ enum class lighting_enum_t
     emit, // Le = Le
     direct, // Ld = ∫Le
     indirect, // Li = ∫∫(Le + ∫Li)
+
+    diffuse,
+    specular,
 };
 
 // direct_lighting_sample
@@ -3297,6 +3362,7 @@ enum class integrater_enum_t
     // Le + T * Le + T(T * Le + T(...))
     path_tracing_recursion,
     path_tracing_iteration,
+    path_tracing_split,
 };
 
 // TODO: remove
@@ -4058,9 +4124,9 @@ void render_single_scene(int argc, char* argv[])
     std::unique_ptr<integrater_t> integrater =
         std::make_unique<path_tracing_iteration_t>(5, direct_sample_enum_t::both_mis);
 
-    scene_t scene = scene_t::create_mis_scene(film.get_resolution());
-    //scene_t scene = scene_t::create_cornell_box_scene(
-    //    cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_point, film.get_resolution());
+    //scene_t scene = scene_t::create_mis_scene(film.get_resolution());
+    scene_t scene = scene_t::create_cornell_box_scene(
+        cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_direction, film.get_resolution());
 
 #ifndef KY_DEBUG
     integrater->render(&scene, sampler.get(), &film);
