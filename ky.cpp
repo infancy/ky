@@ -287,7 +287,7 @@ public:
         return std::max({ r, g, b });
     }
 
-    Float luminance()
+    Float luminance() const
     {
         return
             0.212671f * r +
@@ -913,7 +913,7 @@ public:
         return pdf;
     }
 
-protected:
+public:
     static constexpr Float epsilon = 1e-3;// TODO
 };
 
@@ -2152,7 +2152,6 @@ public:
     phong_reflection_t(const frame_t& shading_frame, /*const color_t& Kd,*/ const color_t& Ks, Float exponent) :
         bsdf_t(shading_frame), /*Kd_{Kd},*/ Ks_{Ks}, exponent_{exponent}
     {
-        //CHECK_DEBUG((Kd_ + Ks_).small_than({ 1, 1, 1 }));
     }
 
     bool is_delta() const override { return false; }
@@ -2189,7 +2188,7 @@ public:
 
         sample.f = f_(wo, sample.wi);
         sample.pdf = pdf_(wo, sample.wi);
-        sample.bsdf_type = bsdf_enum_t::reflection | bsdf_enum_t::specluar;
+        sample.bsdf_type = bsdf_enum_t::reflection | bsdf_enum_t::glossy;
         
         return sample;
     }
@@ -2295,20 +2294,40 @@ private:
 class plastic_material_t : public material_t
 {
 public:
-    plastic_material_t(/*const color_t& Kd,*/ const color_t& Ks, Float exponent) :
-        /*Kd_{Kd},*/ Ks_{Ks}, exponent_{exponent}
+    plastic_material_t(const color_t& Kd, const color_t& Ks, Float shininess) :
+        Kd_{ Kd }, Ks_{ Ks }, exponent_{ shininess } // TODO
     {
+        CHECK_DEBUG((Kd_ + Ks_).small_than({ 1, 1, 1 }));
+
+        Float diffuse = Kd.luminance();
+        Float specular = Ks.luminance();
+        Float luminance = diffuse + specular;
+        
+        diffuse_probility_ = diffuse / luminance;
+        specular_probility_ = specular / luminance;
     }
 
     bsdf_uptr_t scattering(const isect_t& isect) const override
     {
-        return std::make_unique<phong_reflection_t>(frame_t(isect.normal), Ks_, exponent_);
+        auto random = rng_.uniform_float01();
+        if (random < specular_probility_)
+        {
+            return std::make_unique<phong_reflection_t>(frame_t(isect.normal), Ks_ / specular_probility_, exponent_);
+        }
+        else
+        {
+            return std::make_unique<lambertion_reflection_t>(frame_t(isect.normal), Kd_ / diffuse_probility_);
+        }
     }
 
 private:
-    //color_t Kd_;
+    color_t Kd_;
     color_t Ks_;
     Float exponent_;
+
+    Float diffuse_probility_;
+    Float specular_probility_;
+    mutable rng_t rng_;
 };
 
 // TODO: Normalizing Bling-Phong BRDF
@@ -2916,7 +2935,7 @@ public:
     {
         auto ray = isect1.spawn_ray_to(isect2);
         ray.set_distance(
-            distance(isect1.position, isect2) - 2 * k_epsilon);
+            distance(isect1.position, isect2) - 2 * 0.1); // TODO
         isect_t unused;
         return intersect(ray, &unused);
     }
@@ -2924,7 +2943,7 @@ public:
     {
         auto ray = isect1.spawn_ray_to(isect2);
         ray.set_distance(
-            distance(isect1.position, isect2.position) - 2 * k_epsilon);
+            distance(isect1.position, isect2.position) - 2 * 0.1);
         isect_t unused;
         return intersect(ray, &unused);
     }
@@ -3021,7 +3040,7 @@ public:
         material_sp green = std::make_shared<matte_material_t>(color_t(0.156863f, 0.803922f, 0.172549f));
         material_sp blue  = std::make_shared<matte_material_t>(color_t(0.156863f, 0.172549f, 0.803922f));
 
-        material_sp glossy = std::make_shared<plastic_material_t>(color_t(.8, .8, .8), 90.);
+        material_sp glossy = std::make_shared<plastic_material_t>(color_t(.1, .1, .1), color_t(.7, .7, .7), 90.);
         material_sp mirror_mat = std::make_shared<mirror_material_t>(color_t(1, 1, 1));
         material_sp glass_mat = std::make_shared<glass_material_t>(color_t(1, 1, 1), color_t(1, 1, 1), 1.6);
         material_list_t material_list{ black, white, red, green, blue, glossy, mirror_mat, glass_mat };
@@ -3182,40 +3201,52 @@ public:
         return scene_t{ camera, shape_list, material_list, light_list, surface_list, environment_light };
     }
 
+
+
     static scene_t create_mis_scene(point2_t film_resolution)
     {
+        // TODO: film, sampler
+
         const_camera_sptr_t camera = std::make_unique<camera_t>(
-            vec3_t{ 0, 5, -5 },
+            vec3_t{ 0, 0.5, -0.5 },
             vec3_t{ 0, 0, 1 },
             vec3_t{ 0, 1, 0 },
             105, film_resolution);
 
         material_sp black = std::make_shared<matte_material_t>(color_t());
         material_sp gray = std::make_shared<matte_material_t>(color_t(.5, .5, .5));
-        material_sp white = std::make_shared<matte_material_t>(color_t(.9, .9, .9));
-
-        material_sp mirror_mat = std::make_shared<mirror_material_t>(color_t(1, 1, 1));
-        material_sp glass_mat = std::make_shared<glass_material_t>(color_t(1, 1, 1), color_t(1, 1, 1), 1.6);
-        material_list_t material_list{ black, gray, white, mirror_mat, glass_mat };
+        material_sp silver = std::make_shared<plastic_material_t>(color_t(), color_t(.5, .5, .5), 100);
+        material_list_t material_list{ black, gray, silver };
 
 #pragma region shape
 
-        shape_sp bottom = std::make_shared<disk_t>(point3_t(0, 0, 0), point3_t(0, 1, 0), 50);
-        shape_sp back = std::make_shared<disk_t>(point3_t(0, 0, 20), point3_t(0, 0, -1), 50);
+        shape_sp bottom = std::make_shared<disk_t>(point3_t(0, 0, 2), point3_t(0, 1, 0), 10);
+        shape_sp back = std::make_shared<disk_t>(point3_t(0, 0, 2), point3_t(0, 0, -1), 5);
 
         shape_sp plank0 = std::make_shared<rectangle_t>(
-            point3_t(-5, 0.1, 5), point3_t(-5, 0.3, 6), point3_t(5, 0.3, 6), point3_t(5, 0.1, 5));
+            point3_t(-0.5, 0.01, 0.5), point3_t(-0.5, 0.03, 0.6), point3_t(0.5, 0.03, 0.6), point3_t(0.5, 0.01, 0.5));
         shape_sp plank1 = std::make_shared<rectangle_t>(
-            point3_t(-5, 0.4, 7), point3_t(-5, 0.8, 8), point3_t(5, 0.8, 8), point3_t(5, 0.4, 7));
+            point3_t(-0.5, 0.04, 0.7), point3_t(-0.5, 0.08, 0.8), point3_t(0.5, 0.08, 0.8), point3_t(0.5, 0.04, 0.7));
         shape_sp plank2 = std::make_shared<rectangle_t>(
-            point3_t(-5, 1.1, 9), point3_t(-5, 1.9, 10), point3_t(5, 1.9, 10), point3_t(5, 1.1, 9));
+            point3_t(-0.5, 0.11, 0.9), point3_t(-0.5, 0.19, 1), point3_t(0.5, 0.19, 1), point3_t(0.5, 0.11, 0.9));
         shape_sp plank3 = std::make_shared<rectangle_t>(
-            point3_t(-5, 2.2, 11), point3_t(-5, 4, 12), point3_t(5, 4, 12), point3_t(5, 2.2, 11));
+            point3_t(-0.5, 0.22, 1.1), point3_t(-0.5, 0.4, 1.2), point3_t(0.5, 0.4, 1.2), point3_t(0.5, 0.22, 1.1));
 
-        shape_sp ball0 = std::make_shared<sphere_t>(point3_t(-4, 6, 8), 0.1);
+        /*
+        shape_sp ball0 = std::make_shared<sphere_t>(point3_t(-3, 6, 8), 0.1);
         shape_sp ball1 = std::make_shared<sphere_t>(point3_t(-2, 6, 8), 0.4);
-        shape_sp ball2 = std::make_shared<sphere_t>(point3_t(0.2, 6, 8), 0.9);
-        shape_sp ball3 = std::make_shared<sphere_t>(point3_t( 4, 6, 8), 1.6);
+        shape_sp ball2 = std::make_shared<sphere_t>(point3_t(0.2, 6, 8), 0.8);
+        shape_sp ball3 = std::make_shared<sphere_t>(point3_t( 4, 6, 8), 1.3);
+        */
+
+        shape_sp ball0 = std::make_shared<rectangle_t>(
+            point3_t(-0.31, 0.6, 0.79), point3_t(-0.29, 0.6, 0.79), point3_t(-0.29, 0.6, 0.81), point3_t(-0.31, 0.6, 0.81));
+        shape_sp ball1 = std::make_shared<rectangle_t>(
+            point3_t(-0.24, 0.6, 0.76), point3_t(-0.16, 0.6, 0.76), point3_t(-0.16, 0.6, 0.84), point3_t(-0.24, 0.6, 0.84));
+        shape_sp ball2 = std::make_shared<rectangle_t>(
+            point3_t(-0.06, 0.6, 0.72), point3_t(0.1, 0.6, 0.72), point3_t(0.1, 0.6, 0.88), point3_t(-0.06, 0.6, 0.88));
+        shape_sp ball3 = std::make_shared<rectangle_t>(
+            point3_t(0.27, 0.6, 0.67), point3_t(0.53, 0.6, 0.67), point3_t(0.53, 0.6, 0.93), point3_t(0.27, 0.6, 0.93));
 
         shape_list_t shape_list
         {
@@ -3226,13 +3257,12 @@ public:
 
 #pragma endregion
 
-        auto L = color_t(100, 100, 100);
+        auto L = color_t(500, 500, 500);
         auto light0 = std::make_shared<area_light_t>(point3_t(), 1, L, ball0.get());
         auto light1 = std::make_shared<area_light_t>(point3_t(), 1, L, ball1.get());
         auto light2 = std::make_shared<area_light_t>(point3_t(), 1, L, ball2.get());
         auto light3 = std::make_shared<area_light_t>(point3_t(), 1, L, ball3.get());
         //auto env_light = std::make_shared<environment_light_t>(point3_t(), 1, vec3_t(0.1, 0.1, 0.1));
-
 
         light_list_t light_list
         {
@@ -3244,10 +3274,10 @@ public:
             { bottom.get(), gray.get(), nullptr},
             {   back.get(), gray.get(), nullptr},
 
-            { plank0.get(), white.get(), nullptr},
-            { plank1.get(), white.get(), nullptr},
-            { plank2.get(), white.get(), nullptr},
-            { plank3.get(), white.get(), nullptr},
+            { plank0.get(), silver.get(), nullptr},
+            { plank1.get(), silver.get(), nullptr},
+            { plank2.get(), silver.get(), nullptr},
+            { plank3.get(), silver.get(), nullptr},
 
             { ball0.get(),  black.get(), light0.get() },
             { ball1.get(),  black.get(), light1.get() },
@@ -4115,7 +4145,7 @@ class build_t_
 
 void render_single_scene(int argc, char* argv[])
 {
-    int width = 256, height = 256;
+    int width = 512, height = 256;
     int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 100; // # samples per pixel
 
     film_t film(width, height); //film.clear(color_t(1., 0., 0.));
@@ -4124,14 +4154,14 @@ void render_single_scene(int argc, char* argv[])
     std::unique_ptr<integrater_t> integrater =
         std::make_unique<path_tracing_iteration_t>(5, direct_sample_enum_t::both_mis);
 
-    //scene_t scene = scene_t::create_mis_scene(film.get_resolution());
-    scene_t scene = scene_t::create_cornell_box_scene(
-        cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_direction, film.get_resolution());
+    scene_t scene = scene_t::create_mis_scene(film.get_resolution());
+    //scene_t scene = scene_t::create_cornell_box_scene(
+    //    cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_direction, film.get_resolution());
 
 #ifndef KY_DEBUG
     integrater->render(&scene, sampler.get(), &film);
 #else
-    integrater->debug(&scene, sampler.get(), &film, { 10, 4 }, { 16, 12 });
+    integrater->debug(&scene, sampler.get(), &film, { 0, 160 }, { 5, 165 });
 #endif
 
     film.store_image("single.bmp"s);
@@ -4152,17 +4182,17 @@ void render_multiple_direct_sample_enum(int argc, char* argv[])
     auto scene_params = std::vector<std::pair<cornell_box_enum_t, int>>
     {
         //{ cornell_box_enum_t::light_point, 1 },
-        //{ cornell_box_enum_t::light_direction, 1 },
+        { cornell_box_enum_t::light_direction, 100 },
         //{ cornell_box_enum_t::light_area, 1 },
-        { cornell_box_enum_t::light_environment, 3 },
+        //{ cornell_box_enum_t::light_environment, 10 },
     };
 
     auto sample_enums = std::vector<direct_sample_enum_t>
     {
         //direct_sample_enum_t::bsdf,
         //direct_sample_enum_t::light,
-        direct_sample_enum_t::bsdf_mis,
-        direct_sample_enum_t::light_mis,
+        //direct_sample_enum_t::bsdf_mis,
+        //direct_sample_enum_t::light_mis,
         direct_sample_enum_t::both_mis,
     };
 
@@ -4195,8 +4225,8 @@ void render_multiple_scene(int argc, char* argv[])
     auto scene_params = std::vector<std::pair<cornell_box_enum_t, int>>
     {
         { cornell_box_enum_t::light_point, 100 },
-        { cornell_box_enum_t::light_direction, 100 },
-        { cornell_box_enum_t::light_area, 100 },
+        { cornell_box_enum_t::light_direction, 400 },
+        { cornell_box_enum_t::light_area, 400 },
         { cornell_box_enum_t::light_environment, 100 },
     };
 
@@ -4255,9 +4285,9 @@ void render_multiple_scene(int argc, char* argv[])
 void render_mis_scene(int argc, char* argv[])
 {
     int width = 256, height = 256;
-    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 10; // # samples per pixel
+    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 40; // # samples per pixel
 
-    film_grid_t film(3, 2, 256, 256); //film.clear(color_t(1., 0., 0.));
+    film_grid_t film(1, 3, 256, 256); //film.clear(color_t(1., 0., 0.));
     std::unique_ptr<sampler_t> sampler =
         std::make_unique<random_sampler_t>(samples_per_pixel);
     scene_t scene = scene_t::create_mis_scene(film.get_resolution());
