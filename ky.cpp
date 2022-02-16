@@ -2297,7 +2297,7 @@ public:
     plastic_material_t(const color_t& Kd, const color_t& Ks, Float shininess) :
         Kd_{ Kd }, Ks_{ Ks }, exponent_{ shininess } // TODO
     {
-        CHECK_DEBUG((Kd_ + Ks_).small_than({ 1, 1, 1 }));
+        //CHECK_DEBUG((Kd_ + Ks_).small_than({ 1, 1, 1 }));
 
         Float diffuse = Kd.luminance();
         Float specular = Ks.luminance();
@@ -3203,42 +3203,45 @@ public:
 
 
 
+    // https://github.com/mitsuba-renderer/mitsuba-data/blob/master/docs/scenes/include/veach_mis.xml
     static scene_t create_mis_scene(point2_t film_resolution)
     {
         // TODO: film, sampler
 
         const_camera_sptr_t camera = std::make_unique<camera_t>(
-            vec3_t{ 0, 0.5, -0.5 },
-            vec3_t{ 0, 0, 1 },
+            vec3_t{ 0, 2, 15 },
+            vec3_t{ 0, -2, 2.5 } - vec3_t{ 0, 2, 15 },
             vec3_t{ 0, 1, 0 },
-            105, film_resolution);
+            50, film_resolution);
 
         material_sp black = std::make_shared<matte_material_t>(color_t());
-        material_sp gray = std::make_shared<matte_material_t>(color_t(.5, .5, .5));
-        material_sp silver = std::make_shared<plastic_material_t>(color_t(), color_t(.5, .5, .5), 100);
+        material_sp gray = std::make_shared<matte_material_t>(color_t(.4, .4, .4));
+        material_sp silver = std::make_shared<plastic_material_t>(color_t(0.07, 0.09, 0.13), color_t(1, 1, 1), 100);
         material_list_t material_list{ black, gray, silver };
 
 #pragma region shape
 
-        shape_sp bottom = std::make_shared<disk_t>(point3_t(0, 0, 2), point3_t(0, 1, 0), 10);
-        shape_sp back = std::make_shared<disk_t>(point3_t(0, 0, 2), point3_t(0, 0, -1), 5);
+        shape_sp bottom = std::make_shared<rectangle_t>(
+            point3_t(-10, -4.14615, -10), point3_t(-10, -4.14615, 10), point3_t(10, -4.14615, 10), point3_t(10, -4.14615, -10));
+        shape_sp back = std::make_shared<rectangle_t>(
+            point3_t(-10, -10, -2), point3_t(-10, 10, -2), point3_t(10, 10, -2), point3_t(10, -10, -2));
 
         shape_sp plank0 = std::make_shared<rectangle_t>(
-            point3_t(-0.5, 0.01, 0.5), point3_t(-0.5, 0.03, 0.6), point3_t(0.5, 0.03, 0.6), point3_t(0.5, 0.01, 0.5));
+            point3_t(4, -2.70651, 0.25609), point3_t(4, -2.08375, -0.526323), point3_t(-4, -2.08375, -0.526323), point3_t(-4, -2.70651, 0.25609));
         shape_sp plank1 = std::make_shared<rectangle_t>(
-            point3_t(-0.5, 0.04, 0.7), point3_t(-0.5, 0.08, 0.8), point3_t(0.5, 0.08, 0.8), point3_t(0.5, 0.04, 0.7));
+            point3_t(4, -3.28825, 1.36972), point3_t(4, -2.83856, 0.476536), point3_t(-4, -2.83856, 0.476536), point3_t(-4, -3.28825, 1.36972));
         shape_sp plank2 = std::make_shared<rectangle_t>(
-            point3_t(-0.5, 0.11, 0.9), point3_t(-0.5, 0.19, 1), point3_t(0.5, 0.19, 1), point3_t(0.5, 0.11, 0.9));
+            point3_t(4, -3.73096, 2.70046), point3_t(4, -3.43378, 1.74564), point3_t(-4, -3.43378, 1.74564), point3_t(-4, -3.73096, 2.70046));
         shape_sp plank3 = std::make_shared<rectangle_t>(
-            point3_t(-0.5, 0.22, 1.1), point3_t(-0.5, 0.4, 1.2), point3_t(0.5, 0.4, 1.2), point3_t(0.5, 0.22, 1.1));
+            point3_t(4, -3.99615, 4.0667), point3_t(4, -3.82069, 3.08221), point3_t(-4, -3.82069, 3.08221), point3_t(-4, -3.99615, 4.0667));
+
+        shape_sp ball0 = std::make_shared<sphere_t>(point3_t(10, 10, 4), 0.5);
+        shape_sp ball1 = std::make_shared<sphere_t>(point3_t(-1.25, 0, 0), 0.1);
+        shape_sp ball2 = std::make_shared<sphere_t>(point3_t(-3.75, 0, 0), 0.03333);
+        shape_sp ball3 = std::make_shared<sphere_t>(point3_t(1.25, 0, 0), 0.3);
+        shape_sp ball4 = std::make_shared<sphere_t>(point3_t(3.75, 0, 0), 0.9);
 
         /*
-        shape_sp ball0 = std::make_shared<sphere_t>(point3_t(-3, 6, 8), 0.1);
-        shape_sp ball1 = std::make_shared<sphere_t>(point3_t(-2, 6, 8), 0.4);
-        shape_sp ball2 = std::make_shared<sphere_t>(point3_t(0.2, 6, 8), 0.8);
-        shape_sp ball3 = std::make_shared<sphere_t>(point3_t( 4, 6, 8), 1.3);
-        */
-
         shape_sp ball0 = std::make_shared<rectangle_t>(
             point3_t(-0.31, 0.6, 0.79), point3_t(-0.29, 0.6, 0.79), point3_t(-0.29, 0.6, 0.81), point3_t(-0.31, 0.6, 0.81));
         shape_sp ball1 = std::make_shared<rectangle_t>(
@@ -3247,26 +3250,26 @@ public:
             point3_t(-0.06, 0.6, 0.72), point3_t(0.1, 0.6, 0.72), point3_t(0.1, 0.6, 0.88), point3_t(-0.06, 0.6, 0.88));
         shape_sp ball3 = std::make_shared<rectangle_t>(
             point3_t(0.27, 0.6, 0.67), point3_t(0.53, 0.6, 0.67), point3_t(0.53, 0.6, 0.93), point3_t(0.27, 0.6, 0.93));
+        */
 
         shape_list_t shape_list
         {
             bottom, back,
             plank0, plank1, plank2, plank3,
-            ball0, ball1, ball2, ball3
+            ball0, ball1, ball2, ball3, ball4
         };
 
 #pragma endregion
 
-        auto L = color_t(500, 500, 500);
-        auto light0 = std::make_shared<area_light_t>(point3_t(), 1, L, ball0.get());
-        auto light1 = std::make_shared<area_light_t>(point3_t(), 1, L, ball1.get());
-        auto light2 = std::make_shared<area_light_t>(point3_t(), 1, L, ball2.get());
-        auto light3 = std::make_shared<area_light_t>(point3_t(), 1, L, ball3.get());
-        //auto env_light = std::make_shared<environment_light_t>(point3_t(), 1, vec3_t(0.1, 0.1, 0.1));
+        auto light0 = std::make_shared<area_light_t>(point3_t(), 1, color_t(800, 800, 800), ball0.get());
+        auto light1 = std::make_shared<area_light_t>(point3_t(), 1, color_t(100, 100, 100), ball1.get());
+        auto light2 = std::make_shared<area_light_t>(point3_t(), 1, color_t(901.803, 901.803, 901.803), ball2.get());
+        auto light3 = std::make_shared<area_light_t>(point3_t(), 1, color_t(11.1111, 11.1111, 11.1111), ball3.get());
+        auto light4 = std::make_shared<area_light_t>(point3_t(), 1, color_t(1.23457, 1.23457, 1.23457), ball4.get());
 
         light_list_t light_list
         {
-           light0, light1, light2, light3//, env_light
+           light0, light1, light2, light3, light4
         };
 
         surface_list_t surface_list
@@ -3283,10 +3286,11 @@ public:
             { ball1.get(),  black.get(), light1.get() },
             { ball2.get(),  black.get(), light2.get() },
             { ball3.get(),  black.get(), light3.get() },
+            { ball4.get(),  black.get(), light4.get() },
         };
 
         // TODO
-        return scene_t{ camera, shape_list, material_list, light_list, surface_list, nullptr };
+        return scene_t{ camera, shape_list, material_list, light_list, surface_list };
     }
 
 private:
@@ -4145,8 +4149,8 @@ class build_t_
 
 void render_single_scene(int argc, char* argv[])
 {
-    int width = 512, height = 256;
-    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 100; // # samples per pixel
+    int width = 768, height = 512;
+    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 1; // # samples per pixel
 
     film_t film(width, height); //film.clear(color_t(1., 0., 0.));
     std::unique_ptr<sampler_t> sampler =
