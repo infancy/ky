@@ -1005,13 +1005,15 @@ public:
 class triangle_t : public shape_t
 {
 public:
-    triangle_t(const point3_t& p0, const point3_t& p1, const point3_t& p2)
+    triangle_t(const point3_t& p0, const point3_t& p1, const point3_t& p2, bool flip_normal = false)
     {
         p0_ = p0;
         p1_ = p1;
         p2_ = p2;
 
         normal_ = normalize(cross(p1_ - p0_, p2_ - p0_));
+        if (flip_normal)
+            normal_ = -normal_;
     }
 
     bool intersect(const ray_t& ray, isect_t* out_isect) const override
@@ -1082,7 +1084,7 @@ public:
 class rectangle_t : public shape_t
 {
 public:
-    rectangle_t(const point3_t& p0, const point3_t& p1, const point3_t& p2, const point3_t& p3)
+    rectangle_t(const point3_t& p0, const point3_t& p1, const point3_t& p2, const point3_t& p3, bool flip_normal = false)
     {
         p0_ = p0;
         p1_ = p1;
@@ -1091,6 +1093,8 @@ public:
         // TODO: CHECK_DEBUG
 
         normal_ = normalize(cross(p1_ - p0_, p2_ - p0_));
+        if (flip_normal)
+            normal_ = -normal_;
     }
 
     bool intersect(const ray_t& ray, isect_t* out_isect) const override
@@ -3209,48 +3213,37 @@ public:
         // TODO: film, sampler
 
         const_camera_sptr_t camera = std::make_unique<camera_t>(
-            vec3_t{ 0, 2, 15 },
-            vec3_t{ 0, -2, 2.5 } - vec3_t{ 0, 2, 15 },
+            vec3_t{ 0, 2, -15 },
+            vec3_t{ 0, -2, -2.5 } - vec3_t{ 0, 2, -15 },
             vec3_t{ 0, 1, 0 },
             50, film_resolution);
 
         material_sp black = std::make_shared<matte_material_t>(color_t());
         material_sp gray = std::make_shared<matte_material_t>(color_t(.4, .4, .4));
-        material_sp silver = std::make_shared<plastic_material_t>(color_t(0.07, 0.09, 0.13), color_t(1, 1, 1), 100);
+        material_sp silver = std::make_shared<plastic_material_t>(color_t(0.07, 0.09, 0.13), color_t(1, 1, 1), 5000);
         material_list_t material_list{ black, gray, silver };
 
 #pragma region shape
 
         shape_sp bottom = std::make_shared<rectangle_t>(
-            point3_t(-10, -4.14615, -10), point3_t(-10, -4.14615, 10), point3_t(10, -4.14615, 10), point3_t(10, -4.14615, -10));
+            point3_t(-10, -4.14615, 10), point3_t(-10, -4.14615, -10), point3_t(10, -4.14615, -10), point3_t(10, -4.14615, 10), true);
         shape_sp back = std::make_shared<rectangle_t>(
-            point3_t(-10, -10, -2), point3_t(-10, 10, -2), point3_t(10, 10, -2), point3_t(10, -10, -2));
+            point3_t(-10, -10, 2), point3_t(-10, 10, 2), point3_t(10, 10, 2), point3_t(10, -10, 2), true);
 
         shape_sp plank0 = std::make_shared<rectangle_t>(
-            point3_t(4, -2.70651, 0.25609), point3_t(4, -2.08375, -0.526323), point3_t(-4, -2.08375, -0.526323), point3_t(-4, -2.70651, 0.25609));
+            point3_t(4, -2.70651, -0.25609), point3_t(4, -2.08375, 0.526323), point3_t(-4, -2.08375, 0.526323), point3_t(-4, -2.70651, -0.25609), true);
         shape_sp plank1 = std::make_shared<rectangle_t>(
-            point3_t(4, -3.28825, 1.36972), point3_t(4, -2.83856, 0.476536), point3_t(-4, -2.83856, 0.476536), point3_t(-4, -3.28825, 1.36972));
+            point3_t(4, -3.28825, -1.36972), point3_t(4, -2.83856, -0.476536), point3_t(-4, -2.83856, -0.476536), point3_t(-4, -3.28825, -1.36972), true);
         shape_sp plank2 = std::make_shared<rectangle_t>(
-            point3_t(4, -3.73096, 2.70046), point3_t(4, -3.43378, 1.74564), point3_t(-4, -3.43378, 1.74564), point3_t(-4, -3.73096, 2.70046));
+            point3_t(4, -3.73096, -2.70046), point3_t(4, -3.43378, -1.74564), point3_t(-4, -3.43378, -1.74564), point3_t(-4, -3.73096, -2.70046), true);
         shape_sp plank3 = std::make_shared<rectangle_t>(
-            point3_t(4, -3.99615, 4.0667), point3_t(4, -3.82069, 3.08221), point3_t(-4, -3.82069, 3.08221), point3_t(-4, -3.99615, 4.0667));
+            point3_t(4, -3.99615, -4.0667), point3_t(4, -3.82069, -3.08221), point3_t(-4, -3.82069, -3.08221), point3_t(-4, -3.99615, -4.0667), true);
 
-        shape_sp ball0 = std::make_shared<sphere_t>(point3_t(10, 10, 4), 0.5);
+        shape_sp ball0 = std::make_shared<sphere_t>(point3_t(10, 10, -4), 0.5);
         shape_sp ball1 = std::make_shared<sphere_t>(point3_t(-1.25, 0, 0), 0.1);
         shape_sp ball2 = std::make_shared<sphere_t>(point3_t(-3.75, 0, 0), 0.03333);
         shape_sp ball3 = std::make_shared<sphere_t>(point3_t(1.25, 0, 0), 0.3);
         shape_sp ball4 = std::make_shared<sphere_t>(point3_t(3.75, 0, 0), 0.9);
-
-        /*
-        shape_sp ball0 = std::make_shared<rectangle_t>(
-            point3_t(-0.31, 0.6, 0.79), point3_t(-0.29, 0.6, 0.79), point3_t(-0.29, 0.6, 0.81), point3_t(-0.31, 0.6, 0.81));
-        shape_sp ball1 = std::make_shared<rectangle_t>(
-            point3_t(-0.24, 0.6, 0.76), point3_t(-0.16, 0.6, 0.76), point3_t(-0.16, 0.6, 0.84), point3_t(-0.24, 0.6, 0.84));
-        shape_sp ball2 = std::make_shared<rectangle_t>(
-            point3_t(-0.06, 0.6, 0.72), point3_t(0.1, 0.6, 0.72), point3_t(0.1, 0.6, 0.88), point3_t(-0.06, 0.6, 0.88));
-        shape_sp ball3 = std::make_shared<rectangle_t>(
-            point3_t(0.27, 0.6, 0.67), point3_t(0.53, 0.6, 0.67), point3_t(0.53, 0.6, 0.93), point3_t(0.27, 0.6, 0.93));
-        */
 
         shape_list_t shape_list
         {
@@ -4149,7 +4142,7 @@ class build_t_
 
 void render_single_scene(int argc, char* argv[])
 {
-    int width = 768, height = 512;
+    int width = 512, height = 512;
     int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 1; // # samples per pixel
 
     film_t film(width, height); //film.clear(color_t(1., 0., 0.));
@@ -4288,12 +4281,9 @@ void render_multiple_scene(int argc, char* argv[])
 
 void render_mis_scene(int argc, char* argv[])
 {
-    int width = 256, height = 256;
-    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 40; // # samples per pixel
-
-    film_grid_t film(1, 3, 256, 256); //film.clear(color_t(1., 0., 0.));
+    film_grid_t film(1, 3, 512, 308); //film.clear(color_t(1., 0., 0.));
     std::unique_ptr<sampler_t> sampler =
-        std::make_unique<random_sampler_t>(samples_per_pixel);
+        std::make_unique<random_sampler_t>(10);
     scene_t scene = scene_t::create_mis_scene(film.get_resolution());
 
     auto sample_enums = std::vector<direct_sample_enum_t>
@@ -4324,11 +4314,11 @@ int main(int argc, char* argv[])
 {
     clock_t start = clock(); // MILO
 
-    render_single_scene(argc, argv);
+    //render_single_scene(argc, argv);
     //render_multiple_direct_sample_enum(argc, argv);
     //render_multiple_scene(argc, argv);
-    //render_mis_scene(argc, argv);
-
+    render_mis_scene(argc, argv);
+    
     LOG("\n{} sec\n", (Float)(clock() - start) / CLOCKS_PER_SEC); // MILO
     return 0;
 }
