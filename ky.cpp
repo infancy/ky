@@ -3339,13 +3339,18 @@ void environment_light_t::preprocess(const scene_t& scene)
 */
 enum class lighting_enum_t
 {
-    emit, // Le = Le
-    direct, // Ld = ∫Le
-    indirect, // Li = ∫∫(Le + ∫Li)
+    emit = 1, // Le = Le
+    direct = 2, // Ld = ∫Le
+    indirect = 4, // Li = ∫∫(Le + ∫Li)
+    all_lighting = emit | direct | indirect,
 
-    diffuse,
-    specular,
+    diffuse = 8,
+    specular = 16,
+    all_scattering = diffuse | specular,
+
+    all = all_lighting | all_scattering
 };
+KY_ENUM_OPERATORS(lighting_enum_t)
 
 // direct_lighting_sample
 enum class direct_sample_enum_t
@@ -3936,32 +3941,49 @@ protected:
 
 class path_tracing_recursion_t : public path_integrater_sample_t
 {
+private:
+    lighting_enum_t lighting_enum_;
+
 public:
-    using path_integrater_sample_t::path_integrater_sample_t;
+    path_tracing_recursion_t(int max_path_depth, direct_sample_enum_t direct_sample_enum, lighting_enum_t lighting_enum) :
+        path_integrater_sample_t(max_path_depth, direct_sample_enum),
+        lighting_enum_{ lighting_enum }
+    {
+    }
 
     color_t Li(ray_t ray, scene_t* scene, sampler_t* sampler) override
     {
-        return Li(ray, scene, sampler, 0, false);
+        return Li(ray, scene, sampler, 0, false, lighting_enum_);
     }
 
 private:
     /// <param name="is_last_specular">last vertex is specular</param>
-    color_t Li(ray_t ray, scene_t* scene, sampler_t* sampler, int depth, bool is_last_specular)
+    color_t Li(ray_t ray, scene_t* scene, sampler_t* sampler, int depth, bool is_last_specular, lighting_enum_t lighting_enum)
     {
+        color_t L;
         isect_t isect;
         bool hit = scene->intersect(ray, &isect);
 
         color_t Le = emission_lighting(ray, scene, sampler, depth, is_last_specular, isect, hit);
 
         if (!hit || (depth >= max_path_depth_))
-            return Le;
+        {
+            if(enum_have(lighting_enum, lighting_enum_t::emit))
+                L += Le;
+        }
         else
         {
-            color_t Ls = direct_lighting(ray, scene, sampler, depth, is_last_specular, isect)
-                       + indirect_lighting(ray, scene, sampler, depth, is_last_specular, isect);
+            if (enum_have(lighting_enum, lighting_enum_t::emit))
+                L += Le;
 
-            return Le + Ls;
+            if (enum_have(lighting_enum, lighting_enum_t::direct))
+                L += direct_lighting(ray, scene, sampler, depth, is_last_specular, isect);
+
+            if (enum_have(lighting_enum, lighting_enum_t::indirect))
+                L += indirect_lighting(ray, scene, sampler, depth, is_last_specular, isect, lighting_enum_t::all);
         }
+
+        return L;
     }
  
     color_t emission_lighting(ray_t ray, scene_t* scene, sampler_t* sampler, int depth, bool is_last_specular,
@@ -3997,7 +4019,7 @@ private:
     }
 
     color_t indirect_lighting(ray_t ray, scene_t* scene, sampler_t* sampler, int depth, bool is_last_specular,
-        const isect_t& isect)
+        const isect_t& isect, lighting_enum_t lighting_enum)
     {
         auto bs = isect.bsdf()->sample_f(isect.wo, sampler->get_vec2());
 
@@ -4015,7 +4037,7 @@ private:
         }
 
         ray_t wi_ray(isect.position, bs.wi);
-        return bs.f * Li(wi_ray, scene, sampler, depth, isect.bsdf()->is_delta()) * abs_dot(bs.wi, isect.normal) / bs.pdf;
+        return bs.f * Li(wi_ray, scene, sampler, depth, isect.bsdf()->is_delta(), lighting_enum) * abs_dot(bs.wi, isect.normal) / bs.pdf;
     }
 };
 
@@ -4174,7 +4196,7 @@ void render_single_scene(int argc, char* argv[])
 #endif
 }
 
-void render_multiple_direct_sample_enum(int argc, char* argv[])
+void render_direct_sample_enum(int argc, char* argv[])
 {
     auto scene_params = std::vector<std::pair<cornell_box_enum_t, int>>
     {
@@ -4211,9 +4233,9 @@ void render_multiple_direct_sample_enum(int argc, char* argv[])
         }
     }
 
-    film.store_image("multi.bmp"s);
+    film.store_image("direct_sample.bmp"s);
 #ifdef KY_WINDOWS
-    system("mspaint multi.bmp");
+    system("mspaint direct_sample.bmp");
 #endif
 }
 
@@ -4273,9 +4295,9 @@ void render_multiple_scene(int argc, char* argv[])
     }
     */
 
-    film.store_image("multi.bmp"s);
+    film.store_image("light_mis.bmp"s);
 #ifdef KY_WINDOWS
-    system("mspaint multi.bmp");
+    system("mspaint light_mis.bmp");
 #endif
 }
 
@@ -4283,7 +4305,7 @@ void render_mis_scene(int argc, char* argv[])
 {
     film_grid_t film(1, 3, 512, 308); //film.clear(color_t(1., 0., 0.));
     std::unique_ptr<sampler_t> sampler =
-        std::make_unique<random_sampler_t>(10);
+        std::make_unique<random_sampler_t>(100);
     scene_t scene = scene_t::create_mis_scene(film.get_resolution());
 
     auto sample_enums = std::vector<direct_sample_enum_t>
@@ -4304,21 +4326,54 @@ void render_mis_scene(int argc, char* argv[])
         film.next_cell();
     }
 
-    film.store_image("single.bmp"s);
+    film.store_image("veach_mis.bmp"s);
 #ifdef KY_WINDOWS
-    system("mspaint single.bmp");
+    system("mspaint veach_mis.bmp");
 #endif
 }
+
+void render_lighting_enum()
+{
+    film_grid_t film(1, 4, 256, 256); //film.clear(color_t(1., 0., 0.));
+    std::unique_ptr<sampler_t> sampler =
+        std::make_unique<random_sampler_t>(100);
+    scene_t scene = scene_t::create_cornell_box_scene(
+        cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_area, film.get_resolution());
+
+    auto lighting_enums = std::vector<lighting_enum_t>
+    {
+        lighting_enum_t::emit,
+        lighting_enum_t::direct,
+        lighting_enum_t::indirect,
+        lighting_enum_t::all,
+    };
+
+    for (auto lighing_enum : lighting_enums)
+    {
+        std::unique_ptr<integrater_t> integrater =
+            std::make_unique<path_tracing_recursion_t>(10, direct_sample_enum_t::both_mis, lighing_enum);
+        integrater->render(&scene, sampler.get(), &film);
+
+        film.next_cell();
+    }
+
+    film.store_image("lighting.bmp"s);
+#ifdef KY_WINDOWS
+    system("mspaint lighting.bmp");
+#endif
+}
+
 
 int main(int argc, char* argv[])
 {
     clock_t start = clock(); // MILO
 
     //render_single_scene(argc, argv);
-    //render_multiple_direct_sample_enum(argc, argv);
-    //render_multiple_scene(argc, argv);
-    render_mis_scene(argc, argv);
-    
+    //render_direct_sample_enum(argc, argv);
+    render_multiple_scene(argc, argv);
+    //render_mis_scene(argc, argv);
+    //render_lighting_enum();
+
     LOG("\n{} sec\n", (Float)(clock() - start) / CLOCKS_PER_SEC); // MILO
     return 0;
 }
