@@ -80,13 +80,18 @@ inline bool is_valid(const std::floating_point auto x) { return !is_invalid(x); 
 
 #pragma region utility
 
-class reference_type_t
+class nocopyable_t
 {
 protected:
-    constexpr reference_type_t() = default;
+    constexpr nocopyable_t() = default;
+    ~nocopyable_t() = default;
 
-    reference_type_t(const reference_type_t&) = delete;
-    reference_type_t& operator=(const reference_type_t&) = delete;
+    nocopyable_t(nocopyable_t&&) = default;
+    nocopyable_t& operator=(nocopyable_t&&) = default;
+
+private:
+    nocopyable_t(const nocopyable_t&);
+    nocopyable_t& operator=(const nocopyable_t&);
 };
 
 
@@ -562,7 +567,7 @@ class surface_t;
 */
 
 // surface intersection
-class isect_t
+class isect_t : public nocopyable_t
 {
 public:
     isect_t() = default;
@@ -888,7 +893,7 @@ public:
         else
         {
             wi = normalize(wi);
-            // 1 / (projected light area / distance squared)
+            // look comments in `pdf_direction()` below
             *out_pdf_direction *= distance_squared(light_isect.position, isect.position) / abs_dot(light_isect.normal, -wi);
             if (std::isinf(*out_pdf_direction))
                 *out_pdf_direction = 0.f;
@@ -904,8 +909,27 @@ public:
         if (!intersect(ray, &light_isect))
             return 0;
 
-        // convert light sample weight to solid angle measure
-        // 1 / (projected light area / distance squared)
+        /*
+          convert light sample point to solid angle:
+
+              $$\mathrm{d} \omega = \fact{\mathrm{d} A}{l^{2}} $$
+
+          first:
+              unit_solid_angle = 1 / distance_squared(...)
+              projected_light_area = abs_dot(...) * area()
+              projected_solid_angle = projected_light_area / distance_squared
+
+              pdf = distance_squared(...) / (abs_dot(...) * area()) = inverse_projected_solid_angle
+              1 / pdf 
+                      = (abs_dot(...) * area()) / distance_squared(...) = projected_solid_angle
+                      = (1 / distance_squared(...)) * (abs_dot(...) * area()) = unit_solid_angle * projected_light_area
+
+          so:
+              (f * Li * cos_theta) / pdf = f * (Li * cos_theta * projected_solid_angle)
+
+          or:
+              (f * Li * cos_theta) / pdf = f * (Li * cos_theta * unit_solid_angle * projected_light_area)
+        */
         Float pdf = distance_squared(isect.position, light_isect.position) / (abs_dot(light_isect.normal, -world_wi) * area());
         if (std::isinf(pdf))
             pdf = 0.f;
@@ -1376,7 +1400,7 @@ inline uint8_t gamma_encoding(Float x) { return pow(clamp01(x), 1 / 2.2) * 255 +
   * get/set color
   * save image
 */
-class film_t : public reference_type_t
+class film_t : public nocopyable_t
 {
 public:
     film_t(int width, int height) :
@@ -1811,6 +1835,7 @@ public:
 
 enum class bsdf_enum_t
 {
+    none = 0,
     reflection = 1,
     transmission = 2,
     scattering = reflection | transmission,
@@ -1862,8 +1887,8 @@ struct bsdf_sample_t
 {
     color_t f; // scattering rate 
     vec3_t wi; // world wi
-    Float pdf;
-    bsdf_enum_t bsdf_type; // flags
+    Float pdf{};
+    bsdf_enum_t bsdf_type{}; // flags
 };
 
 class bsdf_t
@@ -1924,6 +1949,9 @@ private:
 
 private:
     frame_t shading_frame_;
+
+    // extension point:
+    // std::array<bxdf_uptr, 2> bxdf_list_;
 };
 
 
@@ -2410,8 +2438,8 @@ struct direction_sample_t // : public position_sample_t
     }
 };
 
-
 class scene_t;
+
 class light_t
 {
 public:
@@ -2427,7 +2455,9 @@ public:
     // whether the light is finite extent (point, area) or not(directional, environment)
     virtual bool is_finite() const = 0;
 
+    // only called from `scene_t`
     virtual void preprocess(const scene_t& scene);
+
     virtual color_t power() const = 0;
 
 public:
@@ -2508,7 +2538,26 @@ public:
         sample.position = world_position_;
         sample.wi = normalize(world_position_ - isect.position);
         sample.pdf = 1.f;
-        sample.Li = intensity_ / distance_squared(world_position_, isect.position); // TODO
+        /*
+          if a sphere hold the point light, then:
+              $$ \Phi= A E = \frac{A I} {l^{2}} $$, where $$ A = 4 \pi r^{2} $$
+
+          or from the definition:
+              $$ \mathrm{d} \Phi= \mathrm{d} A E = \frac{\mathrm{d} A I} {l^{2}} $$
+
+          finally we have:
+             $$ E = \frac{I}{l^{2}}$$
+
+
+          as for `Lo = f * Li * cos_theta / pdf`,
+
+          for area light:
+              Lo = f * Li * cos_theta / pdf = f * (Li * cos_theta * projected_solid_angle), see `shape::pdf_direction(...)`
+
+          for point light:
+              Lo = f * Li * cos_theta / pdf = f * (E * cos_theta / 1), it's no problem
+        */
+        sample.Li = intensity_ / distance_squared(world_position_, isect.position);
 
         return sample;
     }
@@ -2527,9 +2576,9 @@ private:
 class direction_light_t : public light_t
 {
 public:
-    direction_light_t(const point3_t& world_position, int samples_num, color_t radiance, const vec3_t world_direction) :
+    direction_light_t(const point3_t& world_position, int samples_num, color_t irradiance, const vec3_t world_direction) :
         light_t(world_position, samples_num),
-        radiance_{ radiance },
+        irradiance_{ irradiance },
         world_direction_{ normalize(world_direction) },
         frame_{ world_direction }
     {
@@ -2562,7 +2611,7 @@ public:
         *pdf_position = 1 / area_;
         *pdf_direction = 1;
 
-        return radiance_;
+        return irradiance_;
     }
 
     void pdf_Le(
@@ -2580,7 +2629,8 @@ public:
         sample.wi = -world_direction_;
         sample.position = isect.position + sample.wi * 2 * world_radius_;
         sample.pdf = 1;
-        sample.Li = radiance_;
+        // same as point_light_t::sample_Li(...)
+        sample.Li = irradiance_;
 
         return sample;
     }
@@ -2592,7 +2642,7 @@ public:
     }
 
 private:
-    color_t radiance_;
+    color_t irradiance_;
 
     point3_t world_center_;
     Float world_radius_;
@@ -2884,7 +2934,7 @@ enum class cornell_box_enum_t
 };
 KY_ENUM_OPERATORS(cornell_box_enum_t)
 
-class scene_t : public reference_type_t
+class scene_t : public nocopyable_t
 {
 public:
     scene_t() = default;
@@ -3313,7 +3363,7 @@ void direction_light_t::preprocess(const scene_t& scene)
     world_bound.bounding_sphere(&world_center_, &world_radius_);
 
     area_ = k_pi * world_radius_ * world_radius_;
-    power_ = radiance_ * area_;
+    power_ = irradiance_ * area_;
 }
 
 void environment_light_t::preprocess(const scene_t& scene)
@@ -3322,6 +3372,7 @@ void environment_light_t::preprocess(const scene_t& scene)
 
     world_bound.bounding_sphere(&world_center_, &world_radius_);
 
+    // TODO
     area_ = k_pi * world_radius_ * world_radius_;
     power_ = radiance_ * area_;
 }
