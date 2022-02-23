@@ -3,7 +3,9 @@
  #include <math.h>   // smallpt, a Path Tracer by Kevin Beason, 2008 
  #include <stdlib.h> // Make : g++ -O3 -fopenmp smallpt.cpp -o smallpt 
  #include <stdio.h>  //        Remove "-fopenmp" for g++ version < 4.2 
-  
+ 
+ #define M_PI 3.141592653589793238462643
+ 
  struct Vec {        // Usage: time ./smallpt 5000 && xv image.ppm 
    double x, y, z;                  // position, also color (r,g,b) 
    Vec(double x_=0, double y_=0, double z_=0){ x=x_; y=y_; z=z_; } 
@@ -63,6 +65,8 @@
    if (!intersect(r, t, id)) return Vec(); // if miss, return black 
   
    const Sphere &obj = spheres[id];        // the hit object 
+   if (depth > 100) return obj.e;
+
    Vec x=r.o+r.d*t, n=(x-obj.p).norm(), nl=n.dot(r.d)<0?n:n*-1, f=obj.c; 
    double p = f.x>f.y && f.x>f.z ? f.x : f.y>f.z ? f.y : f.z; // max refl 
    if (++depth>5) if (erand48(Xi)<p) f=f*(1/p); else return obj.e; //R.R. 
@@ -91,7 +95,7 @@
  } 
   
  int main(int argc, char *argv[]){ 
-   int w=1024, h=768, samps = argc==2 ? atoi(argv[1])/4 : 1; // # samples 
+   int w=1024, h=768, samps = argc==2 ? atoi(argv[1])/4 : 10; // # samples 
    Ray cam(Vec(50,52,295.6), Vec(0,-0.042612,-1).norm()); // cam pos, dir 
    Vec cx=Vec(w*.5135/h), cy=(cx%cam.d).norm()*.5135, r, *c=new Vec[w*h]; 
   
