@@ -875,7 +875,7 @@ public:
     virtual Float area() const = 0;
 
 public:
-    // sample direction on front vertexs, and sample position/point/area on last vertex
+    // these methods below only used for `area_light_t`
 
     // TODO: return position_sample_t
     virtual isect_t sample_position(const point2_t& random, Float* out_pdf_position) const = 0;
@@ -3725,49 +3725,51 @@ protected:
     {
         color_t Ld{};
 
-        bool sample_specular = isect.bsdf()->is_delta();
-        if (skip_specular && sample_specular)
+        bool is_specular = isect.bsdf()->is_delta();
+        if (skip_specular && is_specular)
             return Ld;
 
-        // Sample BSDF with multiple importance sampling
-        if (!light.is_delta())
+        if (light.is_delta())
+            return Ld;
+
+        // sample scattered direction for surface isect_t
+        auto bs = isect.bsdf()->sample_f(isect.wo, random_bsdf);
+        bs.f *= abs_dot(bs.wi, isect.normal);
+
+        if (!bs.f.is_black() && bs.pdf > 0)
         {
-            // Sample scattered direction for surface isect_ts
-            auto bs = isect.bsdf()->sample_f(isect.wo, random_bsdf);
-            bs.f *= abs_dot(bs.wi, isect.normal);
+            // TODO: move to scene_t
+            ray_t ray = isect.spawn_ray(bs.wi);
+            isect_t light_isect;
+            bool is_hit_light = scene->intersect(ray, &light_isect);
 
-            if (!bs.f.is_black() && bs.pdf > 0)
+            color_t Li{};
+            if (is_hit_light)
             {
-                Float weight = 1;
-                if (!sample_specular)
-                {
-                    Float pdf_light = light.pdf_Li(isect, bs.wi);
-                    if (pdf_light == 0)
-                        return Ld;
+                if (light_isect.surface()->area_light == &light)
+                    Li = light_isect.Le();
+            }
+            else
+            {
+                // for environment light
+                Li = light.Le(ray);
+            }
 
-                    weight = power_heuristic(1, bs.pdf, 1, pdf_light);
-                }
-                // else 
-                //    weight = 1;
-
-                ray_t ray = isect.spawn_ray(bs.wi);
-                isect_t light_isect;
-                bool is_hit_light = scene->intersect(ray, &light_isect);
-
-                color_t Li{};
-                if (is_hit_light)
-                {
-                    if (light_isect.surface()->area_light == &light)
-                        Li = light_isect.Le();
-                }
+            if (!Li.is_black())
+            {
+                if(is_specular)
+                    Ld += bs.f * Li / bs.pdf; // don't need MIS
                 else
                 {
-                    // for environment light
-                    Li = light.Le(ray);
-                }
+                    Float light_pdf = light.pdf_Li(isect, bs.wi);
+                    if (light_pdf > 0) // visible
+                    {
+                        Float weight = power_heuristic(1, bs.pdf, 1, light_pdf);
 
-                if (!Li.is_black())
-                    Ld += bs.f * Li * weight / bs.pdf;
+                        // sample BSDF with multiple importance sampling
+                        Ld += bs.f * Li * weight / bs.pdf;
+                    }
+                }
             }
         }
 
@@ -3784,29 +3786,22 @@ protected:
         if (skip_specular && isect.bsdf()->is_delta())
             return Ld;
 
-        // Sample light source with multiple importance sampling
         auto ls = light.sample_Li(isect, random_light);
         if (!ls.Li.is_black() && ls.pdf > 0)
         {
-            // Compute BSDF or phase function's value for light sample
-            color_t f = isect.bsdf()->f(isect.wo, ls.wi) * abs_dot(ls.wi, isect.normal);
-            Float pdf_bsdf = isect.bsdf()->pdf(isect.wo, ls.wi);
-
-            if (!f.is_black())
+            if (!scene->occluded(isect, ls.position))
             {
-                if (scene->occluded(isect, ls.position))
-                {
-                    ls.Li = color_t();
-                }
-
-                // Add light's contribution to reflected radiance
-                if (!ls.Li.is_black())
+                color_t f = isect.bsdf()->f(isect.wo, ls.wi) * abs_dot(ls.wi, isect.normal);
+                if (!f.is_black())
                 {
                     if (light.is_delta())
-                        Ld += f * ls.Li / ls.pdf;	// return f * Li / pdf_light;
+                        Ld += f * ls.Li / ls.pdf; // don't need MIS
                     else
                     {
-                        Float weight = power_heuristic(1, ls.pdf, 1, pdf_bsdf);
+                        Float bsdf_pdf = isect.bsdf()->pdf(isect.wo, ls.wi);
+                        Float weight = power_heuristic(1, ls.pdf, 1, bsdf_pdf);
+
+                        // sample light source with multiple importance sampling
                         Ld += f * ls.Li * weight / ls.pdf;
                     }
                 }
@@ -3858,15 +3853,22 @@ protected:
 class path_integrater_t : public integrater_t
 {
 public:
-    path_integrater_t(int max_path_depth):
-        max_path_depth_{ max_path_depth }
+    path_integrater_t(int max_path_depth, direct_sample_enum_t direct_sample_enum):
+        max_path_depth_{ max_path_depth },
+        direct_sample_enum_{ direct_sample_enum }
     {
     }
 
 protected:
     int max_path_depth_;
+    direct_sample_enum_t direct_sample_enum_;
 };
 
+
+/*
+  simple path tracing implementation, only sample BRDF
+  Li = Le + T*(Le + T*(le + ...))
+*/
 class simple_path_tracing_recursion_t : public path_integrater_t
 {
 public:
@@ -3877,7 +3879,6 @@ public:
         return Li(ray, scene, sampler, 0);
     }
 
-    // Le + T(Le + T(Le + T(...)))
     color_t Li(ray_t ray, scene_t* scene, sampler_t* sampler, int depth)
     {
         isect_t isect;
@@ -3921,83 +3922,17 @@ public:
 };
 
 /*
-  Le + T*(Le + T*(le + ...))
-  class path_tracing_recursion
-
-  Le + T*Le + T^2*Le + ...
-  class path_tracing_iteration
+  recursion style path tracing
+  Li = Le + T*(Le + T*(le + ...))
 */
-
-class path_integrater_sample_t : public path_integrater_t
-{
-public:
-    path_integrater_sample_t(int max_path_depth, direct_sample_enum_t sample_enum) :
-        path_integrater_t(max_path_depth),
-        sample_enum_{ sample_enum }
-    {
-    }
-
-protected:
-    /*
-    color_t Ld_(ray_t ray, scene_t* scene, sampler_t* sampler, int depth, bool is_last_specular,
-        const isect_t& isect)
-    {
-        color_t L;
-        void* sample_light_func;
-        void* estimate_func;
-
-        switch (sample_enum_)
-        {
-        case direct_sample_enum_t::sample_single_light:
-            sample_light_func = (void*)sample_single_light;
-            break;
-        case direct_sample_enum_t::sample_all_light:
-            sample_light_func = (void*)sample_all_light;
-            break;
-        default:
-            LOG_ERROR(" unspecified sample light method");
-            break;
-        }
-
-        switch (sample_enum_)
-        {
-        case direct_sample_enum_t::bsdf:
-            estimate_func = (void*)estimate_direct_lighting_direction;
-            break;
-        case direct_sample_enum_t::light:
-            estimate_func = (void*)estimate_direct_lighting_position;
-            break;
-        case direct_sample_enum_t::both:
-            estimate_func = (void*)estimate_direct_lighting_both;
-            break;
-        case direct_sample_enum_t::bsdf_mis:
-            break;
-        case direct_sample_enum_t::light_mis:
-            break;
-        case direct_sample_enum_t::both_mis:
-            break;
-        default:
-            LOG_ERROR(" unspecified direct lighting method");
-            break;
-        }
-
-        return L;
-    }
-    */
-
-protected:
-    direct_sample_enum_t sample_enum_;
-};
-
-
-class path_tracing_recursion_t : public path_integrater_sample_t
+class path_tracing_recursion_t : public path_integrater_t
 {
 private:
     lighting_enum_t lighting_enum_;
 
 public:
     path_tracing_recursion_t(int max_path_depth, direct_sample_enum_t direct_sample_enum, lighting_enum_t lighting_enum) :
-        path_integrater_sample_t(max_path_depth, direct_sample_enum),
+        path_integrater_t(max_path_depth, direct_sample_enum),
         lighting_enum_{ lighting_enum }
     {
     }
@@ -4064,7 +3999,7 @@ private:
         // skip specular bsdf
         if (!isect.bsdf()->is_delta())
         {
-            Ld = sample_all_light(isect, scene, *sampler, true, sample_enum_);
+            Ld = sample_all_light(isect, scene, *sampler, true, direct_sample_enum_);
         }
         return Ld;
     }
@@ -4092,11 +4027,16 @@ private:
     }
 };
 
-class path_tracing_iteration_t : public path_integrater_sample_t
+/*
+  iteration style path tracing
+  Li = Le + T*Le + T^2*Le + ...
+*/
+class path_tracing_iteration_t : public path_integrater_t
 {
 public:
-    using path_integrater_sample_t::path_integrater_sample_t;
+    using path_integrater_t::path_integrater_t;
 
+    // sample direction on front vertexs, and sample position/point/area on last vertex
     // Le + T * Le + T(T * Le + T(T * Le + T(...)))
     // Le(emit), Ld(direct), Li(indirect)
     color_t Li(ray_t ray, scene_t* scene, sampler_t* sampler) override
@@ -4142,7 +4082,7 @@ public:
             // (But skip this for perfectly specular BSDFs.)
             if (!isect.bsdf()->is_delta())
             {
-                color_t Ld = beta * sample_all_light(isect, scene, *sampler, true, sample_enum_);
+                color_t Ld = beta * sample_all_light(isect, scene, *sampler, true, direct_sample_enum_);
                 L += Ld;
             }
 
