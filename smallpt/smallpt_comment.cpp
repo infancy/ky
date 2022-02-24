@@ -23,9 +23,10 @@ struct Vector3
     Vector3 operator+(const Vector3& b) const { return Vector3(x + b.x, y + b.y, z + b.z); }
     Vector3 operator-(const Vector3& b) const { return Vector3(x - b.x, y - b.y, z - b.z); }
     Vector3 operator*(double b) const { return Vector3(x * b, y * b, z * b); }
+    Vector3 operator/(double b) const { return Vector3(x / b, y / b, z / b); }
 
     // only for Color
-    Vector3 Multiply(const Vector3& b) const { return Vector3(x * b.x, y * b.y, z * b.z); }
+    Vector3 operator*(const Vector3& b) const { return Vector3(x * b.x, y * b.y, z * b.z); }
 
     Vector3& Normalize() { return *this = *this * (1 / sqrt(x * x + y * y + z * z)); }
 
@@ -124,9 +125,9 @@ inline bool Intersect(const Ray& ray, double& minDistance, int& id)
     return minDistance < infinity;
 }
 
-Vector3 Radiance(const Ray& ray, int depth, unsigned short* sampler)
+Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
 {
-    double distance;   // distance to intersection
+    double distance; // distance to intersection
     int id = 0; // id of intersected object
 
     if (!Intersect(ray, distance, id))
@@ -164,14 +165,18 @@ Vector3 Radiance(const Ray& ray, int depth, unsigned short* sampler)
         Vector3 u = ((fabs(w.x) > .1 ? Vector3(0, 1, 0) : Vector3(1, 0, 0)).Cross(w)).Normalize();
         Vector3 v = w.Cross(u);
 
+        // Cosine importance sampling of the hemisphere for diffuse reflection
         Vector3 direction = (u * cos(random1) * random2Sqrt + v * sin(random1) * random2Sqrt + w * sqrt(1 - random2)).Normalize();
 
-        return obj.emission + f.Multiply(Radiance(Ray(position, direction), depth, sampler));
+        f = f / Pi; // for lambert brdf, f = R / Pi;
+        double abs_cos_theta = std::abs(shading_normal.Dot(direction));
+        double pdf = abs_cos_theta / Pi; // cosine-weighted sampling
+        return obj.emission + (f * Radiance(Ray(position, direction), depth, sampler) * abs_cos_theta) / pdf;
     }
     else if (obj.materialEnum == MaterialEnum::SPECULAR) // Ideal SPECULAR reflection
     {
         Vector3 direction = ray.direction - normal * 2 * normal.Dot(ray.direction);
-        return obj.emission + f.Multiply(Radiance(Ray(position, direction), depth, sampler));
+        return obj.emission + f * Radiance(Ray(position, direction), depth, sampler);
     }
     else
     {
@@ -180,15 +185,15 @@ Vector3 Radiance(const Ray& ray, int depth, unsigned short* sampler)
         double nc = 1, nt = 1.5, nnt = into ? nc / nt : nt / nc, ddn = ray.direction.Dot(shading_normal), cos2t;
 
         if ((cos2t = 1 - nnt * nnt * (1 - ddn * ddn)) < 0) // Total internal reflection
-            return obj.emission + f.Multiply(Radiance(reflRay, depth, sampler));
+            return obj.emission + f * Radiance(reflRay, depth, sampler);
 
         Vector3 tdir = (ray.direction * nnt - normal * ((into ? 1 : -1) * (ddn * nnt + sqrt(cos2t)))).Normalize();
         double a = nt - nc, b = nt + nc, R0 = a * a / (b * b), c = 1 - (into ? -ddn : tdir.Dot(normal));
         double Re = R0 + (1 - R0) * c * c * c * c * c, Tr = 1 - Re, P = .25 + .5 * Re, RP = Re / P, TP = Tr / (1 - P);
 
-        return obj.emission + f.Multiply(depth > 2 ? (erand48(sampler) < P ? // Russian roulette
-                                               Radiance(reflRay, depth, sampler) * RP : Radiance(Ray(position, tdir), depth, sampler) * TP)
-                                        : Radiance(reflRay, depth, sampler) * Re + Radiance(Ray(position, tdir), depth, sampler) * Tr);
+        return obj.emission + f * (depth > 2 ? (erand48(sampler) < P ? Radiance(reflRay, depth, sampler) * RP
+                                                                     : Radiance(Ray(position, tdir), depth, sampler) * TP)
+                                             : Radiance(reflRay, depth, sampler) * Re + Radiance(Ray(position, tdir), depth, sampler) * Tr);
     }
 }
 
