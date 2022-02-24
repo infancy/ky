@@ -41,12 +41,13 @@ using Color = Vector3;
 
 struct Ray
 {
-    Vector3 origin, direction;
+    Point3 origin;
+    UnitVector3 direction;
 
-    Ray(Vector3 origin_, Vector3 direction_): origin(origin_), direction(direction_) {}
+    Ray(Point3 origin_, UnitVector3 direction_): origin(origin_), direction(direction_) {}
 };
 
-enum MaterialEnum
+enum class MaterialEnum
 {
     DIFFUSE,
     SPECULAR,
@@ -56,7 +57,10 @@ enum MaterialEnum
 struct Sphere
 {
     double radius;
-    Vector3 position, emission, color;
+    Point3 position;
+
+    Color emission; // for area light
+    Color color; // surface reflectance
     MaterialEnum materialEnum; // scattering type
 
     Sphere(double radius_, Vector3 position_, Vector3 emission_, Vector3 color_, MaterialEnum materialEnum):
@@ -85,35 +89,39 @@ struct Sphere
 Sphere Scene[] =
 {
     //Scene: radius, position, emission, color, material
-    Sphere(1e5, Vector3(1e5 + 1, 40.8, 81.6), Vector3(), Vector3(.75, .25, .25), DIFFUSE),   //Left
-    Sphere(1e5, Vector3(-1e5 + 99, 40.8, 81.6), Vector3(), Vector3(.25, .25, .75), DIFFUSE), //Rght
-    Sphere(1e5, Vector3(50, 40.8, 1e5), Vector3(), Vector3(.75, .75, .75), DIFFUSE),         //Back
-    Sphere(1e5, Vector3(50, 40.8, -1e5 + 170), Vector3(), Vector3(), DIFFUSE),               //Frnt
-    Sphere(1e5, Vector3(50, 1e5, 81.6), Vector3(), Vector3(.75, .75, .75), DIFFUSE),         //Botm
-    Sphere(1e5, Vector3(50, -1e5 + 81.6, 81.6), Vector3(), Vector3(.75, .75, .75), DIFFUSE), //Top
+    Sphere(1e5, Vector3(1e5 + 1, 40.8, 81.6),   Color(), Color(.75, .25, .25), MaterialEnum::DIFFUSE), //Left
+    Sphere(1e5, Vector3(-1e5 + 99, 40.8, 81.6), Color(), Color(.25, .25, .75), MaterialEnum::DIFFUSE), //Right
+    Sphere(1e5, Vector3(50, 40.8, 1e5),         Color(), Color(.75, .75, .75), MaterialEnum::DIFFUSE), //Back
+    Sphere(1e5, Vector3(50, 40.8, -1e5 + 170),  Color(), Color(),              MaterialEnum::DIFFUSE), //Front
+    Sphere(1e5, Vector3(50, 1e5, 81.6),         Color(), Color(.75, .75, .75), MaterialEnum::DIFFUSE), //Bottom
+    Sphere(1e5, Vector3(50, -1e5 + 81.6, 81.6), Color(), Color(.75, .75, .75), MaterialEnum::DIFFUSE), //Top
 
-    Sphere(16.5, Vector3(27, 16.5, 47), Vector3(), Vector3(1, 1, 1) * .999, SPECULAR),    //Mirr
-    Sphere(16.5, Vector3(73, 16.5, 78), Vector3(), Vector3(1, 1, 1) * .999, REFRACT),    //Glas
-    Sphere(600,  Vector3(50, 681.6 - .27, 81.6), Vector3(12, 12, 12), Vector3(), DIFFUSE) //Lite
+    Sphere(16.5, Vector3(27, 16.5, 47),          Color(), Color(1, 1, 1) * .999, MaterialEnum::SPECULAR), //Mirror
+    Sphere(16.5, Vector3(73, 16.5, 78),          Color(), Color(1, 1, 1) * .999, MaterialEnum::REFRACT),  //Glass
+    Sphere(600,  Vector3(50, 681.6 - .27, 81.6), Color(12, 12, 12), Color(),     MaterialEnum::DIFFUSE)   //Light
 };
 
 inline double Clamp(double x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
 inline int GammaEncoding(double x) { return int(pow(Clamp(x), 1 / 2.2) * 255 + .5); }
 
-inline bool Intersect(const Ray& r, double& t, int& id)
+inline bool Intersect(const Ray& ray, double& minDistance, int& id)
 {
-    double n = sizeof(Scene) / sizeof(Sphere), d, inf = t = 1e20;
+    double infinity = 1e20;
+    minDistance = infinity;
 
-    for (int i = int(n); i--;)
+    int sphereNum = sizeof(Scene) / sizeof(Sphere);
+    double distance{};
+
+    for (int i = sphereNum; i--;)
     {
-        if ((d = Scene[i].Intersect(r)) && d < t)
+        if ((distance = Scene[i].Intersect(ray)) && distance < minDistance)
         {
-            t = d;
+            minDistance = distance;
             id = i;
         }
     }
 
-    return t < inf;
+    return minDistance < infinity;
 }
 
 Vector3 Radiance(const Ray& ray, int depth, unsigned short* sampler)
@@ -122,7 +130,7 @@ Vector3 Radiance(const Ray& ray, int depth, unsigned short* sampler)
     int id = 0; // id of intersected object
 
     if (!Intersect(ray, distance, id))
-        return Vector3(); // if miss, return black
+        return Color(); // if miss, return black
 
     const Sphere& obj = Scene[id]; // the hit object
 
@@ -130,8 +138,8 @@ Vector3 Radiance(const Ray& ray, int depth, unsigned short* sampler)
         return obj.emission;
 
     Vector3 position = ray.origin + ray.direction * distance;
-    Vector3 normal = (position - obj.position).Normalize();
-    Vector3 shading_normal = normal.Dot(ray.direction) < 0 ? normal : normal * -1;
+    Normal3 normal = (position - obj.position).Normalize();
+    Normal3 shading_normal = normal.Dot(ray.direction) < 0 ? normal : normal * -1;
 
     Color f = obj.color; // bsdf value
     double max_component = f.x > f.y && f.x > f.z ? f.x : f.y > f.z ? f.y : f.z; // max refl
@@ -145,17 +153,25 @@ Vector3 Radiance(const Ray& ray, int depth, unsigned short* sampler)
             return obj.emission;
     }
 
-    if (obj.materialEnum == DIFFUSE)
+    if (obj.materialEnum == MaterialEnum::DIFFUSE)
     { // Ideal DIFFUSE reflection
-        double r1 = 2 * Pi * erand48(sampler), r2 = erand48(sampler), r2s = sqrt(r2);
-        Vector3 w = shading_normal, u = ((fabs(w.x) > .1 ? Vector3(0, 1) : Vector3(1)).Cross(w)).Normalize(), v = w.Cross(u);
-        Vector3 d = (u * cos(r1) * r2s + v * sin(r1) * r2s + w * sqrt(1 - r2)).Normalize();
+        double random1 = 2 * Pi * erand48(sampler);
+        double random2 = erand48(sampler);
+        double random2Sqrt = sqrt(random2);
 
-        return obj.emission + f.Multiply(Radiance(Ray(position, d), depth, sampler));
+        // shading coordinate on intersection
+        Vector3 w = shading_normal;
+        Vector3 u = ((fabs(w.x) > .1 ? Vector3(0, 1, 0) : Vector3(1, 0, 0)).Cross(w)).Normalize();
+        Vector3 v = w.Cross(u);
+
+        Vector3 direction = (u * cos(random1) * random2Sqrt + v * sin(random1) * random2Sqrt + w * sqrt(1 - random2)).Normalize();
+
+        return obj.emission + f.Multiply(Radiance(Ray(position, direction), depth, sampler));
     }
-    else if (obj.materialEnum == SPECULAR) // Ideal SPECULAR reflection
+    else if (obj.materialEnum == MaterialEnum::SPECULAR) // Ideal SPECULAR reflection
     {
-        return obj.emission + f.Multiply(Radiance(Ray(position, ray.direction - normal * 2 * normal.Dot(ray.direction)), depth, sampler));
+        Vector3 direction = ray.direction - normal * 2 * normal.Dot(ray.direction);
+        return obj.emission + f.Multiply(Radiance(Ray(position, direction), depth, sampler));
     }
     else
     {
