@@ -1,10 +1,8 @@
 // http://www.kevinbeason.com/smallpt
-#include "erand48.h" // pseudo-random number generator, not in <stdlib.h>
+#include "erand48.h" // pseudo-random number generator, not in <cstdlib>
 #include <cmath>    // smallpt, a Path Tracer by Kevin Beason, 2008
 #include <cstdlib>  // Make : g++ -O3 -fopenmp smallpt.cpp -o smallpt
 #include <cstdio>   //        Remove "-fopenmp" for g++ version < 4.2
-
-#include <format>
 #include <numbers>
 
 constexpr double Pi = std::numbers::pi;
@@ -48,58 +46,91 @@ struct Ray
     Ray(Point3 origin_, UnitVector3 direction_): origin(origin_), direction(direction_) {}
 };
 
-enum class MaterialEnum
+enum class MaterialType
 {
-    DIFFUSE,
-    SPECULAR,
-    REFRACT
+    Diffuse,
+    Specular,
+    Refract
 }; // material types, used in radiance()
 
 struct Sphere
 {
     double radius;
-    Point3 position;
+    Point3 center;
 
     Color emission; // for area light
     Color color; // surface reflectance
-    MaterialEnum materialEnum; // scattering type
+    MaterialType materialType;
 
-    Sphere(double radius_, Vector3 position_, Vector3 emission_, Vector3 color_, MaterialEnum materialEnum):
-        radius(radius_), position(position_), emission(emission_), color(color_), materialEnum(materialEnum) {}
+    Sphere(double radius_, Vector3 center_, Vector3 emission_, Vector3 color_, MaterialType materialType):
+        radius(radius_), center(center_), emission(emission_), color(color_), materialType(materialType) {}
 
     double Intersect(const Ray& ray) const
     {
         // returns distance, 0 if nohit
 
-        // Solve t^2*d.d + 2*t*(o-p).d + (o-p).(o-p)-R^2 = 0
-        Vector3 op = position - ray.origin;
-        double t{};
-        double epsilon = 1e-4;
-        double b = op.Dot(ray.direction);
-        double det = b * b - op.Dot(op) + radius * radius;
+        /*
+          ray: p(t) = o + t*d,
+          sphere: ||p - c||^2 = r^2
+
+          if ray and sphere have a intersection p, then:
+             ||p(t) - c||^2 = r^2
+          => ||o + t*d - c||^2 = r^2
+          => (t*d + o - c).(t*d + o - c) = r^2
+          => d.d*t^2 + 2d.(o-c)*t + (o-c).(o-c)-r^2 = 0
+         
+          compare with:
+             at^2 + bt + c = 0
+
+          there have:
+             co = o - c
+             a = dot(d, d) = 1;
+             b = 2 * dot(d, co), neg_b' = dot(d, oc);
+             c = dot(co, co) - r^2;
+
+          so:
+             t = (-b +/- sqrt(b^2 - 4ac)) / 2a
+               = (-b +/- sqrt(b^2 - 4c)) / 2
+               = ((-2 * dot(d, co) +/- sqrt(4 * dot(d, co)^2 - 4 * (dot(co, co) - r^2))) / 2
+               = -dot(d, co) +/- sqrt( dot(d, co)^2 - dot(co, co) + r^2 )
+               = neg_b' +/- sqrt(Delta)
+        */
+        Vector3 oc = center - ray.origin;
+        double neg_b = oc.Dot(ray.direction);
+        double det = neg_b * neg_b - oc.Dot(oc) + radius * radius;
 
         if (det < 0)
             return 0;
         else
             det = sqrt(det);
 
-        return (t = b - det) > epsilon ? t : ((t = b + det) > epsilon ? t : 0);
+        double epsilon = 1e-4;
+        if (double t = neg_b - det; t > epsilon)
+        {
+            return t;
+        }
+        else if (t = neg_b + det; t > epsilon)
+        {
+            return t;
+        }
+
+        return 0;
     }
 };
 
 Sphere Scene[] =
 {
-    //Scene: radius, position, emission, color, material
-    Sphere(1e5, Vector3(1e5 + 1, 40.8, 81.6),   Color(), Color(.75, .25, .25), MaterialEnum::DIFFUSE), //Left
-    Sphere(1e5, Vector3(-1e5 + 99, 40.8, 81.6), Color(), Color(.25, .25, .75), MaterialEnum::DIFFUSE), //Right
-    Sphere(1e5, Vector3(50, 40.8, 1e5),         Color(), Color(.75, .75, .75), MaterialEnum::DIFFUSE), //Back
-    Sphere(1e5, Vector3(50, 40.8, -1e5 + 170),  Color(), Color(),              MaterialEnum::DIFFUSE), //Front
-    Sphere(1e5, Vector3(50, 1e5, 81.6),         Color(), Color(.75, .75, .75), MaterialEnum::DIFFUSE), //Bottom
-    Sphere(1e5, Vector3(50, -1e5 + 81.6, 81.6), Color(), Color(.75, .75, .75), MaterialEnum::DIFFUSE), //Top
+    //Scene: radius, center, emission, color, material
+    Sphere(1e5, Vector3(1e5 + 1, 40.8, 81.6),   Color(), Color(.75, .25, .25), MaterialType::Diffuse), //Left
+    Sphere(1e5, Vector3(-1e5 + 99, 40.8, 81.6), Color(), Color(.25, .25, .75), MaterialType::Diffuse), //Right
+    Sphere(1e5, Vector3(50, 40.8, 1e5),         Color(), Color(.75, .75, .75), MaterialType::Diffuse), //Back
+    Sphere(1e5, Vector3(50, 40.8, -1e5 + 170),  Color(), Color(),              MaterialType::Diffuse), //Front
+    Sphere(1e5, Vector3(50, 1e5, 81.6),         Color(), Color(.75, .75, .75), MaterialType::Diffuse), //Bottom
+    Sphere(1e5, Vector3(50, -1e5 + 81.6, 81.6), Color(), Color(.75, .75, .75), MaterialType::Diffuse), //Top
 
-    Sphere(16.5, Vector3(27, 16.5, 47),          Color(), Color(1, 1, 1) * .999, MaterialEnum::SPECULAR), //Mirror
-    Sphere(16.5, Vector3(73, 16.5, 78),          Color(), Color(1, 1, 1) * .999, MaterialEnum::REFRACT),  //Glass
-    Sphere(600,  Vector3(50, 681.6 - .27, 81.6), Color(12, 12, 12), Color(),     MaterialEnum::DIFFUSE)   //Light
+    Sphere(16.5, Vector3(27, 16.5, 47),          Color(), Color(1, 1, 1) * .999, MaterialType::Specular), //Mirror
+    Sphere(16.5, Vector3(73, 16.5, 78),          Color(), Color(1, 1, 1) * .999, MaterialType::Refract),  //Glass
+    Sphere(600,  Vector3(50, 681.6 - .27, 81.6), Color(12, 12, 12), Color(),     MaterialType::Diffuse)   //Light
 };
 
 inline double Clamp(double x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
@@ -139,7 +170,7 @@ Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
         return obj.emission;
 
     Vector3 position = ray.origin + ray.direction * distance;
-    Normal3 normal = (position - obj.position).Normalize();
+    Normal3 normal = (position - obj.center).Normalize();
     Normal3 shading_normal = normal.Dot(ray.direction) < 0 ? normal : normal * -1;
 
     Color f = obj.color; // bsdf value
@@ -154,8 +185,8 @@ Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
             return obj.emission;
     }
 
-    if (obj.materialEnum == MaterialEnum::DIFFUSE)
-    { // Ideal DIFFUSE reflection
+    if (obj.materialType == MaterialType::Diffuse)
+    { // Ideal Diffuse reflection
         double random1 = 2 * Pi * erand48(sampler);
         double random2 = erand48(sampler);
         double random2Sqrt = sqrt(random2);
@@ -173,7 +204,7 @@ Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
         double pdf = abs_cos_theta / Pi; // cosine-weighted sampling
         return obj.emission + (f * Radiance(Ray(position, direction), depth, sampler) * abs_cos_theta) / pdf;
     }
-    else if (obj.materialEnum == MaterialEnum::SPECULAR) // Ideal SPECULAR reflection
+    else if (obj.materialType == MaterialType::Specular) // Ideal Specular reflection
     {
         Vector3 direction = ray.direction - normal * 2 * normal.Dot(ray.direction);
         return obj.emission + f * Radiance(Ray(position, direction), depth, sampler);
@@ -202,6 +233,7 @@ int main(int argc, char* argv[])
     int width = 1024, height = 768;
     int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 10;
 
+    // right hand
     Ray camera(Vector3(50, 52, 295.6), Vector3(0, -0.042612, -1).Normalize()); // camera posotion, direction
     Vector3 cx = Vector3(width * .5135 / height), cy = (cx.Cross(camera.direction)).Normalize() * .5135;
     
@@ -216,7 +248,8 @@ int main(int argc, char* argv[])
         for (unsigned short x = 0; x < width; x++) // Loop cols
         {
             Color color{};
-            for (int sy = 0, i = (height - y - 1) * width + x; sy < 2; sy++) // 2x2 subpixel rows
+            int i = (height - y - 1) * width + x;
+            for (int sy = 0; sy < 2; sy++) // 2x2 subpixel rows
             {
                 for (int sx = 0; sx < 2; sx++) // 2x2 subpixel cols
                 {
