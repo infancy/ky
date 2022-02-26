@@ -18,6 +18,8 @@ struct Vector3
         z = z_;
     }
 
+    Vector3 operator-() const { return Vector3(-x, -y, -z); }
+
     Vector3 operator+(const Vector3& b) const { return Vector3(x + b.x, y + b.y, z + b.z); }
     Vector3 operator-(const Vector3& b) const { return Vector3(x - b.x, y - b.y, z - b.z); }
     Vector3 operator*(double b) const { return Vector3(x * b, y * b, z * b); }
@@ -30,6 +32,9 @@ struct Vector3
 
     double Dot(const Vector3& b) const { return x * b.x + y * b.y + z * b.z; }
     Vector3 Cross(Vector3& b) { return Vector3(y * b.z - z * b.y, z * b.x - x * b.z, x * b.y - y * b.x); }
+
+    friend Vector3 operator*(double b, Vector3 v) { return v * b; }
+    friend double Dot(const Vector3& a, const Vector3& b) { return a.Dot(b); }
 };
 
 using Float3 = Vector3;
@@ -133,6 +138,7 @@ Sphere Scene[] =
     Sphere(600,  Vector3(50, 681.6 - .27, 81.6), Color(12, 12, 12), Color(),     MaterialType::Diffuse)   //Light
 };
 
+inline double Lerp(double a, double b, double t) { return a + t * (b - a); }
 inline double Clamp(double x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
 inline int GammaEncoding(double x) { return int(pow(Clamp(x), 1 / 2.2) * 255 + .5); }
 
@@ -169,6 +175,7 @@ Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
     if (depth > 100)
         return obj.emission;
 
+    // intersection property
     Vector3 position = ray.origin + ray.direction * distance;
     Normal3 normal = (position - obj.center).Normalize();
     Normal3 shading_normal = normal.Dot(ray.direction) < 0 ? normal : normal * -1;
@@ -185,8 +192,8 @@ Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
             return obj.emission;
     }
 
-    if (obj.materialType == MaterialType::Diffuse)
-    { // Ideal Diffuse reflection
+    if (obj.materialType == MaterialType::Diffuse) // Ideal Diffuse reflection
+    {
         double random1 = 2 * Pi * erand48(sampler);
         double random2 = erand48(sampler);
         double random2Sqrt = sqrt(random2);
@@ -209,22 +216,64 @@ Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
         Vector3 direction = ray.direction - normal * 2 * normal.Dot(ray.direction);
         return obj.emission + f * Radiance(Ray(position, direction), depth, sampler);
     }
-    else
+    else // Ideal Dielectric Refraction
     {
-        Ray reflRay(position, ray.direction - normal * 2 * normal.Dot(ray.direction)); // Ideal dielectric REFRACTION
-        bool into = normal.Dot(shading_normal) > 0;                // Ray from outside going in?
-        double nc = 1, nt = 1.5, nnt = into ? nc / nt : nt / nc, ddn = ray.direction.Dot(shading_normal), cos2t;
+        bool into = normal.Dot(shading_normal) > 0; // Ray from outside going in?
 
-        if ((cos2t = 1 - nnt * nnt * (1 - ddn * ddn)) < 0) // Total internal reflection
-            return obj.emission + f * Radiance(reflRay, depth, sampler);
+        // IOR(index of refractive)
+        double etaI = 1; // vacuum
+        double etaT = 1.5; // glass
+        double eta = into ? etaI / etaT : etaT / etaI;
 
-        Vector3 tdir = (ray.direction * nnt - normal * ((into ? 1 : -1) * (ddn * nnt + sqrt(cos2t)))).Normalize();
-        double a = nt - nc, b = nt + nc, R0 = a * a / (b * b), c = 1 - (into ? -ddn : tdir.Dot(normal));
-        double Re = R0 + (1 - R0) * c * c * c * c * c, Tr = 1 - Re, P = .25 + .5 * Re, RP = Re / P, TP = Tr / (1 - P);
 
-        return obj.emission + f * (depth > 2 ? (erand48(sampler) < P ? Radiance(reflRay, depth, sampler) * RP
-                                                                     : Radiance(Ray(position, tdir), depth, sampler) * TP)
-                                             : Radiance(reflRay, depth, sampler) * Re + Radiance(Ray(position, tdir), depth, sampler) * Tr);
+        // compute reflect direction by refection law
+        Ray reflectRay(position, ray.direction - normal * 2 * normal.Dot(ray.direction));
+
+        // compute refract direction by Snell's law
+        double cosThetaI = ray.direction.Dot(shading_normal);
+        double cosThetaT2 = cosThetaT2 = 1 - eta * eta * (1 - cosThetaI * cosThetaI);
+        if (cosThetaT2 < 0) // Total internal reflection
+            return obj.emission + f * Radiance(reflectRay, depth, sampler);
+
+        // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#SpecularTransmission see `Refract()`
+        Vector3 refractDirection = (ray.direction * eta - normal * ((into ? 1 : -1) * (cosThetaI * eta + sqrt(cosThetaT2)))).Normalize();
+
+
+        // compute the fraction of incoming light that is reflected or transmitted
+        // by Schlick Approximation of Fresnel Dielectric 1994 https://en.wikipedia.org/wiki/Schlick%27s_approximation
+        double a = etaT - etaI;
+        double b = etaT + etaI;
+        double R0 = a * a / (b * b);
+        double c = 1 - (into ? -cosThetaI : refractDirection.Dot(normal));
+
+        double Re = R0 + (1 - R0) * c * c * c * c * c;
+        double Tr = 1 - Re;
+
+
+        // probability of reflected or transmitted
+        double P = .25 + .5 * Re;
+        double RP = Re / P;
+        double TP = Tr / (1 - P);
+
+        Color Li;
+        if (depth > 2)
+        {
+            // Russian roulette
+            if (erand48(sampler) < P)
+            {
+                Li = Radiance(reflectRay, depth, sampler) * RP;
+            }
+            else
+            {
+                Li = Radiance(Ray(position, refractDirection), depth, sampler) * TP;
+            }
+        }
+        else
+        {
+            Li = Radiance(reflectRay, depth, sampler) * Re + Radiance(Ray(position, refractDirection), depth, sampler) * Tr;
+        }
+
+        return obj.emission + f * Li;
     }
 }
 
@@ -235,7 +284,8 @@ int main(int argc, char* argv[])
 
     // right hand
     Ray camera(Vector3(50, 52, 295.6), Vector3(0, -0.042612, -1).Normalize()); // camera posotion, direction
-    Vector3 cx = Vector3(width * .5135 / height), cy = (cx.Cross(camera.direction)).Normalize() * .5135;
+    Vector3 cx = Vector3(width * .5135 / height); // left
+    Vector3 cy = (cx.Cross(camera.direction)).Normalize() * .5135; // up
     
     Color* film = new Vector3[width * height];
 
@@ -247,7 +297,7 @@ int main(int argc, char* argv[])
         unsigned short sampler[3] = { 0, 0, y * y * y };
         for (unsigned short x = 0; x < width; x++) // Loop cols
         {
-            Color color{};
+            Color Li{};
             int i = (height - y - 1) * width + x;
             for (int sy = 0; sy < 2; sy++) // 2x2 subpixel rows
             {
@@ -255,17 +305,19 @@ int main(int argc, char* argv[])
                 {
                     for (int s = 0; s < samples_per_pixel; s++)
                     {
-                        double random1 = 2 * erand48(sampler), dx = random1 < 1 ? sqrt(random1) - 1 : 1 - sqrt(2 - random1);
-                        double random2 = 2 * erand48(sampler), dy = random2 < 1 ? sqrt(random2) - 1 : 1 - sqrt(2 - random2);
+                        double random1 = 2 * erand48(sampler);
+                        double random2 = 2 * erand48(sampler);
+                        double dx = random1 < 1 ? sqrt(random1) - 1 : 1 - sqrt(2 - random1);
+                        double dy = random2 < 1 ? sqrt(random2) - 1 : 1 - sqrt(2 - random2);
 
                         Vector3 direction =
                             cx * (((sx + .5 + dx) / 2 + x) /  width - .5) + 
                             cy * (((sy + .5 + dy) / 2 + y) / height - .5) + camera.direction;
 
-                        color = color + Radiance(Ray(camera.origin + direction * 140, direction.Normalize()), 0, sampler) * (1. / samples_per_pixel);
+                        Li = Li + Radiance(Ray(camera.origin + direction * 140, direction.Normalize()), 0, sampler) * (1. / samples_per_pixel);
                     } // Camera rays are pushed ^^^^^ forward to start in interior
 
-                    film[i] = film[i] + Vector3(Clamp(color.x), Clamp(color.y), Clamp(color.z)) * .25;
+                    film[i] = film[i] + Vector3(Clamp(Li.x), Clamp(Li.y), Clamp(Li.z)) * .25;
                 }
             }
         }
