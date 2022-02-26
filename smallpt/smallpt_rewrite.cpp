@@ -20,7 +20,16 @@ using namespace std::literals::string_literals;
 
 using Float = double;
 
+using Radian = Float;
+using Degree = Float;
+
+
 constexpr Float Pi = std::numbers::pi;
+
+
+constexpr Radian radians(Degree deg) { return (Pi / 180) * deg; }
+constexpr Degree degrees(Radian rad) { return (180 / Pi) * rad; }
+
 
 #pragma endregion
 
@@ -201,6 +210,7 @@ protected:
     int currentSampleIndex{};
 };
 
+// https://github.com/mmp/pbrt-v3/blob/master/src/samplers/random.cpp
 class RandomSampler : public Sampler
 {
 public:
@@ -452,6 +462,75 @@ private:
 
 #pragma region Camera
 
+// https://github.com/infancy/pbrt-v3/blob/master/src/core/camera.h
+
+/*
+  pbrt camera space:
+    left hand
+
+  y (0, 1, 0)         z(0, 0, 1)
+        |            /
+        |          /
+        |        /
+        |      /
+        |    /
+        |  /
+        |/_ _ _ _ _ _ x(1, 0, 0)
+        o
+
+  features:
+    generate ray
+*/
+class Camera
+{
+public:
+    virtual ~Camera() {}
+    Camera() {}
+
+public:
+    virtual Ray GenerateRay(const CameraSample& sample) const = 0;
+};
+
+// https://github.com/infancy/pbrt-v3/blob/master/src/cameras/perspective.cpp
+class PerspectiveCamera : public Camera
+{
+public:
+    PerspectiveCamera(const Vector3& position, const UnitVector3& direction, const Vector3& up,
+        Degree fov, Vector2 resolution) :
+        position{ position },
+        front{ direction },
+        up{ up },
+        resolution{ resolution }
+    {
+        // `front` is a unit vector, it's length is 1
+        Float tan_fov = std::tan(radians(fov) / 2);
+
+        right = this->up.Cross(front).Normalize() * tan_fov * Aspect();
+        this->up = front.Cross(right).Normalize() * tan_fov;
+    }
+
+public:
+    virtual Ray GenerateRay(const CameraSample& sample) const
+    {
+        Vector3 direction =
+            front +
+            right * (sample.pFilm.x / resolution.x - 0.5) +
+            up * (0.5 - sample.pFilm.y / resolution.y);
+
+        return Ray{ position + direction * 140, direction.Normalize() };
+    }
+
+private:
+    Float Aspect() { return resolution.x / resolution.y; }
+
+private:
+    Vector3 position;
+    UnitVector3 front;
+    UnitVector3 right;
+    UnitVector3 up;
+
+    Vector2 resolution;
+};
 
 #pragma endregion
 
@@ -571,16 +650,16 @@ struct Sphere
 Sphere Scene[] =
 {
     //Scene: radius, center, emission, color, material
-    Sphere(1e5, Vector3(1e5 + 1, 40.8, 81.6),   Color(), Color(.75, .25, .25), MaterialType::Diffuse), //Left
-    Sphere(1e5, Vector3(-1e5 + 99, 40.8, 81.6), Color(), Color(.25, .25, .75), MaterialType::Diffuse), //Right
-    Sphere(1e5, Vector3(50, 40.8, 1e5),         Color(), Color(.75, .75, .75), MaterialType::Diffuse), //Back
-    Sphere(1e5, Vector3(50, 40.8, -1e5 + 170),  Color(), Color(),              MaterialType::Diffuse), //Front
-    Sphere(1e5, Vector3(50, 1e5, 81.6),         Color(), Color(.75, .75, .75), MaterialType::Diffuse), //Bottom
-    Sphere(1e5, Vector3(50, -1e5 + 81.6, 81.6), Color(), Color(.75, .75, .75), MaterialType::Diffuse), //Top
+    Sphere(1e5, Vector3(1e5 + 1, 40.8, -81.6),   Color(), Color(.75, .25, .25), MaterialType::Diffuse), //Left
+    Sphere(1e5, Vector3(-1e5 + 99, 40.8, -81.6), Color(), Color(.25, .25, .75), MaterialType::Diffuse), //Right
+    Sphere(1e5, Vector3(50, 40.8, -1e5),         Color(), Color(.75, .75, .75), MaterialType::Diffuse), //Back
+    Sphere(1e5, Vector3(50, 40.8, 1e5 - 170),    Color(), Color(),              MaterialType::Diffuse), //Front
+    Sphere(1e5, Vector3(50, 1e5, -81.6),         Color(), Color(.75, .75, .75), MaterialType::Diffuse), //Bottom
+    Sphere(1e5, Vector3(50, -1e5 + 81.6, -81.6), Color(), Color(.75, .75, .75), MaterialType::Diffuse), //Top
 
-    Sphere(16.5, Vector3(27, 16.5, 47),          Color(), Color(1, 1, 1) * .999, MaterialType::Specular), //Mirror
-    Sphere(16.5, Vector3(73, 16.5, 78),          Color(), Color(1, 1, 1) * .999, MaterialType::Refract),  //Glass
-    Sphere(600,  Vector3(50, 681.6 - .27, 81.6), Color(12, 12, 12), Color(),     MaterialType::Diffuse)   //Light
+    Sphere(16.5, Vector3(27, 16.5, -47),          Color(), Color(1, 1, 1) * .999, MaterialType::Specular), //Mirror
+    Sphere(16.5, Vector3(73, 16.5, -78),          Color(), Color(1, 1, 1) * .999, MaterialType::Refract),  //Glass
+    Sphere(600,  Vector3(50, 681.6 - .27, -81.6), Color(12, 12, 12), Color(),     MaterialType::Diffuse)   //Light
 };
 
 inline Float Lerp(Float a, Float b, Float t) { return a + t * (b - a); }
@@ -732,17 +811,15 @@ Color Radiance(const Ray& ray, int depth, Sampler& sampler)
 
 int main(int argc, char* argv[])
 {
-    int width = 1024, height = 768;
+    int width = 256, height = 256;
 
     Film film({ (Float)width, (Float)height }, "image.bmp"s);
 
-    int samplesPerPixel = argc == 2 ? atoi(argv[1]) / 4 : 10;
-    std::unique_ptr<Sampler> originalSampler = std::make_unique<TrapezoidalSampler>(samplesPerPixel);
+    int samplesPerPixel = argc == 2 ? atoi(argv[1]) / 4 : 100;
+    std::unique_ptr<Sampler> originalSampler = std::make_unique<RandomSampler>(samplesPerPixel);
 
-    // right hand
-    Ray camera(Vector3(50, 52, 295.6), Vector3(0, -0.042612, -1).Normalize()); // camera posotion, direction
-    Vector3 cx = Vector3(width * .5135 / height); // left
-    Vector3 cy = (cx.Cross(camera.direction)).Normalize() * .5135; // up
+    std::unique_ptr<Camera> camera = std::make_unique<PerspectiveCamera>(
+        Vector3{ 50, 52, -295.6 }, Vector3{ 0, -0.042612, 1 }.Normalize(), Vector3{ 0, 1, 0 }, 53, film.Resolution());
 
 #pragma omp parallel for schedule(dynamic, 1) // OpenMP
     for (int y = 0; y < height; y++) // Loop over image rows
@@ -758,10 +835,7 @@ int main(int argc, char* argv[])
             do
             {
                 auto cameraSample = sampler->GetCameraSample({ (Float)x, (Float)y });
-                Vector3 direction =
-                    cx * (cameraSample.pFilm.x / width - .5) +
-                    cy * (cameraSample.pFilm.y / height - .5) + camera.direction;
-                auto ray = Ray(camera.origin + direction * 140, direction.Normalize());
+                auto ray = camera->GenerateRay(cameraSample);
 
                 Li = Li + Radiance(ray, 0, *sampler) * (1. / sampler->SamplesPerPixel());
             }
