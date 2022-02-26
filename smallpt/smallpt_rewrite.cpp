@@ -19,7 +19,9 @@ using namespace std::literals::string_literals;
 
 #pragma region Math
 
-constexpr double Pi = std::numbers::pi;
+using Float = double;
+
+constexpr Float Pi = std::numbers::pi;
 
 #pragma endregion
 
@@ -27,11 +29,11 @@ constexpr double Pi = std::numbers::pi;
 
 struct Vector2
 {
-    double x, y;
+    Float x, y;
 
-    Vector2(double x = 0, double y = 0) { this->x = x; this->y = y; }
+    Vector2(Float x = 0, Float y = 0) { this->x = x; this->y = y; }
 
-    double operator[](int index) const
+    Float operator[](int index) const
     {
         if (index == 0) return x;
         else return y;
@@ -40,7 +42,7 @@ struct Vector2
     Vector2 operator+(const Vector2& vec2) const { return Vector2(x + vec2.x, y + vec2.y); }
     Vector2 operator-(const Vector2& vec2) const { return Vector2(x - vec2.x, y - vec2.y); }
 
-    friend Vector2 operator*(double scalar, Vector2 v) { return Vector2(v.x * scalar, v.y * scalar); }
+    friend Vector2 operator*(Float scalar, Vector2 v) { return Vector2(v.x * scalar, v.y * scalar); }
 };
 
 using Float2 = Vector2;
@@ -51,11 +53,11 @@ struct Vector3
 { 
     union
     {
-        struct { double x, y, z; };
-        struct { double r, g, b; };
+        struct { Float x, y, z; };
+        struct { Float r, g, b; };
     };
 
-    Vector3(double x_ = 0, double y_ = 0, double z_ = 0)
+    Vector3(Float x_ = 0, Float y_ = 0, Float z_ = 0)
     {
         x = x_;
         y = y_;
@@ -66,19 +68,19 @@ struct Vector3
 
     Vector3 operator+(const Vector3& b) const { return Vector3(x + b.x, y + b.y, z + b.z); }
     Vector3 operator-(const Vector3& b) const { return Vector3(x - b.x, y - b.y, z - b.z); }
-    Vector3 operator*(double b) const { return Vector3(x * b, y * b, z * b); }
-    Vector3 operator/(double b) const { return Vector3(x / b, y / b, z / b); }
+    Vector3 operator*(Float b) const { return Vector3(x * b, y * b, z * b); }
+    Vector3 operator/(Float b) const { return Vector3(x / b, y / b, z / b); }
 
     // only for Color
     Vector3 operator*(const Vector3& b) const { return Vector3(x * b.x, y * b.y, z * b.z); }
 
     Vector3& Normalize() { return *this = *this * (1 / sqrt(x * x + y * y + z * z)); }
 
-    double Dot(const Vector3& b) const { return x * b.x + y * b.y + z * b.z; }
+    Float Dot(const Vector3& b) const { return x * b.x + y * b.y + z * b.z; }
     Vector3 Cross(Vector3& b) { return Vector3(y * b.z - z * b.y, z * b.x - x * b.z, x * b.y - y * b.x); }
 
-    friend Vector3 operator*(double b, Vector3 v) { return v * b; }
-    friend double Dot(const Vector3& a, const Vector3& b) { return a.Dot(b); }
+    friend Vector3 operator*(Float b, Vector3 v) { return v * b; }
+    friend Float Dot(const Vector3& a, const Vector3& b) { return a.Dot(b); }
 };
 
 using Float3 = Vector3;
@@ -139,17 +141,17 @@ enum class MaterialType
 
 struct Sphere
 {
-    double radius;
+    Float radius;
     Point3 center;
 
     Color emission; // for area light
     Color color; // surface reflectance
     MaterialType materialType;
 
-    Sphere(double radius_, Vector3 center_, Color emission_, Color color_, MaterialType materialType) :
+    Sphere(Float radius_, Vector3 center_, Color emission_, Color color_, MaterialType materialType) :
         radius(radius_), center(center_), emission(emission_), color(color_), materialType(materialType) {}
 
-    double Intersect(const Ray& ray) const
+    Float Intersect(const Ray& ray) const
     {
         // returns distance, 0 if nohit
 
@@ -180,16 +182,16 @@ struct Sphere
                = neg_b' +/- sqrt(Delta)
         */
         Vector3 oc = center - ray.origin;
-        double neg_b = oc.Dot(ray.direction);
-        double det = neg_b * neg_b - oc.Dot(oc) + radius * radius;
+        Float neg_b = oc.Dot(ray.direction);
+        Float det = neg_b * neg_b - oc.Dot(oc) + radius * radius;
 
         if (det < 0)
             return 0;
         else
             det = sqrt(det);
 
-        double epsilon = 1e-4;
-        if (double t = neg_b - det; t > epsilon)
+        Float epsilon = 1e-4;
+        if (Float t = neg_b - det; t > epsilon)
         {
             return t;
         }
@@ -254,17 +256,17 @@ Sphere Scene[] =
     Sphere(600,  Vector3(50, 681.6 - .27, 81.6), Color(12, 12, 12), Color(),     MaterialType::Diffuse)   //Light
 };
 
-inline double Lerp(double a, double b, double t) { return a + t * (b - a); }
-inline double Clamp(double x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
-inline int GammaEncoding(double x) { return int(pow(Clamp(x), 1 / 2.2) * 255 + .5); }
+inline Float Lerp(Float a, Float b, Float t) { return a + t * (b - a); }
+inline Float Clamp(Float x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+inline int GammaEncoding(Float x) { return int(pow(Clamp(x), 1 / 2.2) * 255 + .5); }
 
-inline bool Intersect(const Ray& ray, double& minDistance, int& id)
+inline bool Intersect(const Ray& ray, Float& minDistance, int& id)
 {
-    double infinity = 1e20;
+    Float infinity = 1e20;
     minDistance = infinity;
 
     int sphereNum = sizeof(Scene) / sizeof(Sphere);
-    double distance{};
+    Float distance{};
 
     for (int i = sphereNum; i--;)
     {
@@ -286,7 +288,7 @@ inline bool Intersect(const Ray& ray, double& minDistance, int& id)
 
 Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
 {
-    double distance; // distance to intersection
+    Float distance; // distance to intersection
     int id = 0; // id of intersected object
 
     if (!Intersect(ray, distance, id))
@@ -303,7 +305,7 @@ Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
     Normal3 shading_normal = normal.Dot(ray.direction) < 0 ? normal : normal * -1;
 
     Color f = obj.color; // bsdf value
-    double max_component = f.x > f.y && f.x > f.z ? f.x : f.y > f.z ? f.y : f.z; // max refl
+    Float max_component = f.x > f.y && f.x > f.z ? f.x : f.y > f.z ? f.y : f.z; // max refl
 
     //russian roulette
     if (++depth > 5)
@@ -316,9 +318,9 @@ Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
 
     if (obj.materialType == MaterialType::Diffuse) // Ideal Diffuse reflection
     {
-        double random1 = 2 * Pi * erand48(sampler);
-        double random2 = erand48(sampler);
-        double random2Sqrt = sqrt(random2);
+        Float random1 = 2 * Pi * erand48(sampler);
+        Float random2 = erand48(sampler);
+        Float random2Sqrt = sqrt(random2);
 
         // shading coordinate on intersection
         Vector3 w = shading_normal;
@@ -329,8 +331,8 @@ Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
         Vector3 direction = (u * cos(random1) * random2Sqrt + v * sin(random1) * random2Sqrt + w * sqrt(1 - random2)).Normalize();
 
         f = f / Pi; // for lambert brdf, f = R / Pi;
-        double abs_cos_theta = std::abs(shading_normal.Dot(direction));
-        double pdf = abs_cos_theta / Pi; // cosine-weighted sampling
+        Float abs_cos_theta = std::abs(shading_normal.Dot(direction));
+        Float pdf = abs_cos_theta / Pi; // cosine-weighted sampling
         return obj.emission + (f * Radiance(Ray(position, direction), depth, sampler) * abs_cos_theta) / pdf;
     }
     else if (obj.materialType == MaterialType::Specular) // Ideal Specular reflection
@@ -343,17 +345,17 @@ Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
         bool into = normal.Dot(shading_normal) > 0; // Ray from outside going in?
 
         // IOR(index of refractive)
-        double etaI = 1; // vacuum
-        double etaT = 1.5; // glass
-        double eta = into ? etaI / etaT : etaT / etaI;
+        Float etaI = 1; // vacuum
+        Float etaT = 1.5; // glass
+        Float eta = into ? etaI / etaT : etaT / etaI;
 
 
         // compute reflect direction by refection law
         Ray reflectRay(position, ray.direction - normal * 2 * normal.Dot(ray.direction));
 
         // compute refract direction by Snell's law
-        double cosThetaI = ray.direction.Dot(shading_normal);
-        double cosThetaT2 = cosThetaT2 = 1 - eta * eta * (1 - cosThetaI * cosThetaI);
+        Float cosThetaI = ray.direction.Dot(shading_normal);
+        Float cosThetaT2 = cosThetaT2 = 1 - eta * eta * (1 - cosThetaI * cosThetaI);
         if (cosThetaT2 < 0) // Total internal reflection
             return obj.emission + f * Radiance(reflectRay, depth, sampler);
 
@@ -363,19 +365,19 @@ Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
 
         // compute the fraction of incoming light that is reflected or transmitted
         // by Schlick Approximation of Fresnel Dielectric 1994 https://en.wikipedia.org/wiki/Schlick%27s_approximation
-        double a = etaT - etaI;
-        double b = etaT + etaI;
-        double R0 = a * a / (b * b);
-        double c = 1 - (into ? -cosThetaI : refractDirection.Dot(normal));
+        Float a = etaT - etaI;
+        Float b = etaT + etaI;
+        Float R0 = a * a / (b * b);
+        Float c = 1 - (into ? -cosThetaI : refractDirection.Dot(normal));
 
-        double Re = R0 + (1 - R0) * c * c * c * c * c;
-        double Tr = 1 - Re;
+        Float Re = R0 + (1 - R0) * c * c * c * c * c;
+        Float Tr = 1 - Re;
 
 
         // probability of reflected or transmitted
-        double P = .25 + .5 * Re;
-        double RP = Re / P;
-        double TP = Tr / (1 - P);
+        Float P = .25 + .5 * Re;
+        Float RP = Re / P;
+        Float TP = Tr / (1 - P);
 
         Color Li;
         if (depth > 2)
@@ -431,10 +433,10 @@ int main(int argc, char* argv[])
                 {
                     for (int s = 0; s < samples_per_pixel; s++)
                     {
-                        double random1 = 2 * erand48(sampler);
-                        double random2 = 2 * erand48(sampler);
-                        double dx = random1 < 1 ? sqrt(random1) - 1 : 1 - sqrt(2 - random1);
-                        double dy = random2 < 1 ? sqrt(random2) - 1 : 1 - sqrt(2 - random2);
+                        Float random1 = 2 * erand48(sampler);
+                        Float random2 = 2 * erand48(sampler);
+                        Float dx = random1 < 1 ? sqrt(random1) - 1 : 1 - sqrt(2 - random1);
+                        Float dy = random2 < 1 ? sqrt(random2) - 1 : 1 - sqrt(2 - random2);
 
                         Vector3 direction =
                             cx * (((sx + .5 + dx) / 2 + x) / width - .5) +

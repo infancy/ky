@@ -67,7 +67,7 @@ struct Sphere
     Color color; // surface reflectance
     MaterialType materialType;
 
-    Sphere(double radius_, Vector3 center_, Vector3 emission_, Vector3 color_, MaterialType materialType):
+    Sphere(double radius_, Vector3 center_, Color emission_, Color color_, MaterialType materialType):
         radius(radius_), center(center_), emission(emission_), color(color_), materialType(materialType) {}
 
     double Intersect(const Ray& ray) const
