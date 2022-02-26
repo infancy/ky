@@ -3,7 +3,19 @@
 #include <cmath>    // smallpt, a Path Tracer by Kevin Beason, 2008
 #include <cstdlib>  // Make : g++ -O3 -fopenmp smallpt.cpp -o smallpt
 #include <cstdio>   //        Remove "-fopenmp" for g++ version < 4.2
+
+#include <algorithm>
+#include <array>
+#include <fstream>
+#include <memory>
 #include <numbers>
+#include <random>
+#include <string>
+#include <string_view>
+#include <vector>
+using namespace std::literals::string_literals;
+
+
 
 #pragma region Math
 
@@ -13,9 +25,35 @@ constexpr double Pi = std::numbers::pi;
 
 #pragma region Geometry
 
+struct Vector2
+{
+    double x, y;
+
+    Vector2(double x = 0, double y = 0) { this->x = x; this->y = y; }
+
+    double operator[](int index) const
+    {
+        if (index == 0) return x;
+        else return y;
+    }
+
+    Vector2 operator+(const Vector2& vec2) const { return Vector2(x + vec2.x, y + vec2.y); }
+    Vector2 operator-(const Vector2& vec2) const { return Vector2(x - vec2.x, y - vec2.y); }
+
+    friend Vector2 operator*(double scalar, Vector2 v) { return Vector2(v.x * scalar, v.y * scalar); }
+};
+
+using Float2 = Vector2;
+using Point2 = Vector2;
+
+
 struct Vector3
-{                   // Usage: time ./smallpt 5000 && xv image.ppm
-    double x, y, z; // position, also color (r,g,b)
+{ 
+    union
+    {
+        struct { double x, y, z; };
+        struct { double r, g, b; };
+    };
 
     Vector3(double x_ = 0, double y_ = 0, double z_ = 0)
     {
@@ -108,7 +146,7 @@ struct Sphere
     Color color; // surface reflectance
     MaterialType materialType;
 
-    Sphere(double radius_, Vector3 center_, Vector3 emission_, Vector3 color_, MaterialType materialType) :
+    Sphere(double radius_, Vector3 center_, Color emission_, Color color_, MaterialType materialType) :
         radius(radius_), center(center_), emission(emission_), color(color_), materialType(materialType) {}
 
     double Intersect(const Ray& ray) const
