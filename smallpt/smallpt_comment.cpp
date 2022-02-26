@@ -280,7 +280,7 @@ Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
 int main(int argc, char* argv[])
 {
     int width = 1024, height = 768;
-    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 10;
+    int samplesPerPixel = argc == 2 ? atoi(argv[1]) / 4 : 10;
 
     // right hand
     Ray camera(Vector3(50, 52, 295.6), Vector3(0, -0.042612, -1).Normalize()); // camera posotion, direction
@@ -292,7 +292,7 @@ int main(int argc, char* argv[])
     #pragma omp parallel for schedule(dynamic, 1) // OpenMP
     for (int y = 0; y < height; y++) // Loop over image rows
     {
-        fprintf(stderr, "\rRendering (%d spp) %5.2f%%", samples_per_pixel * 4, 100. * y / (height - 1));
+        fprintf(stderr, "\rRendering (%d spp) %5.2f%%", samplesPerPixel * 4, 100. * y / (height - 1));
 
         unsigned short sampler[3] = { 0, 0, y * y * y };
         for (unsigned short x = 0; x < width; x++) // Loop cols
@@ -303,7 +303,7 @@ int main(int argc, char* argv[])
             {
                 for (int sx = 0; sx < 2; sx++) // 2x2 subpixel cols
                 {
-                    for (int s = 0; s < samples_per_pixel; s++)
+                    for (int s = 0; s < samplesPerPixel; s++)
                     {
                         double random1 = 2 * erand48(sampler);
                         double random2 = 2 * erand48(sampler);
@@ -314,7 +314,7 @@ int main(int argc, char* argv[])
                             cx * (((sx + .5 + dx) / 2 + x) /  width - .5) + 
                             cy * (((sy + .5 + dy) / 2 + y) / height - .5) + camera.direction;
 
-                        Li = Li + Radiance(Ray(camera.origin + direction * 140, direction.Normalize()), 0, sampler) * (1. / samples_per_pixel);
+                        Li = Li + Radiance(Ray(camera.origin + direction * 140, direction.Normalize()), 0, sampler) * (1. / samplesPerPixel);
                     } // Camera rays are pushed ^^^^^ forward to start in interior
 
                     film[i] = film[i] + Vector3(Clamp(Li.x), Clamp(Li.y), Clamp(Li.z)) * .25;

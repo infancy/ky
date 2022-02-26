@@ -1,5 +1,4 @@
 // http://www.kevinbeason.com/smallpt
-#include "erand48.h" // pseudo-random number generator, not in <cstdlib>
 #include <cmath>    // smallpt, a Path Tracer by Kevin Beason, 2008
 #include <cstdlib>  // Make : g++ -O3 -fopenmp smallpt.cpp -o smallpt
 #include <cstdio>   //        Remove "-fopenmp" for g++ version < 4.2
@@ -110,6 +109,205 @@ struct Ray
 
 #pragma region Sampler
 
+// https://github.com/mmp/pbrt-v3/blob/master/src/core/rng.h
+
+// random number generator
+// https://github.com/SmallVCM/SmallVCM/blob/master/src/rng.hxx
+class RNG
+{
+public:
+    RNG(int seed = 1234) : rngEngine(seed)
+    {
+    }
+
+    // [0, int_max]
+    int UniformInt()
+    {
+        return intDist(rngEngine);
+    }
+
+    // [0, uint_max]
+    uint32_t UniformUint()
+    {
+        return uintDist(rngEngine);
+    }
+
+    // [0, 1)
+    Float UniformFloat()
+    {
+        return float01Dist(rngEngine);
+    }
+
+    // [0, 1), [0, 1)
+    Vector2 UniformFloat2()
+    {
+        return Vector2(UniformFloat(), UniformFloat());
+    }
+
+private:
+    std::mt19937_64 rngEngine;
+
+    std::uniform_int_distribution<int> intDist;
+    std::uniform_int_distribution<uint32_t> uintDist;
+    std::uniform_real_distribution<Float> float01Dist{ (Float)0, (Float)1 };
+};
+
+
+struct CameraSample
+{
+    Point2 pFilm{}; // sample point's position on film
+    // Point2 pLens{};
+};
+
+// https://github.com/infancy/pbrt-v3/blob/master/src/core/sampler.h
+
+class Sampler
+{
+public:
+    virtual ~Sampler() {}
+    Sampler(int samplesPerPixel) :
+        samplesPerPixel{ samplesPerPixel }
+    {
+    }
+
+    virtual int SamplesPerPixel()
+    {
+        return samplesPerPixel;
+    }
+
+    virtual std::unique_ptr<Sampler> Clone() = 0;
+
+public:
+    virtual void StartPixel()
+    {
+        currentSampleIndex = 0;
+    }
+
+    virtual bool StartNextSample()
+    {
+        currentSampleIndex += 1;
+        return currentSampleIndex < samplesPerPixel;
+    }
+
+public:
+    virtual Float Get1D() = 0;
+    virtual Vector2 Get2D() = 0;
+    virtual CameraSample GetCameraSample(Point2 pFilm) = 0;
+
+protected:
+    RNG rng{};
+
+    int samplesPerPixel{};
+    int currentSampleIndex{};
+};
+
+class RandomSampler : public Sampler
+{
+public:
+    using Sampler::Sampler;
+
+    std::unique_ptr<Sampler> Clone() override
+    {
+        return std::make_unique<RandomSampler>(samplesPerPixel);
+    }
+
+public:
+    Float Get1D() override
+    {
+        return rng.UniformFloat();
+    }
+
+    Vector2 Get2D() override
+    {
+        return rng.UniformFloat2();
+    }
+
+    CameraSample GetCameraSample(Point2 pFilm) override
+    {
+        return { pFilm + rng.UniformFloat2() };
+    }
+};
+
+// https://computergraphics.stackexchange.com/questions/3868/why-use-a-tent-filter-in-path-tracing
+class TrapezoidalSampler : public Sampler
+{
+public:
+    using Sampler::Sampler;
+
+    int SamplesPerPixel() override
+    {
+        return samplesPerPixel * SubPixelNum;
+    }
+
+    std::unique_ptr<Sampler> Clone() override
+    {
+        return std::make_unique<TrapezoidalSampler>(samplesPerPixel);
+    }
+
+public:
+    void StartPixel() override
+    {
+        Sampler::StartPixel();
+        currentSubPixelIndex = 0;
+    }
+
+    bool StartNextSample() override
+    {
+        currentSampleIndex += 1;
+        if (currentSampleIndex < samplesPerPixel)
+        {
+            return true;
+        }
+        else if (currentSampleIndex == samplesPerPixel)
+        {
+            currentSampleIndex = 0;
+            currentSubPixelIndex += 1;
+
+            return currentSubPixelIndex < SubPixelNum;
+        }
+        else
+        {
+            return false;
+        }
+    }
+
+public:
+    Float Get1D() override
+    {
+        return rng.UniformFloat();
+    }
+
+    Vector2 Get2D() override
+    {
+        return rng.UniformFloat2();
+    }
+
+    CameraSample GetCameraSample(Point2 pFilm) override
+    {
+        int subPixelX = currentSubPixelIndex % 2;
+        int subPixelY = currentSubPixelIndex / 2;
+
+        Float random1 = 2 * rng.UniformFloat();
+        Float random2 = 2 * rng.UniformFloat();
+
+        // uniform dist [0, 1) => triangle dist [-1, 1)
+        Float deltaX = random1 < 1 ? sqrt(random1) - 1 : 1 - sqrt(2 - random1);
+        Float deltaY = random2 < 1 ? sqrt(random2) - 1 : 1 - sqrt(2 - random2);
+
+        Point2 samplePoint
+        {
+            (subPixelX + deltaX + 0.5) / 2,
+            (subPixelY + deltaY + 0.5) / 2
+        };
+
+        return { pFilm + samplePoint };
+    }
+
+private:
+    static constexpr int SubPixelNum = 4; // 2x2
+
+    int currentSubPixelIndex{};
+};
 
 #pragma endregion
 
@@ -117,10 +315,13 @@ struct Ray
 
 #pragma region Filter
 
+// https://github.com/infancy/pbrt-v3/blob/master/src/core/filter.h
 
 #pragma endregion
 
 #pragma region Film
+
+// https://github.com/infancy/pbrt-v3/blob/master/src/core/film.h
 
 inline Float Clamp(Float x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
 inline Vector3 Clamp(Vector3 vec3) { return Vector3(Clamp(vec3.x), Clamp(vec3.y), Clamp(vec3.z)); }
@@ -410,7 +611,7 @@ inline bool Intersect(const Ray& ray, Float& minDistance, int& id)
 
 #pragma region Integrater
 
-Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
+Color Radiance(const Ray& ray, int depth, Sampler& sampler)
 {
     Float distance; // distance to intersection
     int id = 0; // id of intersected object
@@ -434,7 +635,7 @@ Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
     //russian roulette
     if (++depth > 5)
     {
-        if (erand48(sampler) < max_component)
+        if (sampler.Get1D() < max_component)
             f = f * (1 / max_component);
         else
             return obj.emission;
@@ -442,8 +643,8 @@ Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
 
     if (obj.materialType == MaterialType::Diffuse) // Ideal Diffuse reflection
     {
-        Float random1 = 2 * Pi * erand48(sampler);
-        Float random2 = erand48(sampler);
+        Float random1 = 2 * Pi * sampler.Get1D();
+        Float random2 = sampler.Get1D();
         Float random2Sqrt = sqrt(random2);
 
         // shading coordinate on intersection
@@ -507,7 +708,7 @@ Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
         if (depth > 2)
         {
             // Russian roulette
-            if (erand48(sampler) < P)
+            if (sampler.Get1D() < P)
             {
                 Li = Radiance(reflectRay, depth, sampler) * RP;
             }
@@ -535,7 +736,8 @@ int main(int argc, char* argv[])
 
     Film film({ (Float)width, (Float)height }, "image.bmp"s);
 
-    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 10;
+    int samplesPerPixel = argc == 2 ? atoi(argv[1]) / 4 : 10;
+    std::unique_ptr<Sampler> originalSampler = std::make_unique<TrapezoidalSampler>(samplesPerPixel);
 
     // right hand
     Ray camera(Vector3(50, 52, 295.6), Vector3(0, -0.042612, -1).Normalize()); // camera posotion, direction
@@ -545,33 +747,27 @@ int main(int argc, char* argv[])
 #pragma omp parallel for schedule(dynamic, 1) // OpenMP
     for (int y = 0; y < height; y++) // Loop over image rows
     {
-        fprintf(stderr, "\rRendering (%d spp) %5.2f%%", samples_per_pixel * 4, 100. * y / (height - 1));
+        std::unique_ptr<Sampler> sampler = originalSampler->Clone();
+        fprintf(stderr, "\rRendering (%d spp) %5.2f%%", sampler->SamplesPerPixel(), 100. * y / (height - 1));
 
-        unsigned short sampler[3] = { 0, 0, y * y * y };
-        for (unsigned short x = 0; x < width; x++) // Loop cols
+        for (int x = 0; x < width; x++) // Loop cols
         {
             Color Li{};
-            for (int sy = 0; sy < 2; sy++) // 2x2 subpixel rows
+
+            sampler->StartPixel();
+            do
             {
-                for (int sx = 0; sx < 2; sx++) // 2x2 subpixel cols
-                {
-                    for (int s = 0; s < samples_per_pixel; s++)
-                    {
-                        Float random1 = 2 * erand48(sampler);
-                        Float random2 = 2 * erand48(sampler);
-                        Float dx = random1 < 1 ? sqrt(random1) - 1 : 1 - sqrt(2 - random1);
-                        Float dy = random2 < 1 ? sqrt(random2) - 1 : 1 - sqrt(2 - random2);
+                auto cameraSample = sampler->GetCameraSample({ (Float)x, (Float)y });
+                Vector3 direction =
+                    cx * (cameraSample.pFilm.x / width - .5) +
+                    cy * (cameraSample.pFilm.y / height - .5) + camera.direction;
+                auto ray = Ray(camera.origin + direction * 140, direction.Normalize());
 
-                        Vector3 direction =
-                            cx * (((sx + .5 + dx) / 2 + x) / width - .5) +
-                            cy * (((sy + .5 + dy) / 2 + y) / height - .5) + camera.direction;
-
-                        Li = Li + Radiance(Ray(camera.origin + direction * 140, direction.Normalize()), 0, sampler) * (1. / samples_per_pixel);
-                    } // Camera rays are pushed ^^^^^ forward to start in interior
-
-                    film.add_color(x, y, Clamp(Li) *.25);
-                }
+                Li = Li + Radiance(ray, 0, *sampler) * (1. / sampler->SamplesPerPixel());
             }
+            while (sampler->StartNextSample());
+
+            film.add_color(x, y, Clamp(Li));
         }
     }
 
