@@ -71,9 +71,6 @@ struct Vector3
     Vector3 operator*(Float b) const { return Vector3(x * b, y * b, z * b); }
     Vector3 operator/(Float b) const { return Vector3(x / b, y / b, z / b); }
 
-    // only for Color
-    Vector3 operator*(const Vector3& b) const { return Vector3(x * b.x, y * b.y, z * b.z); }
-
     Vector3& Normalize() { return *this = *this * (1 / sqrt(x * x + y * y + z * z)); }
 
     Float Dot(const Vector3& b) const { return x * b.x + y * b.y + z * b.z; }
@@ -81,6 +78,11 @@ struct Vector3
 
     friend Vector3 operator*(Float b, Vector3 v) { return v * b; }
     friend Float Dot(const Vector3& a, const Vector3& b) { return a.Dot(b); }
+
+public:
+
+    // only for Color
+    Vector3 operator*(const Vector3& c) const { return Vector3(r * c.r, g * c.g, b * c.b); }
 };
 
 using Float3 = Vector3;
@@ -120,6 +122,130 @@ struct Ray
 
 #pragma region Film
 
+inline Float Clamp(Float x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+inline Vector3 Clamp(Vector3 vec3) { return Vector3(Clamp(vec3.x), Clamp(vec3.y), Clamp(vec3.z)); }
+
+inline int GammaEncoding(Float x) { return int(pow(Clamp(x), 1 / 2.2) * 255 + .5); }
+
+/*
+  warpper of `Color pixels[]`
+  features:
+    * get/set color
+    * save image
+*/
+class Film
+{
+public:
+    Film(const Vector2& resolution, /*std::unique_ptr<Filter> filter,*/ const std::string& filename) :
+        fullResolution{ resolution },
+        filename{ filename },
+        pixels{ std::make_unique<Color[]>(Width() * Height()) }
+    {
+    }
+
+public:
+    int  Width() const { return (int)fullResolution.x; }
+    int Height() const { return (int)fullResolution.y; }
+    Vector2 Resolution() const { return fullResolution; }
+
+    Color& operator()(int x, int y)
+    {
+        return *(pixels.get() + Width() * y + x);
+    }
+
+    void add_color(int x, int y, const Color& delta)
+    {
+        Color& color_ = operator()(x, y);
+        color_ = color_ + delta;
+    }
+
+public:
+    virtual bool store_image() const
+    {
+        return store_bmp_impl(filename, Width(), Height(), 3, (Float*)pixels.get());
+    }
+
+    // https://github.com/SmallVCM/SmallVCM/blob/master/src/framebuffer.hxx#L149-L215
+    static bool store_bmp_impl(const std::string& filename, int width, int height, int channel, const Float* floats)
+    {
+        std::fstream img_file(filename, std::ios::binary | std::ios::out);
+
+
+        uint32_t padding_line_bytes = (width * channel + 3) & (~3);
+        uint32_t padding_image_bytes = padding_line_bytes * height;
+
+        const uint32_t FILE_HEADER_SIZE = 14;
+        const uint32_t INFO_HEADER_SIZE = 40;
+
+        // write file header
+        struct BITMAP_FILE_HEADER_INFO_HEADER
+        {
+            // file header
+            //char8_t type[2]{ 'B', 'M' };
+            uint32_t file_size{};
+            uint32_t reserved{ 0 };
+            uint32_t databody_offset{ FILE_HEADER_SIZE + INFO_HEADER_SIZE };
+
+            // info header
+            uint32_t	info_header_size{ INFO_HEADER_SIZE };
+
+            int32_t     width{};
+            int32_t		height{};
+            int16_t	    color_planes{ 1 };
+            int16_t	    per_pixel_bits{};
+            uint32_t	compression{ 0 };
+            uint32_t	image_bytes{ 0 };
+
+            uint32_t	x_pixels_per_meter{ 0 };
+            uint32_t	y_pixels_per_meter{ 0 };
+            uint32_t	color_used{ 0 };
+            uint32_t	color_important{ 0 };
+        }
+        bmp_header
+        {
+            .file_size{ FILE_HEADER_SIZE + INFO_HEADER_SIZE + padding_image_bytes },
+            .width{ width },
+            .height{ height },
+            .per_pixel_bits{ (int16_t)(channel * 8) },
+            //.image_bytes{ padding_image_bytes }
+        };
+
+        img_file
+            .write("BM", 2)
+            .write((char*)&bmp_header, sizeof(bmp_header));
+
+
+        // without color table
+
+
+        // gamma encoding
+        int byte_num = width * height * channel;
+        auto bytes = std::make_unique<uint8_t[]>(byte_num);
+        for (int i = 0; i < byte_num; i += 3)
+        {
+            // BGR
+            bytes[i]     = GammaEncoding(floats[i + 2]);
+            bytes[i + 1] = GammaEncoding(floats[i + 1]);
+            bytes[i + 2] = GammaEncoding(floats[i]);
+        }
+
+        // write data body 
+        int line_num = width * channel;
+        // bmp is stored from bottom to up
+        for (int y = height - 1; y >= 0; --y)
+            img_file.write((char*)(bytes.get() + y * line_num), line_num);
+
+
+        return true;
+    }
+
+private:
+    const Vector2 fullResolution;
+    //std::unique_ptr<Filter> filter;
+    const std::string filename;
+
+    std::unique_ptr<Color[]> pixels;
+};
 
 #pragma endregion
 
@@ -257,8 +383,6 @@ Sphere Scene[] =
 };
 
 inline Float Lerp(Float a, Float b, Float t) { return a + t * (b - a); }
-inline Float Clamp(Float x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
-inline int GammaEncoding(Float x) { return int(pow(Clamp(x), 1 / 2.2) * 255 + .5); }
 
 inline bool Intersect(const Ray& ray, Float& minDistance, int& id)
 {
@@ -408,14 +532,15 @@ Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
 int main(int argc, char* argv[])
 {
     int width = 1024, height = 768;
+
+    Film film({ (Float)width, (Float)height }, "image.bmp"s);
+
     int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 10;
 
     // right hand
     Ray camera(Vector3(50, 52, 295.6), Vector3(0, -0.042612, -1).Normalize()); // camera posotion, direction
     Vector3 cx = Vector3(width * .5135 / height); // left
     Vector3 cy = (cx.Cross(camera.direction)).Normalize() * .5135; // up
-
-    Color* film = new Vector3[width * height];
 
 #pragma omp parallel for schedule(dynamic, 1) // OpenMP
     for (int y = 0; y < height; y++) // Loop over image rows
@@ -426,7 +551,6 @@ int main(int argc, char* argv[])
         for (unsigned short x = 0; x < width; x++) // Loop cols
         {
             Color Li{};
-            int i = (height - y - 1) * width + x;
             for (int sy = 0; sy < 2; sy++) // 2x2 subpixel rows
             {
                 for (int sx = 0; sx < 2; sx++) // 2x2 subpixel cols
@@ -445,16 +569,16 @@ int main(int argc, char* argv[])
                         Li = Li + Radiance(Ray(camera.origin + direction * 140, direction.Normalize()), 0, sampler) * (1. / samples_per_pixel);
                     } // Camera rays are pushed ^^^^^ forward to start in interior
 
-                    film[i] = film[i] + Vector3(Clamp(Li.x), Clamp(Li.y), Clamp(Li.z)) * .25;
+                    film.add_color(x, y, Clamp(Li) *.25);
                 }
             }
         }
     }
 
-    FILE* image = fopen("image.ppm", "w"); // Write image to PPM file.
-    fprintf(image, "P3\n%d %d\n%d\n", width, height, 255);
-    for (int i = 0; i < width * height; i++)
-        fprintf(image, "%d %d %d ", GammaEncoding(film[i].x), GammaEncoding(film[i].y), GammaEncoding(film[i].z));
+    film.store_image();
+#if defined(_WIN32) || defined(_WIN64)
+    system("mspaint image.bmp");
+#endif
 
     return 0;
 }
