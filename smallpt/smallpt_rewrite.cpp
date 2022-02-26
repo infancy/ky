@@ -5,7 +5,13 @@
 #include <cstdio>   //        Remove "-fopenmp" for g++ version < 4.2
 #include <numbers>
 
+#pragma region Math
+
 constexpr double Pi = std::numbers::pi;
+
+#pragma endregion
+
+#pragma region Geometry
 
 struct Vector3
 {                   // Usage: time ./smallpt 5000 && xv image.ppm
@@ -50,6 +56,41 @@ struct Ray
 
     Ray(Point3 origin_, UnitVector3 direction_) : origin(origin_), direction(direction_) {}
 };
+
+#pragma endregion
+
+
+
+#pragma region Sampling
+
+
+#pragma endregion
+
+#pragma region Sampler
+
+
+#pragma endregion
+
+
+
+#pragma region Filter
+
+
+#pragma endregion
+
+#pragma region Film
+
+
+#pragma endregion
+
+#pragma region Camera
+
+
+#pragma endregion
+
+
+
+#pragma region Shape
 
 enum class MaterialType
 {
@@ -123,6 +164,43 @@ struct Sphere
     }
 };
 
+#pragma endregion
+
+
+
+#pragma region BSDF
+
+
+#pragma endregion
+
+#pragma region Texture
+
+
+#pragma endregion
+
+#pragma region Material
+
+
+#pragma endregion
+
+
+
+#pragma region Light
+
+#pragma endregion
+
+
+
+#pragma region Sureface(Primitive)
+
+#pragma endregion
+
+#pragma region Accelerator
+
+#pragma endregion
+
+#pragma region Scene
+
 Sphere Scene[] =
 {
     //Scene: radius, center, emission, color, material
@@ -161,6 +239,12 @@ inline bool Intersect(const Ray& ray, double& minDistance, int& id)
 
     return minDistance < infinity;
 }
+
+#pragma endregion
+
+
+
+#pragma region Integrater
 
 Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
 {
@@ -276,6 +360,10 @@ Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
         return obj.emission + f * Li;
     }
 }
+
+#pragma endregion
+
+
 
 int main(int argc, char* argv[])
 {
