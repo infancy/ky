@@ -28,6 +28,7 @@ using Degree = Float;
 
 constexpr Float Infinity = std::numeric_limits<Float>::infinity();
 constexpr Float Pi = std::numbers::pi;
+constexpr Float InvPi = std::numbers::inv_pi;
 
 
 constexpr Radian radians(Degree deg) { return (Pi / 180) * deg; }
@@ -84,18 +85,27 @@ struct Vector3
     Vector3 operator*(Float b) const { return Vector3(x * b, y * b, z * b); }
     Vector3 operator/(Float b) const { return Vector3(x / b, y / b, z / b); }
 
-    Vector3& Normalize() { return *this = *this * (1 / sqrt(x * x + y * y + z * z)); }
+    Vector3 Normalize() const { return *this * (1 / sqrt(x * x + y * y + z * z)); }
 
     Float Dot(const Vector3& b) const { return x * b.x + y * b.y + z * b.z; }
-    Vector3 Cross(Vector3& b) { return Vector3(y * b.z - z * b.y, z * b.x - x * b.z, x * b.y - y * b.x); }
+    Vector3 Cross(const Vector3& b) const { return Vector3(y * b.z - z * b.y, z * b.x - x * b.z, x * b.y - y * b.x); }
 
     friend Vector3 operator*(Float b, Vector3 v) { return v * b; }
+    friend Vector3 Normalize(const Vector3& a) { return a.Normalize(); }
     friend Float Dot(const Vector3& a, const Vector3& b) { return a.Dot(b); }
+    friend Float AbsDot(const Vector3& a, const Vector3& b) { return std::abs(a.Dot(b)); }
+    friend Vector3 Cross(const Vector3& a, const Vector3& b) { return a.Cross(b); }
 
 public:
-
     // only for Color
     Vector3 operator*(const Vector3& c) const { return Vector3(r * c.r, g * c.g, b * c.b); }
+
+    Float MaxComponentValue() const
+    {
+        return std::max({ r, g, b });
+    }
+
+    bool IsBlack() const { return (r <= 0) && (g <= 0) && (b <= 0); }
 };
 
 using Float3 = Vector3;
@@ -103,6 +113,62 @@ using Point3 = Vector3;
 using Normal3 = Vector3;
 using UnitVector3 = Vector3;
 using Color = Vector3;
+
+
+
+// https://github.com/SmallVCM/SmallVCM/blob/master/src/frame.hxx
+class Frame
+{
+public:
+    Frame(const Vector3& s, const Vector3& t, const Normal3& n) :
+        s_{ s.Normalize() },
+        t_{ t.Normalize() },
+        n_{ n.Normalize() }
+    {
+    }
+
+    Frame(const Normal3& n) :
+        n_{ n.Normalize() }
+    {
+        SetFromZ();
+    }
+
+public:
+    // think if {s, t, n} is (1, 0, 0), (0, 1, 0), (0, 0, 1)
+    Vector3 ToLocal(const Vector3& worldVec3) const
+    {
+        return Vector3(
+            Dot(s_, worldVec3),
+            Dot(t_, worldVec3),
+            Dot(n_, worldVec3));
+    }
+
+    Vector3 ToWorld(const Vector3& localVec3) const
+    {
+        return
+            s_ * localVec3.x +
+            t_ * localVec3.y +
+            n_ * localVec3.z;
+    }
+
+    const Vector3& Binormal() const { return s_; }
+    const Vector3& Tangent() const { return t_; }
+    const Vector3& Normal() const { return n_; }
+
+private:
+    void SetFromZ()
+    {
+        Vector3 tmp_s = (std::abs(n_.x) > 0.99f) ? Vector3(0, 1, 0) : Vector3(1, 0, 0);
+        t_ = Normalize(Cross(n_, tmp_s));
+        s_ = Normalize(Cross(t_, n_));
+    }
+
+private:
+    // world frame basic vector
+    Vector3 s_{ 1, 0, 0 }; // x
+    Vector3 t_{ 0, 1, 0 }; // y
+    Normal3 n_{ 0, 0, 1 }; // z
+};
 
 
 
@@ -129,6 +195,8 @@ struct Ray
 
 // TODO: remove
 class Sphere;
+class BSDF;
+
 enum class MaterialType
 {
     Diffuse,
@@ -165,17 +233,18 @@ public:
     Normal3 normal{};
     UnitVector3 wo{};
 
-    //const bsdf_t* bsdf() const { return bsdf_.get(); }
     MaterialType materialType{}; // TODO: remove
     Color bsdfValue{}; // TODO: remove
 
+    std::unique_ptr<BSDF> bsdf_{};
+    Color emission_{};
+
+    const BSDF* bsdf() const { return bsdf_.get(); }
+
     // prev <- isect, against ray's direction
-    Color Le() const { return emission; }
+    Color Le() const { return emission_; }
 
 private:
-    //bsdf_uptr_t bsdf_{};
-    Color emission{};
-
     // TODO: remove
     friend Sphere;
 };
@@ -186,6 +255,26 @@ private:
 
 #pragma region Sampling
 
+// https://github.com/infancy/pbrt-v3/blob/master/src/core/sampling.h#L138-L153
+// https://github.com/infancy/pbrt-v3/blob/master/src/core/sampling.cpp#L199-L230
+
+Point2 UniformSampleDisk(const Point2& random)
+{
+    Float radius = std::sqrt(random[0]);
+    Float theta = 2 * Pi * random[1];
+    return Point2(radius * std::cos(theta), radius * std::sin(theta));
+}
+
+// cosine-weighted sampling
+inline Vector3 CosineSampleHemisphere(const Float2& random)
+{
+    // Cosine importance sampling of the hemisphere for diffuse reflection
+    Point2 pDisk = UniformSampleDisk(random);
+    Float z = std::sqrt(std::max((Float)0, 1 - pDisk.x * pDisk.x - pDisk.y * pDisk.y));
+    return Vector3(pDisk.x, pDisk.y, z);
+}
+
+inline Float CosineHemispherePdf(Float cosTheta) { return cosTheta * InvPi; }
 
 #pragma endregion
 
@@ -683,11 +772,6 @@ struct Sphere
 
             Point3 hit_point = ray(distance);
             *isect = Isect(hit_point, (hit_point - center).Normalize(), -ray.direction);
-
-            // TODO: remove
-            isect->materialType = materialType;
-            isect->bsdfValue = color;
-            isect->emission = emission;
         }
 
         return hit;
@@ -700,6 +784,125 @@ struct Sphere
 
 #pragma region BSDF
 
+// local shading coordinate
+inline Float cosTheta(const Vector3& w) { return w.z; }
+inline Float AbsCosTheta(const Vector3& w) { return std::abs(w.z); }
+inline bool SameHemisphere(const Vector3& w, const Vector3& wp) { return w.z * wp.z > 0; }
+
+struct BSDFSample
+{
+    Color f; // scattering rate 
+    Vector3 wi; // world wi
+    Float pdf{};
+};
+
+/*
+  https://www.pbr-book.org/3ed-2018/Reflection_Models#x0-GeometricSetting
+
+
+  shading frame:
+
+       z, n(0, 0, 1)
+       |
+       |
+       |
+       |
+       |_ _ _ _ _ _ x, s(1, 0, 0)
+      / p
+     /
+    /
+   y, t(0, 1, 0)
+*/
+
+class BSDF
+{
+public:
+    virtual ~BSDF() = default;
+    BSDF(Frame shadingFrame) :
+        shadingFrame{ shadingFrame }
+    {
+    }
+
+public:
+    // or called `eval`, `evaluate`
+    Color f(const Vector3& world_wo, const Vector3& world_wi) const
+    {
+        return f_(ToLocal(world_wo), ToLocal(world_wi));
+    }
+
+    Float Pdf(const Vector3& world_wo, const Vector3& world_wi) const
+    {
+        return Pdf_(ToLocal(world_wo), ToLocal(world_wi));
+    }
+
+    // or called `sample`, `sample_direction`
+    BSDFSample Sample_f(const Vector3& world_wo, const Float2& random) const
+    {
+        auto sample = Sample_f_(ToLocal(world_wo), random);
+        sample.wi = ToWorld(sample.wi);
+
+        return sample;
+    }
+
+protected:
+    virtual Color f_(const Vector3& wo, const Vector3& wi) const = 0;
+    virtual Float Pdf_(const Vector3& wo, const Vector3& wi) const = 0;
+
+    virtual BSDFSample Sample_f_(const Vector3& wo, const Float2& random) const = 0;
+
+private:
+    Vector3 ToLocal(const Vector3& worldVec3) const
+    {
+        return shadingFrame.ToLocal(worldVec3);
+    }
+
+    Vector3 ToWorld(const Vector3& localVec3) const
+    {
+        return shadingFrame.ToWorld(localVec3);
+    }
+
+private:
+    Frame shadingFrame;
+
+    // extension point:
+    // std::array<bxdf_uptr, 2> BxDFList;
+};
+
+
+
+class LambertionReflection : public BSDF
+{
+public:
+    LambertionReflection(const Frame& shadingFrame, const Color& R) :
+        BSDF(shadingFrame), R{ R }
+    {
+    }
+
+    Color f_(const Vector3& wo, const Vector3& wi) const override { return R * InvPi; }
+
+    Float Pdf_(const Vector3& wo, const Vector3& wi) const override
+    {
+        return SameHemisphere(wo, wi) ? CosineHemispherePdf(AbsCosTheta(wi)) : 0;
+    }
+
+    BSDFSample Sample_f_(const Vector3& wo, const Float2& random) const override
+    {
+        BSDFSample sample;
+
+        // Cosine-sample the hemisphere, flipping the direction if necessary
+        sample.wi = CosineSampleHemisphere(random);
+        if (wo.z < 0)
+            sample.wi.z *= -1;
+
+        sample.pdf = Pdf_(wo, sample.wi);
+        sample.f = f_(wo, sample.wi);
+
+        return sample;
+    }
+
+private:
+    Color R; // surface reflectance
+};
 
 #pragma endregion
 
@@ -758,6 +961,15 @@ inline bool Intersect(Ray& ray, Isect* isect)
         if (Scene[i].Intersect(ray, isect))
         {
             bHit = true;
+
+            isect->materialType = Scene[i].materialType;
+            isect->bsdfValue = Scene[i].color;
+
+            if(isect->materialType == MaterialType::Diffuse)
+                isect->bsdf_ = std::make_unique<LambertionReflection>(Frame(isect->normal), isect->bsdfValue);
+
+            isect->emission_ = Scene[i].emission;
+            
         }
     }
 
@@ -785,7 +997,7 @@ Color Radiance(Ray ray, int depth, Sampler& sampler)
     Normal3 shading_normal = normal.Dot(ray.direction) < 0 ? normal : normal * -1;
 
     Color f = isect.bsdfValue; // bsdf value
-    Float max_component = f.x > f.y && f.x > f.z ? f.x : f.y > f.z ? f.y : f.z; // max refl
+    Float max_component = f.MaxComponentValue();
 
     //russian roulette
     if (++depth > 5)
@@ -798,22 +1010,12 @@ Color Radiance(Ray ray, int depth, Sampler& sampler)
 
     if (isect.materialType == MaterialType::Diffuse) // Ideal Diffuse reflection
     {
-        Float random1 = 2 * Pi * sampler.Get1D();
-        Float random2 = sampler.Get1D();
-        Float random2Sqrt = sqrt(random2);
+        auto bs = isect.bsdf()->Sample_f(isect.wo, sampler.Get2D());
+        if (bs.f.IsBlack() || bs.pdf == 0.f) // pdf == 0 => NaN
+            return isect.Le();
 
-        // shading coordinate on intersection
-        Vector3 w = shading_normal;
-        Vector3 u = ((fabs(w.x) > .1 ? Vector3(0, 1, 0) : Vector3(1, 0, 0)).Cross(w)).Normalize();
-        Vector3 v = w.Cross(u);
-
-        // Cosine importance sampling of the hemisphere for diffuse reflection
-        Vector3 direction = (u * cos(random1) * random2Sqrt + v * sin(random1) * random2Sqrt + w * sqrt(1 - random2)).Normalize();
-
-        f = f / Pi; // for lambert brdf, f = R / Pi;
-        Float abs_cos_theta = std::abs(shading_normal.Dot(direction));
-        Float pdf = abs_cos_theta / Pi; // cosine-weighted sampling
-        return isect.Le() + (f * Radiance(Ray(position, direction), depth, sampler) * abs_cos_theta) / pdf;
+        Ray wi(isect.position, bs.wi);
+        return isect.Le() + (bs.f * Radiance(wi, depth, sampler) * AbsDot(bs.wi, isect.normal) / bs.pdf);
     }
     else if (isect.materialType == MaterialType::Specular) // Ideal Specular reflection
     {
