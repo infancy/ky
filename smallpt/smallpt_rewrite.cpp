@@ -1042,51 +1042,68 @@ private:
 
 #pragma region Scene
 
-Sphere Scene[] =
+class Scene
 {
-    //Scene: radius, center, emission, color, material
-    Sphere(1e5, Vector3(1e5 + 1, 40.8, -81.6),   Color(), Color(.75, .25, .25), MaterialType::Diffuse), //Left
-    Sphere(1e5, Vector3(-1e5 + 99, 40.8, -81.6), Color(), Color(.25, .25, .75), MaterialType::Diffuse), //Right
-    Sphere(1e5, Vector3(50, 40.8, -1e5),         Color(), Color(.75, .75, .75), MaterialType::Diffuse), //Back
-    Sphere(1e5, Vector3(50, 40.8, 1e5 - 170),    Color(), Color(),              MaterialType::Diffuse), //Front
-    Sphere(1e5, Vector3(50, 1e5, -81.6),         Color(), Color(.75, .75, .75), MaterialType::Diffuse), //Bottom
-    Sphere(1e5, Vector3(50, -1e5 + 81.6, -81.6), Color(), Color(.75, .75, .75), MaterialType::Diffuse), //Top
-
-    Sphere(16.5, Vector3(27, 16.5, -47),          Color(), Color(1, 1, 1) * .999, MaterialType::Specular), //Mirror
-    Sphere(16.5, Vector3(73, 16.5, -78),          Color(), Color(1, 1, 1) * .999, MaterialType::Refract),  //Glass
-    Sphere(600,  Vector3(50, 681.6 - .27, -81.6), Color(12, 12, 12), Color(),     MaterialType::Diffuse)   //Light
-};
-
-inline Float Lerp(Float a, Float b, Float t) { return a + t * (b - a); }
-
-inline bool Intersect(Ray& ray, Isect* isect)
-{
-    bool bHit = false;
-
-    int sphereNum = sizeof(Scene) / sizeof(Sphere);
-    for (int i = sphereNum; i--;)
+public:
+    Scene() = default;
+    Scene(std::vector<Sphere> sphereList) :
+        sphereList{ sphereList }
     {
-        if (Scene[i].Intersect(ray, isect))
-        {
-            bHit = true;
-
-            isect->materialType = Scene[i].materialType;
-            isect->bsdfValue = Scene[i].color;
-
-            if(isect->materialType == MaterialType::Diffuse)
-                isect->bsdf_ = std::make_unique<LambertionReflection>(Frame(isect->normal), isect->bsdfValue);
-            else if(isect->materialType == MaterialType::Specular)
-                isect->bsdf_ = std::make_unique<SpecularReflection>(Frame(isect->normal), isect->bsdfValue);
-            else
-                isect->bsdf_ = std::make_unique<FresnelSpecular>(Frame(isect->normal), isect->bsdfValue, isect->bsdfValue, 1, 1.5);
-
-            isect->emission_ = Scene[i].emission;
-            
-        }
     }
 
-    return bHit;
-}
+public:
+    bool Intersect(Ray& ray, Isect* isect)
+    {
+        bool bHit = false;
+
+        for (const auto& sphere : sphereList)
+        {
+            if (sphere.Intersect(ray, isect))
+            {
+                bHit = true;
+
+                isect->materialType = sphere.materialType;
+                isect->bsdfValue = sphere.color;
+
+                if (isect->materialType == MaterialType::Diffuse)
+                    isect->bsdf_ = std::make_unique<LambertionReflection>(Frame(isect->normal), isect->bsdfValue);
+                else if (isect->materialType == MaterialType::Specular)
+                    isect->bsdf_ = std::make_unique<SpecularReflection>(Frame(isect->normal), isect->bsdfValue);
+                else
+                    isect->bsdf_ = std::make_unique<FresnelSpecular>(Frame(isect->normal), isect->bsdfValue, isect->bsdfValue, 1, 1.5);
+
+                isect->emission_ = sphere.emission;
+            }
+        }
+
+        return bHit;
+    }
+
+public:
+    static Scene CreateSmallptScene()
+    {
+        std::vector<Sphere> sphereList =
+        {
+            //Scene: radius, center, emission, color, material
+            Sphere(1e5, Vector3(1e5 + 1, 40.8, -81.6),   Color(), Color(.75, .25, .25), MaterialType::Diffuse), //Left
+            Sphere(1e5, Vector3(-1e5 + 99, 40.8, -81.6), Color(), Color(.25, .25, .75), MaterialType::Diffuse), //Right
+            Sphere(1e5, Vector3(50, 40.8, -1e5),         Color(), Color(.75, .75, .75), MaterialType::Diffuse), //Back
+            Sphere(1e5, Vector3(50, 40.8, 1e5 - 170),    Color(), Color(),              MaterialType::Diffuse), //Front
+            Sphere(1e5, Vector3(50, 1e5, -81.6),         Color(), Color(.75, .75, .75), MaterialType::Diffuse), //Bottom
+            Sphere(1e5, Vector3(50, -1e5 + 81.6, -81.6), Color(), Color(.75, .75, .75), MaterialType::Diffuse), //Top
+
+            Sphere(16.5, Vector3(27, 16.5, -47),          Color(), Color(1, 1, 1) * .999, MaterialType::Specular), //Mirror
+            Sphere(16.5, Vector3(73, 16.5, -78),          Color(), Color(1, 1, 1) * .999, MaterialType::Refract),  //Glass
+            Sphere(600,  Vector3(50, 681.6 - .27, -81.6), Color(12, 12, 12), Color(),     MaterialType::Diffuse)   //Light
+        };
+
+        return Scene{ std::move(sphereList) };
+    }
+
+private:
+    std::vector<Sphere> sphereList;
+};
+
 
 #pragma endregion
 
@@ -1103,7 +1120,7 @@ public:
     }
 
 public:
-    void Render(Camera& camera, Sampler& originalSampler, Film& film)
+    void Render(Scene& scene, Camera& camera, Sampler& originalSampler, Film& film)
     {
         auto resolution = film.Resolution();
         int width = (int)resolution.x;
@@ -1125,7 +1142,7 @@ public:
                     auto cameraSample = sampler->GetCameraSample({ (Float)x, (Float)y });
                     auto ray = camera.GenerateRay(cameraSample);
 
-                    L = L + Li(ray, *sampler) * (1. / sampler->SamplesPerPixel());
+                    L = L + Li(ray, scene, *sampler) * (1. / sampler->SamplesPerPixel());
                 }
                 while (sampler->StartNextSample());
 
@@ -1134,7 +1151,7 @@ public:
         }
     }
     // estimate input radiance
-    virtual Color Li(Ray ray, Sampler& sampler) = 0;
+    virtual Color Li(Ray ray, Scene& scene, Sampler& sampler) = 0;
 };
 
 class PathIntegrater : public Integrater
@@ -1153,15 +1170,15 @@ class RecursionPathIntegrater : public PathIntegrater
 public:
     using PathIntegrater::PathIntegrater;
 
-    Color Li(Ray ray, Sampler& sampler) override
+    Color Li(Ray ray, Scene& scene, Sampler& sampler) override
     {
-        return Li(ray, sampler, 0);
+        return Li(ray, scene, sampler, 0);
     }
 
-    Color Li(Ray ray, Sampler& sampler, int depth)
+    Color Li(Ray ray, Scene& scene, Sampler& sampler, int depth)
     {
         Isect isect;
-        if (!Intersect(ray, &isect))
+        if (!scene.Intersect(ray, &isect))
             return Color(); // if miss, return black
 
         if (depth > maxPathDepth)
@@ -1182,7 +1199,7 @@ public:
         }
 
         Ray wi(isect.position, bs.wi);
-        return isect.Le() + (bs.f * Li(wi, sampler, depth) * AbsDot(bs.wi, isect.normal) / bs.pdf);
+        return isect.Le() + (bs.f * Li(wi, scene, sampler, depth) * AbsDot(bs.wi, isect.normal) / bs.pdf);
     }
 };
 
@@ -1201,8 +1218,10 @@ int main(int argc, char* argv[])
     std::unique_ptr<Camera> camera = std::make_unique<PerspectiveCamera>(
         Vector3{ 50, 52, -295.6 }, Vector3{ 0, -0.042612, 1 }.Normalize(), Vector3{ 0, 1, 0 }, 53, film.Resolution());
 
+    auto scene = Scene::CreateSmallptScene();
+
     std::unique_ptr<Integrater> integrater = std::make_unique<RecursionPathIntegrater>(10);
-    integrater->Render(*camera, *originalSampler, film);
+    integrater->Render(scene, *camera, *originalSampler, film);
 
     film.store_image();
 #if defined(_WIN32) || defined(_WIN64)
