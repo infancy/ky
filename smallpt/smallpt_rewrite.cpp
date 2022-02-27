@@ -16,7 +16,9 @@ using namespace std::literals::string_literals;
 
 
 
-#pragma region Math
+#pragma region Math/Utility
+
+// https://github.com/infancy/pbrt-v3/blob/master/src/core/pbrt.h
 
 using Float = double;
 
@@ -24,6 +26,7 @@ using Radian = Float;
 using Degree = Float;
 
 
+constexpr Float Infinity = std::numeric_limits<Float>::infinity();
 constexpr Float Pi = std::numbers::pi;
 
 
@@ -34,6 +37,8 @@ constexpr Degree degrees(Radian rad) { return (180 / Pi) * rad; }
 #pragma endregion
 
 #pragma region Geometry
+
+// https://github.com/infancy/pbrt-v3/blob/master/src/core/geometry.h
 
 struct Vector2
 {
@@ -99,12 +104,80 @@ using Normal3 = Vector3;
 using UnitVector3 = Vector3;
 using Color = Vector3;
 
+
+
 struct Ray
 {
     Point3 origin;
     UnitVector3 direction;
+    Float distance; // distance from ray to intersection
 
-    Ray(Point3 origin_, UnitVector3 direction_) : origin(origin_), direction(direction_) {}
+    Ray(Point3 origin, UnitVector3 direction, Float distance = Infinity) :
+        origin{ origin }, direction{ direction }, distance{ distance }
+    {
+    }
+
+    Point3 operator()(Float t) const
+    {
+        return origin + t * direction;
+    }
+};
+
+
+
+// https://github.com/infancy/pbrt-v3/blob/master/src/core/interaction.h
+
+// TODO: remove
+class Sphere;
+enum class MaterialType
+{
+    Diffuse,
+    Specular,
+    Refract
+}; // material types, used in radiance()
+
+/*
+  surface intersection, called `SurfaceInteraction` on pbrt
+
+  prev   n   next
+  ----   ^   ----
+    ^    |    ^
+     \   | ¦È /
+   wo \  |  / wi is unknown, sampling for bsdf (or light)
+       \ | /
+        \|/
+      -------
+       isect
+*/
+class Isect
+{
+public:
+    Isect() = default;
+    Isect(const Point3& position, const Normal3& normal, UnitVector3 wo) :
+        position{ position },
+        normal{ normal },
+        wo{ wo }
+    {
+    }
+
+public:
+    Point3 position{}; // world position of intersection
+    Normal3 normal{};
+    UnitVector3 wo{};
+
+    //const bsdf_t* bsdf() const { return bsdf_.get(); }
+    MaterialType materialType{}; // TODO: remove
+    Color bsdfValue{}; // TODO: remove
+
+    // prev <- isect, against ray's direction
+    Color Le() const { return emission; }
+
+private:
+    //bsdf_uptr_t bsdf_{};
+    Color emission{};
+
+    // TODO: remove
+    friend Sphere;
 };
 
 #pragma endregion
@@ -538,29 +611,25 @@ private:
 
 #pragma region Shape
 
-enum class MaterialType
-{
-    Diffuse,
-    Specular,
-    Refract
-}; // material types, used in radiance()
+// https://github.com/infancy/pbrt-v3/blob/master/src/core/shape.h
 
+
+// https://github.com/infancy/pbrt-v3/blob/master/src/shapes/sphere.cpp
 struct Sphere
 {
     Float radius;
     Point3 center;
 
+    // TODO: remove
     Color emission; // for area light
-    Color color; // surface reflectance
     MaterialType materialType;
+    Color color; // surface reflectance
 
     Sphere(Float radius_, Vector3 center_, Color emission_, Color color_, MaterialType materialType) :
         radius(radius_), center(center_), emission(emission_), color(color_), materialType(materialType) {}
 
-    Float Intersect(const Ray& ray) const
+    bool Intersect(Ray& ray, Isect* isect) const
     {
-        // returns distance, 0 if nohit
-
         /*
           ray: p(t) = o + t*d,
           sphere: ||p - c||^2 = r^2
@@ -591,22 +660,37 @@ struct Sphere
         Float neg_b = oc.Dot(ray.direction);
         Float det = neg_b * neg_b - oc.Dot(oc) + radius * radius;
 
-        if (det < 0)
-            return 0;
-        else
-            det = sqrt(det);
-
-        Float epsilon = 1e-4;
-        if (Float t = neg_b - det; t > epsilon)
+        bool hit = false;
+        Float distance = 0;
+        if (det >= 0)
         {
-            return t;
-        }
-        else if (t = neg_b + det; t > epsilon)
-        {
-            return t;
+            Float sqrtDet = sqrt(det);
+
+            Float epsilon = 1e-4;
+            if (distance = neg_b - sqrtDet; distance > epsilon && distance < ray.distance)
+            {
+                hit = true;
+            }
+            else if (distance = neg_b + sqrtDet; distance > epsilon && distance < ray.distance)
+            {
+                hit = true;
+            }
         }
 
-        return 0;
+        if (hit)
+        {
+            ray.distance = distance;
+
+            Point3 hit_point = ray(distance);
+            *isect = Isect(hit_point, (hit_point - center).Normalize(), -ray.direction);
+
+            // TODO: remove
+            isect->materialType = materialType;
+            isect->bsdfValue = color;
+            isect->emission = emission;
+        }
+
+        return hit;
     }
 };
 
@@ -664,24 +748,20 @@ Sphere Scene[] =
 
 inline Float Lerp(Float a, Float b, Float t) { return a + t * (b - a); }
 
-inline bool Intersect(const Ray& ray, Float& minDistance, int& id)
+inline bool Intersect(Ray& ray, Isect* isect)
 {
-    Float infinity = 1e20;
-    minDistance = infinity;
+    bool bHit = false;
 
     int sphereNum = sizeof(Scene) / sizeof(Sphere);
-    Float distance{};
-
     for (int i = sphereNum; i--;)
     {
-        if ((distance = Scene[i].Intersect(ray)) && distance < minDistance)
+        if (Scene[i].Intersect(ray, isect))
         {
-            minDistance = distance;
-            id = i;
+            bHit = true;
         }
     }
 
-    return minDistance < infinity;
+    return bHit;
 }
 
 #pragma endregion
@@ -690,25 +770,21 @@ inline bool Intersect(const Ray& ray, Float& minDistance, int& id)
 
 #pragma region Integrater
 
-Color Radiance(const Ray& ray, int depth, Sampler& sampler)
+Color Radiance(Ray ray, int depth, Sampler& sampler)
 {
-    Float distance; // distance to intersection
-    int id = 0; // id of intersected object
-
-    if (!Intersect(ray, distance, id))
+    Isect isect;
+    if (!Intersect(ray, &isect))
         return Color(); // if miss, return black
 
-    const Sphere& obj = Scene[id]; // the hit object
-
     if (depth > 100)
-        return obj.emission;
+        return isect.Le();
 
     // intersection property
-    Vector3 position = ray.origin + ray.direction * distance;
-    Normal3 normal = (position - obj.center).Normalize();
+    Vector3 position = isect.position;
+    Normal3 normal = isect.normal;
     Normal3 shading_normal = normal.Dot(ray.direction) < 0 ? normal : normal * -1;
 
-    Color f = obj.color; // bsdf value
+    Color f = isect.bsdfValue; // bsdf value
     Float max_component = f.x > f.y && f.x > f.z ? f.x : f.y > f.z ? f.y : f.z; // max refl
 
     //russian roulette
@@ -717,10 +793,10 @@ Color Radiance(const Ray& ray, int depth, Sampler& sampler)
         if (sampler.Get1D() < max_component)
             f = f * (1 / max_component);
         else
-            return obj.emission;
+            return isect.Le();
     }
 
-    if (obj.materialType == MaterialType::Diffuse) // Ideal Diffuse reflection
+    if (isect.materialType == MaterialType::Diffuse) // Ideal Diffuse reflection
     {
         Float random1 = 2 * Pi * sampler.Get1D();
         Float random2 = sampler.Get1D();
@@ -737,12 +813,12 @@ Color Radiance(const Ray& ray, int depth, Sampler& sampler)
         f = f / Pi; // for lambert brdf, f = R / Pi;
         Float abs_cos_theta = std::abs(shading_normal.Dot(direction));
         Float pdf = abs_cos_theta / Pi; // cosine-weighted sampling
-        return obj.emission + (f * Radiance(Ray(position, direction), depth, sampler) * abs_cos_theta) / pdf;
+        return isect.Le() + (f * Radiance(Ray(position, direction), depth, sampler) * abs_cos_theta) / pdf;
     }
-    else if (obj.materialType == MaterialType::Specular) // Ideal Specular reflection
+    else if (isect.materialType == MaterialType::Specular) // Ideal Specular reflection
     {
         Vector3 direction = ray.direction - normal * 2 * normal.Dot(ray.direction);
-        return obj.emission + f * Radiance(Ray(position, direction), depth, sampler);
+        return isect.Le() + f * Radiance(Ray(position, direction), depth, sampler);
     }
     else // Ideal Dielectric Refraction
     {
@@ -761,7 +837,7 @@ Color Radiance(const Ray& ray, int depth, Sampler& sampler)
         Float cosThetaI = ray.direction.Dot(shading_normal);
         Float cosThetaT2 = cosThetaT2 = 1 - eta * eta * (1 - cosThetaI * cosThetaI);
         if (cosThetaT2 < 0) // Total internal reflection
-            return obj.emission + f * Radiance(reflectRay, depth, sampler);
+            return isect.Le() + f * Radiance(reflectRay, depth, sampler);
 
         // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#SpecularTransmission see `Refract()`
         Vector3 refractDirection = (ray.direction * eta - normal * ((into ? 1 : -1) * (cosThetaI * eta + sqrt(cosThetaT2)))).Normalize();
@@ -801,7 +877,7 @@ Color Radiance(const Ray& ray, int depth, Sampler& sampler)
             Li = Radiance(reflectRay, depth, sampler) * Re + Radiance(Ray(position, refractDirection), depth, sampler) * Tr;
         }
 
-        return obj.emission + f * Li;
+        return isect.Le() + f * Li;
     }
 }
 
