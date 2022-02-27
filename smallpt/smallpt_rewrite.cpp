@@ -1103,46 +1103,22 @@ Color Radiance(Ray ray, int depth, Sampler& sampler)
     if (depth > 100)
         return isect.Le();
 
-    // intersection property
-    Vector3 position = isect.position;
-    Normal3 normal = isect.normal;
-    Normal3 shading_normal = normal.Dot(ray.direction) < 0 ? normal : normal * -1;
-
-    Color f = isect.bsdfValue; // bsdf value
-    Float max_component = f.MaxComponentValue();
+    auto bs = isect.bsdf()->Sample_f(isect.wo, sampler.Get2D());
+    if (bs.f.IsBlack() || bs.pdf == 0.f) // pdf == 0 => NaN
+        return isect.Le();
 
     //russian roulette
     if (++depth > 5)
     {
-        if (sampler.Get1D() < max_component)
-            f = f * (1 / max_component);
+        Float bsdf_max_comp = bs.f.MaxComponentValue();
+        if (sampler.Get1D() < bsdf_max_comp) // continue
+            bs.f = bs.f * (1 / bsdf_max_comp);
         else
             return isect.Le();
     }
 
-    if (isect.materialType == MaterialType::Diffuse) // Ideal Diffuse reflection
-    {
-        auto bs = isect.bsdf()->Sample_f(isect.wo, sampler.Get2D());
-        if (bs.f.IsBlack() || bs.pdf == 0.f) // pdf == 0 => NaN
-            return isect.Le();
-
-        Ray wi(isect.position, bs.wi);
-        return isect.Le() + (bs.f * Radiance(wi, depth, sampler) * AbsDot(bs.wi, isect.normal) / bs.pdf);
-    }
-    else if (isect.materialType == MaterialType::Specular) // Ideal Specular reflection
-    {
-        auto bs = isect.bsdf()->Sample_f(isect.wo, sampler.Get2D());
-
-        Ray wi(isect.position, bs.wi);
-        return isect.Le() + (bs.f * Radiance(wi, depth, sampler) * AbsDot(bs.wi, isect.normal) / bs.pdf);
-    }
-    else // Ideal Dielectric Refraction
-    {
-        auto bs = isect.bsdf()->Sample_f(isect.wo, sampler.Get2D());
-
-        Ray wi(isect.position, bs.wi);
-        return isect.Le() + (bs.f * Radiance(wi, depth, sampler) * AbsDot(bs.wi, isect.normal) / bs.pdf);
-    }
+    Ray wi(isect.position, bs.wi);
+    return isect.Le() + (bs.f * Radiance(wi, depth, sampler) * AbsDot(bs.wi, isect.normal) / bs.pdf);
 }
 
 #pragma endregion
