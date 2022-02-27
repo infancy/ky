@@ -194,8 +194,8 @@ struct Ray
 // https://github.com/infancy/pbrt-v3/blob/master/src/core/interaction.h
 
 // TODO: remove
-class Sphere;
 class BSDF;
+class Primitive;
 
 enum class MaterialType
 {
@@ -233,20 +233,14 @@ public:
     Normal3 normal{};
     UnitVector3 wo{};
 
-    MaterialType materialType{}; // TODO: remove
-    Color bsdfValue{}; // TODO: remove
-
-    std::unique_ptr<BSDF> bsdf_{};
-    Color emission_{};
-
-    const BSDF* bsdf() const { return bsdf_.get(); }
-
-    // prev <- isect, against ray's direction
-    Color Le() const { return emission_; }
+    const BSDF* bsdf() const { return bsdfPtr.get(); } 
+    Color Le() const { return emission; } // prev <- isect, against ray's direction
 
 private:
-    // TODO: remove
-    friend Sphere;
+    std::unique_ptr<BSDF> bsdfPtr{};
+    Color emission{};
+
+    friend Primitive;
 };
 
 #pragma endregion
@@ -701,23 +695,23 @@ private:
 #pragma region Shape
 
 // https://github.com/infancy/pbrt-v3/blob/master/src/core/shape.h
-
+class Shape
+{
+public:
+    virtual bool Intersect(Ray& ray, Isect* isect) const = 0;
+};
 
 // https://github.com/infancy/pbrt-v3/blob/master/src/shapes/sphere.cpp
-struct Sphere
+class Sphere : public Shape
 {
-    Float radius;
-    Point3 center;
+public:
+    Sphere(Float radius, Vector3 center) :
+        radius(radius), center(center)
+    {
+    }
 
-    // TODO: remove
-    Color emission; // for area light
-    MaterialType materialType;
-    Color color; // surface reflectance
-
-    Sphere(Float radius_, Vector3 center_, Color emission_, Color color_, MaterialType materialType) :
-        radius(radius_), center(center_), emission(emission_), color(color_), materialType(materialType) {}
-
-    bool Intersect(Ray& ray, Isect* isect) const
+public:
+    bool Intersect(Ray& ray, Isect* isect) const override
     {
         /*
           ray: p(t) = o + t*d,
@@ -776,6 +770,10 @@ struct Sphere
 
         return hit;
     }
+
+private:
+    Float radius;
+    Point3 center;
 };
 
 #pragma endregion
@@ -1021,6 +1019,66 @@ private:
 
 #pragma region Material
 
+class Material
+{
+public:
+    virtual ~Material() = default;
+
+    virtual std::unique_ptr<BSDF> Scattering(const Isect& isect) const = 0;
+};
+
+class MatteMaterial : public Material
+{
+public:
+    MatteMaterial(const Color Kd) :
+        Kd{ Kd }
+    {
+    }
+
+    std::unique_ptr<BSDF> Scattering(const Isect& isect) const override
+    {
+        return std::make_unique<LambertionReflection>(Frame(isect.normal), Kd);
+    }
+
+private:
+    Color Kd;
+};
+
+class MirrorMaterial : public Material
+{
+public:
+    MirrorMaterial(const Color Kr) :
+        Kr{ Kr }
+    {
+    }
+
+    std::unique_ptr<BSDF> Scattering(const Isect& isect) const override
+    {
+        return std::make_unique<SpecularReflection>(Frame(isect.normal), Kr);
+    }
+
+private:
+    Color Kr;
+};
+
+class GlassMaterial : public Material
+{
+public:
+    GlassMaterial(const Color& Kr, const Color& Kt, Float eta) :
+        Kr{ Kr }, Kt{ Kt }, eta{ eta }
+    {
+    }
+
+    std::unique_ptr<BSDF> Scattering(const Isect& isect) const override
+    {
+        return std::make_unique<FresnelSpecular>(Frame(isect.normal), Kr, Kt, 1, eta);
+    }
+
+private:
+    Color Kr;
+    Color Kt;
+    Float eta;
+};
 
 #pragma endregion
 
@@ -1028,11 +1086,53 @@ private:
 
 #pragma region Light
 
+class Light
+{
+};
+
+class AreaLight : public Light
+{
+public:
+    AreaLight(Color radiance, const Shape* shape) :
+        radiance{ radiance },
+        shape{ shape }
+    {
+    }
+
+    Color Le(const Isect& lightIsect, const Vector3& wo) const
+    {
+        return (Dot(lightIsect.normal, wo) > 0) ? radiance : Color();
+    }
+
+private:
+    Color radiance;
+    const Shape* shape;
+};
+
 #pragma endregion
 
 
 
-#pragma region Sureface(Primitive)
+#pragma region Primitive
+
+struct Primitive
+{
+    const Shape* shape;
+    const Material* material;
+    const AreaLight* areaLight;
+
+    bool Intersect(Ray& ray, Isect* isect) const
+    {
+        bool hit = shape->Intersect(ray, isect);
+        if (hit)
+        {
+            isect->bsdfPtr = material->Scattering(*isect);
+            isect->emission = areaLight ? areaLight->Le(*isect, isect->wo) : Color();
+        }
+
+        return hit;
+    }
+};
 
 #pragma endregion
 
@@ -1046,33 +1146,25 @@ class Scene
 {
 public:
     Scene() = default;
-    Scene(std::vector<Sphere> sphereList) :
-        sphereList{ sphereList }
+    Scene(
+        std::vector<std::shared_ptr<Shape>> shapeList, std::vector<std::shared_ptr<Material>> materialList, std::vector<std::shared_ptr<Light>> lightList, std::vector<Primitive> primitiveList) :
+        shapeList{ shapeList },
+        materialList{ materialList },
+        lightList{ lightList },
+        primitiveList{ primitiveList }
     {
     }
 
 public:
-    bool Intersect(Ray& ray, Isect* isect)
+    bool Intersect(Ray& ray, Isect* isect) const
     {
         bool bHit = false;
 
-        for (const auto& sphere : sphereList)
+        for (const auto& primitive : primitiveList)
         {
-            if (sphere.Intersect(ray, isect))
+            if (primitive.Intersect(ray, isect))
             {
                 bHit = true;
-
-                isect->materialType = sphere.materialType;
-                isect->bsdfValue = sphere.color;
-
-                if (isect->materialType == MaterialType::Diffuse)
-                    isect->bsdf_ = std::make_unique<LambertionReflection>(Frame(isect->normal), isect->bsdfValue);
-                else if (isect->materialType == MaterialType::Specular)
-                    isect->bsdf_ = std::make_unique<SpecularReflection>(Frame(isect->normal), isect->bsdfValue);
-                else
-                    isect->bsdf_ = std::make_unique<FresnelSpecular>(Frame(isect->normal), isect->bsdfValue, isect->bsdfValue, 1, 1.5);
-
-                isect->emission_ = sphere.emission;
             }
         }
 
@@ -1082,26 +1174,57 @@ public:
 public:
     static Scene CreateSmallptScene()
     {
-        std::vector<Sphere> sphereList =
-        {
-            //Scene: radius, center, emission, color, material
-            Sphere(1e5, Vector3(1e5 + 1, 40.8, -81.6),   Color(), Color(.75, .25, .25), MaterialType::Diffuse), //Left
-            Sphere(1e5, Vector3(-1e5 + 99, 40.8, -81.6), Color(), Color(.25, .25, .75), MaterialType::Diffuse), //Right
-            Sphere(1e5, Vector3(50, 40.8, -1e5),         Color(), Color(.75, .75, .75), MaterialType::Diffuse), //Back
-            Sphere(1e5, Vector3(50, 40.8, 1e5 - 170),    Color(), Color(),              MaterialType::Diffuse), //Front
-            Sphere(1e5, Vector3(50, 1e5, -81.6),         Color(), Color(.75, .75, .75), MaterialType::Diffuse), //Bottom
-            Sphere(1e5, Vector3(50, -1e5 + 81.6, -81.6), Color(), Color(.75, .75, .75), MaterialType::Diffuse), //Top
+        std::shared_ptr<Shape> left   = std::make_shared<Sphere>(1e5, Vector3(1e5 + 1, 40.8, -81.6));
+        std::shared_ptr<Shape> right  = std::make_shared<Sphere>(1e5, Vector3(-1e5 + 99, 40.8, -81.6));
+        std::shared_ptr<Shape> back   = std::make_shared<Sphere>(1e5, Vector3(50, 40.8, -1e5));
+        std::shared_ptr<Shape> front  = std::make_shared<Sphere>(1e5, Vector3(50, 40.8, 1e5 - 170));
+        std::shared_ptr<Shape> bottom = std::make_shared<Sphere>(1e5, Vector3(50, 1e5, -81.6));
+        std::shared_ptr<Shape> top    = std::make_shared<Sphere>(1e5, Vector3(50, -1e5 + 81.6, -81.6));
 
-            Sphere(16.5, Vector3(27, 16.5, -47),          Color(), Color(1, 1, 1) * .999, MaterialType::Specular), //Mirror
-            Sphere(16.5, Vector3(73, 16.5, -78),          Color(), Color(1, 1, 1) * .999, MaterialType::Refract),  //Glass
-            Sphere(600,  Vector3(50, 681.6 - .27, -81.6), Color(12, 12, 12), Color(),     MaterialType::Diffuse)   //Light
+        std::shared_ptr<Shape> mirror = std::make_shared<Sphere>(16.5, Vector3(27, 16.5, -47));
+        std::shared_ptr<Shape> glass  = std::make_shared<Sphere>(16.5, Vector3(73, 16.5, -78));
+        std::shared_ptr<Shape> light  = std::make_shared<Sphere>(600, Vector3(50, 681.6 - .27, -81.6));
+        std::vector<std::shared_ptr<Shape>> shapeList{ left, right, back, front, bottom, top, mirror, glass, light };
+
+
+        std::shared_ptr<Material> red   = std::make_shared<MatteMaterial>(Color(.75, .25, .25));
+        std::shared_ptr<Material> blue  = std::make_shared<MatteMaterial>(Color(.25, .25, .75));
+        std::shared_ptr<Material> gray  = std::make_shared<MatteMaterial>(Color(.75, .75, .75));
+        std::shared_ptr<Material> black = std::make_shared<MatteMaterial>(Color());
+
+        std::shared_ptr<Material> mirror_mat = std::make_shared<MirrorMaterial>(Color(1, 1, 1) * 0.999);
+        std::shared_ptr<Material> glass_mat  = std::make_shared<GlassMaterial>(Color(1, 1, 1) * 0.999, Color(1, 1, 1) * 0.999, 1.5);
+        std::vector<std::shared_ptr<Material>> materialList{ red, blue, gray, black, mirror_mat, glass_mat };
+
+
+        std::shared_ptr<AreaLight> area_light = std::make_shared<AreaLight>(Color(12, 12, 12), light.get());
+        std::vector<std::shared_ptr<Light>> lightList{ area_light };
+
+
+        std::vector<Primitive> primitiveList
+        {
+            {   left.get(),   red.get(), nullptr},
+            {  right.get(),  blue.get(), nullptr },
+            {   back.get(),  gray.get(), nullptr },
+            {  front.get(), black.get(), nullptr },
+            { bottom.get(),  gray.get(), nullptr },
+            {    top.get(),  gray.get(), nullptr },
+
+            { mirror.get(), mirror_mat.get(), nullptr },
+            {  glass.get(),  glass_mat.get(), nullptr },
+
+            {  light.get(), black.get(), area_light.get() },
         };
 
-        return Scene{ std::move(sphereList) };
+        return Scene{ shapeList, materialList, lightList, primitiveList };
     }
 
 private:
-    std::vector<Sphere> sphereList;
+    std::vector<std::shared_ptr<Shape>> shapeList;
+    std::vector<std::shared_ptr<Material>> materialList;
+    std::vector<std::shared_ptr<Light>> lightList;
+
+    std::vector<Primitive> primitiveList;
 };
 
 
@@ -1126,7 +1249,9 @@ public:
         int width = (int)resolution.x;
         int height = (int)resolution.y;
         
+    #ifndef _DEBUG
         #pragma omp parallel for schedule(dynamic, 1) // OpenMP
+    #endif
         for (int y = 0; y < height; y++) // Loop over image rows
         {
             std::unique_ptr<Sampler> sampler = originalSampler.Clone();
@@ -1150,6 +1275,7 @@ public:
             }
         }
     }
+    
     // estimate input radiance
     virtual Color Li(Ray ray, Scene& scene, Sampler& sampler) = 0;
 };
@@ -1209,7 +1335,7 @@ public:
 
 int main(int argc, char* argv[])
 {
-    int width = 256, height = 256;
+    int width = 1024, height = 768;
     Film film({ (Float)width, (Float)height }, "image.bmp"s);
 
     int samplesPerPixel = argc == 2 ? atoi(argv[1]) / 4 : 100;
