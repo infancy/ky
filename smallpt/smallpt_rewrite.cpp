@@ -1094,32 +1094,68 @@ inline bool Intersect(Ray& ray, Isect* isect)
 
 #pragma region Integrater
 
-Color Radiance(Ray ray, int depth, Sampler& sampler)
+class Integrater
 {
-    Isect isect;
-    if (!Intersect(ray, &isect))
-        return Color(); // if miss, return black
-
-    if (depth > 100)
-        return isect.Le();
-
-    auto bs = isect.bsdf()->Sample_f(isect.wo, sampler.Get2D());
-    if (bs.f.IsBlack() || bs.pdf == 0.f) // pdf == 0 => NaN
-        return isect.Le();
-
-    //russian roulette
-    if (++depth > 5)
+public:
+    ~Integrater() = default;
+    Integrater()
     {
-        Float bsdf_max_comp = bs.f.MaxComponentValue();
-        if (sampler.Get1D() < bsdf_max_comp) // continue
-            bs.f = bs.f * (1 / bsdf_max_comp);
-        else
-            return isect.Le();
     }
 
-    Ray wi(isect.position, bs.wi);
-    return isect.Le() + (bs.f * Radiance(wi, depth, sampler) * AbsDot(bs.wi, isect.normal) / bs.pdf);
-}
+public:
+
+    // estimate input radiance
+    virtual Color Li(Ray ray, Sampler& sampler) = 0;
+};
+
+class PathIntegrater : public Integrater
+{
+public:
+    PathIntegrater(int maxPathDepth) : maxPathDepth{ maxPathDepth }
+    {
+    }
+
+protected:
+    int maxPathDepth;
+};
+
+class RecursionPathIntegrater : public PathIntegrater
+{
+public:
+    using PathIntegrater::PathIntegrater;
+
+    Color Li(Ray ray, Sampler& sampler) override
+    {
+        return Li(ray, sampler, 0);
+    }
+
+    Color Li(Ray ray, Sampler& sampler, int depth)
+    {
+        Isect isect;
+        if (!Intersect(ray, &isect))
+            return Color(); // if miss, return black
+
+        if (depth > maxPathDepth)
+            return isect.Le();
+
+        auto bs = isect.bsdf()->Sample_f(isect.wo, sampler.Get2D());
+        if (bs.f.IsBlack() || bs.pdf == 0.f) // pdf == 0 => NaN
+            return isect.Le();
+
+        //russian roulette
+        if (++depth > 5)
+        {
+            Float maxComponent = bs.f.MaxComponentValue();
+            if (sampler.Get1D() < maxComponent) // continue
+                bs.f = bs.f * (1 / maxComponent);
+            else
+                return isect.Le();
+        }
+
+        Ray wi(isect.position, bs.wi);
+        return isect.Le() + (bs.f * Li(wi, sampler, depth) * AbsDot(bs.wi, isect.normal) / bs.pdf);
+    }
+};
 
 #pragma endregion
 
@@ -1137,6 +1173,8 @@ int main(int argc, char* argv[])
     std::unique_ptr<Camera> camera = std::make_unique<PerspectiveCamera>(
         Vector3{ 50, 52, -295.6 }, Vector3{ 0, -0.042612, 1 }.Normalize(), Vector3{ 0, 1, 0 }, 53, film.Resolution());
 
+    std::unique_ptr<Integrater> integrater = std::make_unique<RecursionPathIntegrater>(10);
+
 #pragma omp parallel for schedule(dynamic, 1) // OpenMP
     for (int y = 0; y < height; y++) // Loop over image rows
     {
@@ -1153,7 +1191,7 @@ int main(int argc, char* argv[])
                 auto cameraSample = sampler->GetCameraSample({ (Float)x, (Float)y });
                 auto ray = camera->GenerateRay(cameraSample);
 
-                Li = Li + Radiance(ray, 0, *sampler) * (1. / sampler->SamplesPerPixel());
+                Li = Li + integrater->Li(ray, *sampler) * (1. / sampler->SamplesPerPixel());
             }
             while (sampler->StartNextSample());
 
