@@ -1103,7 +1103,36 @@ public:
     }
 
 public:
+    void Render(Camera& camera, Sampler& originalSampler, Film& film)
+    {
+        auto resolution = film.Resolution();
+        int width = (int)resolution.x;
+        int height = (int)resolution.y;
+        
+        #pragma omp parallel for schedule(dynamic, 1) // OpenMP
+        for (int y = 0; y < height; y++) // Loop over image rows
+        {
+            std::unique_ptr<Sampler> sampler = originalSampler.Clone();
+            fprintf(stderr, "\rRendering (%d spp) %5.2f%%", sampler->SamplesPerPixel(), 100. * y / (height - 1));
 
+            for (int x = 0; x < width; x++) // Loop cols
+            {
+                Color L{};
+
+                sampler->StartPixel();
+                do
+                {
+                    auto cameraSample = sampler->GetCameraSample({ (Float)x, (Float)y });
+                    auto ray = camera.GenerateRay(cameraSample);
+
+                    L = L + Li(ray, *sampler) * (1. / sampler->SamplesPerPixel());
+                }
+                while (sampler->StartNextSample());
+
+                film.add_color(x, y, Clamp(L));
+            }
+        }
+    }
     // estimate input radiance
     virtual Color Li(Ray ray, Sampler& sampler) = 0;
 };
@@ -1164,7 +1193,6 @@ public:
 int main(int argc, char* argv[])
 {
     int width = 256, height = 256;
-
     Film film({ (Float)width, (Float)height }, "image.bmp"s);
 
     int samplesPerPixel = argc == 2 ? atoi(argv[1]) / 4 : 100;
@@ -1174,30 +1202,7 @@ int main(int argc, char* argv[])
         Vector3{ 50, 52, -295.6 }, Vector3{ 0, -0.042612, 1 }.Normalize(), Vector3{ 0, 1, 0 }, 53, film.Resolution());
 
     std::unique_ptr<Integrater> integrater = std::make_unique<RecursionPathIntegrater>(10);
-
-#pragma omp parallel for schedule(dynamic, 1) // OpenMP
-    for (int y = 0; y < height; y++) // Loop over image rows
-    {
-        std::unique_ptr<Sampler> sampler = originalSampler->Clone();
-        fprintf(stderr, "\rRendering (%d spp) %5.2f%%", sampler->SamplesPerPixel(), 100. * y / (height - 1));
-
-        for (int x = 0; x < width; x++) // Loop cols
-        {
-            Color Li{};
-
-            sampler->StartPixel();
-            do
-            {
-                auto cameraSample = sampler->GetCameraSample({ (Float)x, (Float)y });
-                auto ray = camera->GenerateRay(cameraSample);
-
-                Li = Li + integrater->Li(ray, *sampler) * (1. / sampler->SamplesPerPixel());
-            }
-            while (sampler->StartNextSample());
-
-            film.add_color(x, y, Clamp(Li));
-        }
-    }
+    integrater->Render(*camera, *originalSampler, film);
 
     film.store_image();
 #if defined(_WIN32) || defined(_WIN64)
