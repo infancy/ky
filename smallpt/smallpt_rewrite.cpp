@@ -868,8 +868,6 @@ private:
     // std::array<bxdf_uptr, 2> BxDFList;
 };
 
-
-
 class LambertionReflection : public BSDF
 {
 public:
@@ -902,6 +900,35 @@ public:
 
 private:
     Color R; // surface reflectance
+};
+
+class SpecularReflection : public BSDF
+{
+public:
+    SpecularReflection(const Frame& shadingFrame, const Color& R) :
+        BSDF(shadingFrame), R{ R }
+    {
+    }
+
+    Color f_(const Vector3& wo, const Vector3& wi) const override { return Color(); }
+    Float Pdf_(const Vector3& wo, const Vector3& wi) const override { return 0; }
+
+    BSDFSample Sample_f_(const Vector3& wo, const Point2& random) const override
+    {
+        // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#SpecularReflection
+        // https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.h#L387-L408
+        // https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.cpp#L181-L191
+
+        BSDFSample sample; 
+        sample.wi = Vector3(-wo.x, -wo.y, wo.z);
+        sample.pdf = 1;
+        sample.f = R / AbsCosTheta(sample.wi); // for `(R / cos_theta) * Li * cos_theta / pdf = R * Li`
+
+        return sample;
+    }
+
+private:
+    Color R;
 };
 
 #pragma endregion
@@ -967,6 +994,8 @@ inline bool Intersect(Ray& ray, Isect* isect)
 
             if(isect->materialType == MaterialType::Diffuse)
                 isect->bsdf_ = std::make_unique<LambertionReflection>(Frame(isect->normal), isect->bsdfValue);
+            else if(isect->materialType == MaterialType::Specular)
+                isect->bsdf_ = std::make_unique<SpecularReflection>(Frame(isect->normal), isect->bsdfValue);
 
             isect->emission_ = Scene[i].emission;
             
@@ -1019,8 +1048,10 @@ Color Radiance(Ray ray, int depth, Sampler& sampler)
     }
     else if (isect.materialType == MaterialType::Specular) // Ideal Specular reflection
     {
-        Vector3 direction = ray.direction - normal * 2 * normal.Dot(ray.direction);
-        return isect.Le() + f * Radiance(Ray(position, direction), depth, sampler);
+        auto bs = isect.bsdf()->Sample_f(isect.wo, sampler.Get2D());
+
+        Ray wi(isect.position, bs.wi);
+        return isect.Le() + (bs.f * Radiance(wi, depth, sampler) * AbsDot(bs.wi, isect.normal) / bs.pdf);
     }
     else // Ideal Dielectric Refraction
     {
