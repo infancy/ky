@@ -530,7 +530,6 @@ public:
     unit_vec3_t direction() const { return direction_; }
     Float distance() const { return distance_; }
 
-    // TODO
     void set_distance(Float distance) const { distance_ = distance; }
 
     point3_t operator()(Float t) const
@@ -692,7 +691,6 @@ inline vec3_t sample_sphere_uniform(const float2_t& random)
     return vec3_t(r * std::cos(phi), r * std::sin(phi), z);
 }
 
-// TODO: pdf_uniform_shphere
 inline Float pdf_sphere_uniform() { return k_inv_4pi; }
 
 
@@ -742,12 +740,12 @@ inline Float power_heuristic(int nf, Float fPdf, int ng, Float gPdf)
 
 #pragma region sampler
 
-// TODO: Pseudo or Quasi
 // random number generator
 // https://github.com/SmallVCM/SmallVCM/blob/master/src/rng.hxx
 class rng_t
 {
 public:
+    // TODO
     rng_t(int seed = 1234) : rng_engine_(seed)
     {
     }
@@ -813,8 +811,7 @@ public:
     virtual std::unique_ptr<sampler_t> clone() = 0;
 
 public:
-    // TODO: start_pixel
-    virtual void start_sample()
+    virtual void start_pixel()
     {
         current_sample_index_ = 0;
     }
@@ -1689,8 +1686,6 @@ private:
 
 using const_camera_sptr_t = std::shared_ptr<const camera_t>;
 
-// TODO: smallpt_camera
-
 #pragma endregion
 
 
@@ -1991,7 +1986,6 @@ public:
     color_t f_(const vec3_t& wo, const vec3_t& wi) const override { return R_ * k_inv_pi; }
     Float pdf_(const vec3_t& wo, const vec3_t& wi) const override
     {
-        // TODO
         return same_hemisphere(wo, wi) ? pdf_hemisphere_cosine(abs_cos_theta(wi)) : 0;
     }
 
@@ -3050,58 +3044,6 @@ public:
     const environment_light_t* environment_light() const { return environment_light_; }
 
 public:
-    /*
-    static scene_t create_smallpt_scene()
-    {
-        bool is_double = std::is_same_v<Float, double>;
-        KY_CHECK(is_double);
-
-        shape_sp left   = std::make_shared<sphere_t>(1e5, vec3_t(1e5 + 1,   40.8,        81.6));
-        shape_sp right  = std::make_shared<sphere_t>(1e5, vec3_t(-1e5 + 99, 40.8,        81.6));
-        shape_sp back   = std::make_shared<sphere_t>(1e5, vec3_t(50,        40.8,        1e5));
-        shape_sp front  = std::make_shared<sphere_t>(1e5, vec3_t(50,        40.8,        -1e5 + 170));
-        shape_sp bottom = std::make_shared<sphere_t>(1e5, vec3_t(50,        1e5,         81.6));
-        shape_sp top    = std::make_shared<sphere_t>(1e5, vec3_t(50,        -1e5 + 81.6, 81.6));
-
-        shape_sp mirror = std::make_shared<sphere_t>(16.5, vec3_t(27, 16.5,        47));
-        shape_sp glass  = std::make_shared<sphere_t>(16.5, vec3_t(73, 16.5,        78));
-        shape_sp light  = std::make_shared<sphere_t>(600,  vec3_t(50, 681.6 - .27, 81.6));
-        shape_list_t shape_list{ left, right, back, front, bottom, top, mirror, glass, light };
-
-
-        material_sp red   = std::make_shared<matte_material_t>(color_t(.75, .25, .25));
-        material_sp blue  = std::make_shared<matte_material_t>(color_t(.25, .25, .75));
-        material_sp gray  = std::make_shared<matte_material_t>(color_t(.75, .75, .75));
-        material_sp black = std::make_shared<matte_material_t>(color_t());
-
-        material_sp mirror_mat = std::make_shared<mirror_material_t>(color_t(1, 1, 1) * 0.999);
-        material_sp glass_mat  = std::make_shared<glass_material_t>(color_t(1, 1, 1) * 0.999, color_t(1, 1, 1) * 0.999, 1.5);
-        material_list_t material_list{ red, blue, gray, black, mirror_mat, glass_mat };
-
-        // TODO
-        std::shared_ptr<area_light_t> area_light = std::make_shared<area_light_t>(vec3_t(), 1, color_t(12, 12, 12), light.get());
-        light_list_t light_list{ area_light };
-
-
-        surface_list_t surface_list
-        {
-            {   left.get(),   red.get(), nullptr},
-            {  right.get(),  blue.get(), nullptr },
-            {   back.get(),  gray.get(), nullptr },
-            {  front.get(), black.get(), nullptr },
-            { bottom.get(),  gray.get(), nullptr },
-            {    top.get(),  gray.get(), nullptr },
-
-            { mirror.get(), mirror_mat.get(), nullptr },
-            {  glass.get(),  glass_mat.get(), nullptr },
-
-            {  light.get(), black.get(), area_light.get()},
-        };
-
-        return scene_t{ shape_list, material_list, light_list, surface_list};
-    }
-    */
-
     static scene_t create_cornell_box_scene(cornell_box_enum_t scene_enum, point2_t film_resolution)
     {
         using enum cornell_box_enum_t;
@@ -3518,7 +3460,7 @@ public:
             for (int x = 0; x < width; x += 1)
             {
                 color_t L{};
-                sampler->start_sample();
+                sampler->start_pixel();
                 //film_->set_color(x, y, color_t(0, 0, 0));
 
                 do
@@ -3551,7 +3493,7 @@ public:
             for (int x = begin.x; x < end.x; x += 1)
             {
                 color_t L{};
-                sampler->start_sample();
+                sampler->start_pixel();
 
                 do
                 {
