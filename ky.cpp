@@ -625,14 +625,14 @@ private:
 
 #pragma region sampling
 
-inline point2_t sample_disk_uniform(const point2_t& random)
+inline point2_t sample_disk_uniform(const float2_t& random)
 {
     Float r = std::sqrt(random[0]);
     Float theta = 2 * k_pi * random[1];
     return point2_t(r * std::cos(theta), r * std::sin(theta));
 }
 
-inline point2_t sample_disk_concentric(const point2_t& random)
+inline point2_t sample_disk_concentric(const float2_t& random)
 {
     // Map uniform random numbers to $[-1,1]^2$
     point2_t uOffset = 2.f * random - vec2_t(1, 1);
@@ -659,7 +659,7 @@ inline point2_t sample_disk_concentric(const point2_t& random)
 
 
 // cosine-weighted sampling
-inline vec3_t sample_hemisphere_cosine(const point2_t& random)
+inline vec3_t sample_hemisphere_cosine(const float2_t& random)
 {
     point2_t d = sample_disk_concentric(random);
     Float z = std::sqrt(std::max((Float)0, 1 - d.x * d.x - d.y * d.y));
@@ -669,7 +669,20 @@ inline vec3_t sample_hemisphere_cosine(const point2_t& random)
 inline Float pdf_hemisphere_cosine(Float cos_theta) { return cos_theta * k_inv_pi; }
 
 
-inline vec3_t sample_sphere_uniform(const point2_t& random)
+inline vec3_t sample_hemisphere_uniform(const float2_t& random)
+{
+    Float z = random[0]; // [0, 1)
+
+    Float r = std::sqrt(std::max((Float)0, (Float)1. - z * z));
+    Float phi = 2 * k_pi * random[1];
+
+    return vec3_t(r * std::cos(phi), r * std::sin(phi), z);
+}
+
+inline Float pdf_hemisphere_uniform() { return k_inv_2pi; }
+
+
+inline vec3_t sample_sphere_uniform(const float2_t& random)
 {
     Float z = 1 - 2 * random[0]; // (-1, 1)
 
@@ -694,7 +707,7 @@ inline Float pdf_sphere_uniform() { return k_inv_4pi; }
   . _ _ _ _ _ _ _ _
 
 */
-vec3_t sample_cone_uniform(const point2_t& random, Float cos_theta_max)
+vec3_t sample_cone_uniform(const float2_t& random, Float cos_theta_max)
 {
     Float cos_theta = ((Float)1 - random[0]) + random[0] * cos_theta_max;
     Float sin_theta = std::sqrt((Float)1 - cos_theta * cos_theta);
@@ -712,7 +725,7 @@ Float pdf_cone_uniform(Float cos_theta_max)
 }
 
 
-point2_t sample_triangle_uniform(const point2_t& random)
+point2_t sample_triangle_uniform(const float2_t& random)
 {
     Float su0 = std::sqrt(random[0]);
     return point2_t(1 - su0, random[1] * su0);
@@ -752,15 +765,15 @@ public:
     }
 
     // [0, 1)
-    Float uniform_float01()
+    Float uniform_float()
     {
         return float_dist_(rng_engine_);
     }
 
-    // [0, 1) * [0, 1)
-    vec2_t uniform_vec2()
+    // [0, 1), [0, 1)
+    vec2_t uniform_float2()
     {
-        return vec2_t(uniform_float01(), uniform_float01());
+        return vec2_t(uniform_float(), uniform_float());
     }
 
 private:
@@ -800,6 +813,7 @@ public:
     virtual std::unique_ptr<sampler_t> clone() = 0;
 
 public:
+    // TODO: start_pixel
     virtual void start_sample()
     {
         current_sample_index_ = 0;
@@ -813,7 +827,7 @@ public:
 
 public:
     virtual Float get_float() = 0;
-    virtual vec2_t get_vec2() = 0;
+    virtual vec2_t get_float2() = 0;
     virtual camera_sample_t get_camera_sample(point2_t p_film) = 0;
 
 protected:
@@ -836,27 +850,28 @@ public:
 public:
     Float get_float() override
     {
-        return rng_.uniform_float01();
+        return rng_.uniform_float();
     }
 
-    vec2_t get_vec2() override
+    vec2_t get_float2() override
     {
-        return rng_.uniform_vec2();
+        return rng_.uniform_float2();
     }
 
     // TODO: coroutine
     camera_sample_t get_camera_sample(point2_t p_film) override
     {
-        return { p_film + rng_.uniform_vec2() };
+        return { p_film + rng_.uniform_float2() };
     }
 };
 
+// TODO
 class stratified_sampler_t : public sampler_t
 {
 public:
     camera_sample_t get_camera_sample(point2_t p_film) override
     {
-        return { p_film + rng_.uniform_vec2() };
+        return { p_film + rng_.uniform_float2() };
     }
 };
 
@@ -878,12 +893,12 @@ public:
     // these methods below only used for `area_light_t`
 
     // TODO: return position_sample_t
-    virtual isect_t sample_position(const point2_t& random, Float* out_pdf_position) const = 0;
+    virtual isect_t sample_position(const float2_t& random, Float* out_pdf_position) const = 0;
     virtual Float pdf_position(const isect_t& isect) const { return 1 / area(); }
 
     // TODO: return direction_sample_t
     // default compute `*_direction` by `*_position` 
-    virtual isect_t sample_direction(const isect_t& isect, const point2_t& random, Float* out_pdf_direction) const
+    virtual isect_t sample_direction(const isect_t& isect, const float2_t& random, Float* out_pdf_direction) const
     {
         isect_t light_isect = sample_position(random, out_pdf_direction);
         vec3_t wi = light_isect.position - isect.position;
@@ -1006,7 +1021,7 @@ public:
     Float area() const override { return k_pi * radius_ * radius_; }
 
 public:
-    isect_t sample_position(const point2_t& random, Float* pdf) const override
+    isect_t sample_position(const float2_t& random, Float* pdf) const override
     {
         isect_t isect;
 
@@ -1086,7 +1101,7 @@ public:
     Float area() const override { return 0.5 * cross(p1_ - p0_, p2_ - p0_).magnitude(); }
 
 public:
-    isect_t sample_position(const point2_t& random, Float* pdf) const override
+    isect_t sample_position(const float2_t& random, Float* pdf) const override
     {
         point2_t b = sample_triangle_uniform(random);
 
@@ -1166,7 +1181,7 @@ public:
     Float area() const override { return cross(p0_ - p1_, p2_ - p1_).magnitude(); }
 
 public:
-    isect_t sample_position(const point2_t& random, Float* pdf) const override
+    isect_t sample_position(const float2_t& random, Float* pdf) const override
     {
         isect_t isect;
         isect.position = p1_ + (p0_ - p1_) * random[0] + (p2_ - p1_) * random[1];
@@ -1197,27 +1212,35 @@ public:
     bool intersect(const ray_t& ray, isect_t* out_isect) const override
     { 
         /*
-          ||o + t*d - c||^2 = r^2
-          (t*d + o - c).(t*d + o - c) = r^2
+          ray: p(t) = o + t*d,
+          sphere: ||p - c||^2 = r^2
 
-          t^2*d.d + 2t*d.(o-c) + (o-c).(o-c)-r^2 = 0
-          at^2 + bt + c = 0
+          if ray and sphere have a intersection p, then:
+             ||p(t) - c||^2 = r^2
+          => ||o + t*d - c||^2 = r^2
+          => (t*d + o - c).(t*d + o - c) = r^2
+          => d.d*t^2 + 2d.(o-c)*t + (o-c).(o-c)-r^2 = 0
 
-          oc = o - c
-          a = dot(d, d) = 1;
-          b = 2 * dot(d, oc);
-          c = dot(oc, oc) - r^2;
+          compare with:
+             at^2 + bt + c = 0
 
-          t = (-b +/- sqrt(b^2 - 4ac)) / 2a
-            = (-b +/- sqrt(b^2 - 4c)) / 2
-            = ((-2 * dot(d, oc) +/- sqrt(4 * dot(d, oc)^2 - 4 * (dot(oc, oc) - r^2))) / 2
-            = -dot(d, oc) +/- sqrt( dot(d, oc)^2 - dot(oc, oc) + r^2 )
-            = -b' +/- sqrt(discr)
+          there have:
+             co = o - c
+             a = dot(d, d) = 1;
+             b = 2 * dot(d, co), neg_b' = dot(d, oc);
+             c = dot(co, co) - r^2;
+
+          so:
+             t = (-b +/- sqrt(b^2 - 4ac)) / 2a
+               = (-b +/- sqrt(b^2 - 4c)) / 2
+               = ((-2 * dot(d, co) +/- sqrt(4 * dot(d, co)^2 - 4 * (dot(co, co) - r^2))) / 2
+               = -dot(d, co) +/- sqrt( dot(d, co)^2 - dot(co, co) + r^2 )
+               = neg_b' +/- sqrt(discr)
         */
 
-        vec3_t co = center_ - ray.origin();
-        Float neg_b = dot(co, ray.direction());
-        Float discr = neg_b * neg_b - dot(co, co) + radius_sq_;
+        vec3_t oc = center_ - ray.origin();
+        Float neg_b = dot(oc, ray.direction());
+        Float discr = neg_b * neg_b - dot(oc, oc) + radius_sq_;
 
         Float distance = 0;
         bool hit = false;
@@ -1254,7 +1277,7 @@ public:
     Float area() const override { return 4 * k_pi * radius_sq_; }
 
 public:
-    isect_t sample_position(const point2_t& random, Float* pdf) const override
+    isect_t sample_position(const float2_t& random, Float* pdf) const override
     {
         unit_vec3_t direction = sample_sphere_uniform(random);
         point3_t position = center_ + radius_ * direction;
@@ -1269,7 +1292,7 @@ public:
     }
 
     // TODO
-    isect_t sample_direction(const isect_t& isect, const point2_t& random, Float* pdf) const override
+    isect_t sample_direction(const isect_t& isect, const float2_t& random, Float* pdf) const override
     {
         if (distance_squared(isect.position, center_) <= radius_ * radius_)
         {
@@ -1397,8 +1420,9 @@ inline uint8_t gamma_encoding(Float x) { return pow(clamp01(x), 1 / 2.2) * 255 +
 
 /*
   warpper of `color_t pixels[]`
-  * get/set color
-  * save image
+  features:
+    * get/set color
+    * save image
 */
 class film_t : public nocopyable_t
 {
@@ -1431,8 +1455,8 @@ public:
 
     void add_color(int x, int y, const color_t& delta)
     {
-        auto& color_ = operator()(x, y);
-        color_ = color_ + delta;
+        auto& color = operator()(x, y);
+        color = color + delta;
     }
 
     void clear(color_t color)
@@ -1599,24 +1623,20 @@ private:
 #pragma region camera
 
 /*
- * OpenGL-style
- * generate ray
- * 
- *
- */
-
-/* 
   camera space:
 
- y (0, 1, 0)         z(0, 0, 1)
-       |            /
-       |          /
-       |        /
-       |      /
-       |    /
-       |  /
-       |/_ _ _ _ _ _ x(1, 0, 0)
-       o
+  y (0, 1, 0)         z(0, 0, 1)
+        |            /
+        |          /
+        |        /
+        |      /
+        |    /
+        |  /
+        |/_ _ _ _ _ _ x(1, 0, 0)
+        o
+
+  features:
+    generate ray
 */
 
 class camera_t
@@ -1632,6 +1652,7 @@ public:
         up_{ up.normalize()},
         resolution_{ resolution }
     {
+        // TODO
         // https://github.com/infancy/pbrt-v3/blob/master/src/core/transform.cpp#L394-L397
  
         Float tan_fov = std::tan(radians(fov) / 2);
@@ -1680,7 +1701,7 @@ using const_camera_sptr_t = std::shared_ptr<const camera_t>;
 inline Float cos_theta(const vec3_t& w) { return w.z; }
 inline Float abs_cos_theta(const vec3_t& w) { return std::abs(w.z); }
 
-inline bool same_hemi_sphere(const vec3_t& w, const vec3_t& wp) { return w.z * wp.z > 0; }
+inline bool same_hemisphere(const vec3_t& w, const vec3_t& wp) { return w.z * wp.z > 0; }
 
 inline vec3_t reflect(const vec3_t& wo, const normal_t& normal)
 {
@@ -1690,12 +1711,12 @@ inline vec3_t reflect(const vec3_t& wo, const normal_t& normal)
 }
 
 // eta = eta_i/eta_t
-inline bool refract(const vec3_t& wo, const normal_t& normal, Float eta, vec3_t* out_wt)
+inline bool refract(const vec3_t& wo, const normal_t& wo_normal, Float eta, vec3_t* out_wt)
 {
     // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#SpecularTransmission
 
     // Compute $\cos \theta_\roman{t}$ using Snell's law
-    Float cos_theta_i = dot(normal, wo);
+    Float cos_theta_i = dot(wo_normal, wo);
     Float sin_theta_i_sq = std::max(Float(0), Float(1 - cos_theta_i * cos_theta_i));
     Float sin_theta_t_sq = eta * eta * sin_theta_i_sq;
 
@@ -1704,7 +1725,7 @@ inline bool refract(const vec3_t& wo, const normal_t& normal, Float eta, vec3_t*
         return false;
 
     Float cos_theta_t = std::sqrt(1 - sin_theta_t_sq);
-    *out_wt = eta * -wo + (eta * cos_theta_i - cos_theta_t) * vec3_t(normal);
+    *out_wt = eta * -wo + (eta * cos_theta_i - cos_theta_t) * vec3_t(wo_normal);
     CHECK_DEBUG(out_wt->is_valid() && !out_wt->is_zero());
 
     return true;
@@ -1749,6 +1770,7 @@ Float fresnel_dielectric(
 }
 
 
+// schlick approximation 1994
 Float fresnel_dielectric_schlick(
     Float cos_theta_i, 
     Float eta_i, Float eta_t)
@@ -1922,7 +1944,7 @@ public:
     }
 
     // or called `sample`, `sample_direction`, `sample_solid_angle`
-    bsdf_sample_t sample_f(const vec3_t& world_wo, const point2_t& random) const
+    bsdf_sample_t sample_f(const vec3_t& world_wo, const float2_t& random) const
     {
         auto sample = sample_f_(to_local(world_wo), random);
         sample.wi = to_world(sample.wi);
@@ -1934,7 +1956,7 @@ protected:
     virtual color_t f_(const vec3_t& wo, const vec3_t& wi) const = 0;
     virtual Float pdf_(const vec3_t& wo, const vec3_t& wi) const = 0;
 
-    virtual bsdf_sample_t sample_f_(const vec3_t& wo, const point2_t& random) const = 0;
+    virtual bsdf_sample_t sample_f_(const vec3_t& wo, const float2_t& random) const = 0;
 
 private:
     vec3_t to_local(const vec3_t& world_vec3) const
@@ -1970,10 +1992,10 @@ public:
     Float pdf_(const vec3_t& wo, const vec3_t& wi) const override
     {
         // TODO
-        return same_hemi_sphere(wo, wi) ? abs_cos_theta(wi) * k_inv_pi : 0;
+        return same_hemisphere(wo, wi) ? pdf_hemisphere_cosine(abs_cos_theta(wi)) : 0;
     }
 
-    bsdf_sample_t sample_f_(const vec3_t& wo, const point2_t& random) const override
+    bsdf_sample_t sample_f_(const vec3_t& wo, const float2_t& random) const override
     {
         bsdf_sample_t sample;
         // Cosine-sample the hemisphere, flipping the direction if necessary
@@ -2007,7 +2029,7 @@ public:
     color_t f_(const vec3_t& wo, const vec3_t& wi) const override { return color_t(); }
     Float pdf_(const vec3_t& wo, const vec3_t& wi) const override { return 0; }
 
-    bsdf_sample_t sample_f_(const vec3_t& wo, const point2_t& random) const override
+    bsdf_sample_t sample_f_(const vec3_t& wo, const float2_t& random) const override
     {
         // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#SpecularReflection
         // https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.h#L387-L408
@@ -2042,7 +2064,7 @@ public:
     color_t f_(const vec3_t& wo, const vec3_t& wi) const override { return color_t(); }
     Float pdf_(const vec3_t& wo, const vec3_t& wi) const override { return 0; }
 
-    bsdf_sample_t sample_f_(const vec3_t& wo, const point2_t& random) const override
+    bsdf_sample_t sample_f_(const vec3_t& wo, const float2_t& random) const override
     {
         // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#SpecularTransmission
         // https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.h#L410-L436
@@ -2066,8 +2088,8 @@ private:
 class fresnel_specular_t : public bsdf_t
 {
 public:
-    fresnel_specular_t(const frame_t& shading_frame, const color_t& R, const color_t& T, Float etaA, Float etaB) :
-        bsdf_t(shading_frame), R_{ R }, T_{ T }, etaA_{ etaA }, etaB_{ etaB }
+    fresnel_specular_t(const frame_t& shading_frame, const color_t& R, const color_t& T, Float etaI, Float etaT) :
+        bsdf_t(shading_frame), R_{ R }, T_{ T }, etaI_{ etaI }, etaT_{ etaT }
     {
     }
 
@@ -2076,25 +2098,25 @@ public:
     color_t f_(const vec3_t& wo, const vec3_t& wi) const override { return color_t(); }
     Float pdf_(const vec3_t& wo, const vec3_t& wi) const override { return 0; }
 
-    bsdf_sample_t sample_f_(const vec3_t& wo, const point2_t& random) const override
+    bsdf_sample_t sample_f_(const vec3_t& wo, const float2_t& random) const override
     {
-        // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#Fresnel-ModulatedSpecularReflectionandTransmission
+        // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#FresnelReflectance
         // https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.h#L440-L463
         // https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.cpp#L627-L667
 
         bsdf_sample_t sample;
 
-        Float Re = fresnel_dielectric_schlick(abs_cos_theta(wo), etaA_, etaB_);
-        // or Float Re = fresnel_dielectric(cos_theta(wo), etaA_, etaB_);
+        Float Re = fresnel_dielectric(abs_cos_theta(wo), etaI_, etaT_);
         Float Tr = 1 - Re;
 
+        // Russian roulette
         if (random[0] < Re)
         {
             // Compute specular reflection for _FresnelSpecular_
 
             sample.wi = vec3_t(-wo.x, -wo.y, wo.z);
-            sample.pdf = Re; // Russian roulette???
 
+            sample.pdf = Re;
             sample.f = (R_ * Re) / abs_cos_theta(sample.wi);
             sample.bsdf_type = bsdf_enum_t::reflection | bsdf_enum_t::specluar;
 
@@ -2108,13 +2130,14 @@ public:
             bool into = normal.dot(wo) > 0; // ray from outside going in?
 
             normal_t wo_normal = into ? normal : normal * -1;
-            Float eta = into ? etaA_ / etaB_ : etaB_ / etaA_;
+            Float eta = into ? etaI_ / etaT_ : etaT_ / etaI_;
 
             if (refract(wo, wo_normal, eta, &sample.wi))
             {
                 sample.pdf = Tr;
                 sample.f = (T_ * Tr) / abs_cos_theta(sample.wi);
                 sample.bsdf_type = bsdf_enum_t::transmission | bsdf_enum_t::specluar;
+
                 CHECK_DEBUG(sample.f.is_valid());
             }
             else
@@ -2128,14 +2151,14 @@ public:
 
     /*
     // smallpt version
-    color_t sample_f_(const vec3_t& wo, const point2_t& random,
+    color_t sample_f_(const vec3_t& wo, const float2_t& random,
         vec3_t* out_wi, Float* out_pdf_direction, bsdf_enum_t* out_bsdf_type) const override
     {
         normal_t normal(0, 0, 1);
         bool into = normal.dot(wo) > 0; // ray from outside going in?
 
         normal_t wo_normal = into ? normal : normal * -1;
-        Float eta = into ? etaA_ / etaB_ : etaB_ / etaA_;
+        Float eta = into ? etaI_ / etaT_ : etaT_ / etaI_;
 
         if (!refract(wo, wo_normal, eta, out_wi))
         {
@@ -2146,7 +2169,7 @@ public:
         Float cos_theta_b = (*out_wi).dot(normal);
         Float cos_theta_i = into ? cos_theta_a : cos_theta_b;
 
-        Float Re = fresnel_dielectric_schlick(cos_theta_a, etaA_, etaB_);
+        Float Re = fresnel_dielectric_schlick(cos_theta_a, etaI_, etaT_);
         Float Tr = 1 - Re;
 
         if (random[0] < Re)
@@ -2171,8 +2194,8 @@ public:
 private:
     color_t R_;
     color_t T_;
-    Float etaA_;
-    Float etaB_;
+    Float etaI_;
+    Float etaT_;
 };
 
 
@@ -2205,7 +2228,7 @@ public:
         return pdf_hemisphere_cosine_phong(wr, wi);
     }
 
-    bsdf_sample_t sample_f_(const vec3_t& wo, const point2_t& random) const override
+    bsdf_sample_t sample_f_(const vec3_t& wo, const float2_t& random) const override
     {
         bsdf_sample_t sample;
 
@@ -2341,7 +2364,7 @@ public:
 
     bsdf_uptr_t scattering(const isect_t& isect) const override
     {
-        auto random = rng_.uniform_float01();
+        auto random = rng_.uniform_float();
         if (random < specular_probility_)
         {
             return std::make_unique<phong_reflection_t>(frame_t(isect.normal), Ks_ / specular_probility_, exponent_);
@@ -2470,7 +2493,7 @@ public:
     // for bidirectional method
     // sample_position, sample_ray
     virtual color_t sample_Le(
-        const point2_t& random1, const point2_t& random2,
+        const float2_t& random1, const float2_t& random2,
         ray_t* ray, normal_t* light_normal, 
         Float* pdf_position, Float* pdf_direction) const = 0;
 
@@ -2482,7 +2505,7 @@ public:
     // Li: camera <-wo isect wi-> light
 
     // sample_light/samle_direction
-    virtual direction_sample_t sample_Li(const isect_t& isect, const point2_t& random) const = 0;
+    virtual direction_sample_t sample_Li(const isect_t& isect, const float2_t& random) const = 0;
 
     virtual Float pdf_Li(const isect_t& isect, const vec3_t& world_wi) const = 0;
 
@@ -2510,7 +2533,7 @@ public:
 
 public:
     color_t sample_Le(
-        const point2_t& random1, const point2_t& random2,
+        const float2_t& random1, const float2_t& random2,
         ray_t* ray, normal_t* light_normal,
         Float* pdf_position, Float* pdf_direction) const override
     {
@@ -2532,7 +2555,7 @@ public:
     }
 
 public:
-    direction_sample_t sample_Li(const isect_t& isect, const point2_t& random) const override
+    direction_sample_t sample_Li(const isect_t& isect, const float2_t& random) const override
     {
         direction_sample_t sample;
         sample.position = world_position_;
@@ -2597,7 +2620,7 @@ public:
 
 public:
     color_t sample_Le(
-        const point2_t& random1, const point2_t& random2,
+        const float2_t& random1, const float2_t& random2,
         ray_t* ray, normal_t* light_normal,
         Float* pdf_position, Float* pdf_direction) const override
     {
@@ -2623,7 +2646,7 @@ public:
     }
 
 public:
-    direction_sample_t sample_Li(const isect_t& isect, const point2_t& random) const override
+    direction_sample_t sample_Li(const isect_t& isect, const float2_t& random) const override
     {
         direction_sample_t sample;
         sample.wi = -world_direction_;
@@ -2692,7 +2715,7 @@ public:
     }
 
     color_t sample_Le(
-        const point2_t& random1, const point2_t& random2,
+        const float2_t& random1, const float2_t& random2,
         ray_t* ray, normal_t* light_normal,
         Float* pdf_position, Float* pdf_direction) const override
     {
@@ -2725,7 +2748,7 @@ public:
 
 public:
     // sample direction by sample potision
-    direction_sample_t sample_Li(const isect_t& isect, const point2_t& random) const override
+    direction_sample_t sample_Li(const isect_t& isect, const float2_t& random) const override
     {
         direction_sample_t sample;
         isect_t light_isect = shape_->sample_direction(isect, random, &sample.pdf);
@@ -2785,7 +2808,7 @@ public:
     }
 
     color_t sample_Le(
-        const point2_t& random1, const point2_t& random2,
+        const float2_t& random1, const float2_t& random2,
         ray_t* ray, normal_t* light_normal,
         Float* pdf_position, Float* pdf_direction) const override
     {
@@ -2815,7 +2838,7 @@ public:
     }
 
 public:
-    direction_sample_t sample_Li(const isect_t& isect, const point2_t& random) const override
+    direction_sample_t sample_Li(const isect_t& isect, const float2_t& random) const override
     {
         direction_sample_t sample;
         sample.wi = sample_sphere_uniform(random);
@@ -2964,8 +2987,8 @@ public:
     bool intersect(const ray_t& ray, isect_t* isect)
     {
         bool is_hit = false;
-        int surface_num = surface_list_.size();
 
+        int surface_num = surface_list_.size();
         for (int i = 0; i < surface_num; ++i)
         {
             if (surface_list_[i].intersect(ray, isect))
@@ -3264,8 +3287,7 @@ public:
 
         const_camera_sptr_t camera = std::make_unique<camera_t>(
             vec3_t{ 0, 2, -15 },
-            vec3_t{ 0, -2, -2.5 } - vec3_t{ 0, 2, -15 },
-            vec3_t{ 0, 1, 0 },
+            vec3_t{ 0, -2, -2.5 } - vec3_t{ 0, 2, -15 }, vec3_t{ 0, 1, 0 },
             50, film_resolution);
 
         material_sp black = std::make_shared<matte_material_t>(color_t());
@@ -3586,8 +3608,8 @@ protected:
         Float pdf_light = Float(1) / light_count;
 
         auto light = scene->light_list()[light_index].get();
-        point2_t uLight = sampler.get_vec2();
-        point2_t uScattering = sampler.get_vec2();
+        point2_t uLight = sampler.get_float2();
+        point2_t uScattering = sampler.get_float2();
 
         // default skip perfectly specular BSDF due to its delta distribution
         return estimate_direct_lighting_both_mis(isect, *light, uLight, uScattering,
@@ -3624,7 +3646,7 @@ protected:
         for (const auto& light : scene->light_list())
         {
             Ld += estimate_direct_lighting(
-                isect, *light, sampler.get_vec2(), sampler.get_vec2(),
+                isect, *light, sampler.get_float2(), sampler.get_float2(),
                 scene, sampler, skip_specular);
         }
 
@@ -3637,7 +3659,7 @@ protected:
     // sample from bsdf/direction
     static color_t estimate_direct_lighting_direction(
         const isect_t& isect, const light_t& light,
-        const point2_t& random_light, const point2_t& random_bsdf,
+        const float2_t& random_light, const float2_t& random_bsdf,
         scene_t* scene, sampler_t& sampler, bool skip_specular)
     {
         color_t Ld{};
@@ -3647,7 +3669,7 @@ protected:
         if (skip_specular && isect.bsdf()->is_delta())
             return Ld;
 
-        auto bs = isect.bsdf()->sample_f(isect.wo, sampler.get_vec2());
+        auto bs = isect.bsdf()->sample_f(isect.wo, sampler.get_float2());
         if (bs.f.is_black() || bs.pdf == 0)
             return Ld;
 
@@ -3682,7 +3704,7 @@ protected:
     // sample from light/position
     static color_t estimate_direct_lighting_position(
         const isect_t& isect, const light_t& light,
-        const point2_t& random_light, const point2_t& random_bsdf,
+        const float2_t& random_light, const float2_t& random_bsdf,
         scene_t* scene, sampler_t& sampler, bool skip_specular)
     {
         color_t Ld{};
@@ -3720,7 +3742,7 @@ protected:
 
     static color_t estimate_direct_lighting_direction_mis(
         const isect_t& isect, const light_t& light,
-        const point2_t& random_light, const point2_t& random_bsdf,
+        const float2_t& random_light, const float2_t& random_bsdf,
         scene_t* scene, sampler_t& sampler, bool skip_specular)
     {
         color_t Ld{};
@@ -3778,7 +3800,7 @@ protected:
 
     static color_t estimate_direct_lighting_position_mis(
         const isect_t& isect, const light_t& light,
-        const point2_t& random_light, const point2_t& random_bsdf,
+        const float2_t& random_light, const float2_t& random_bsdf,
         scene_t* scene, sampler_t& sampler, bool skip_specular)
     {
         color_t Ld{};
@@ -3813,7 +3835,7 @@ protected:
 
     static color_t estimate_direct_lighting_both_mis(
         const isect_t& isect, const light_t& light,
-        const point2_t& random_light, const point2_t& random_bsdf,
+        const float2_t& random_light, const float2_t& random_bsdf,
         scene_t* scene, sampler_t& sampler, bool skip_specular)
     {
         auto Lb = estimate_direct_lighting_direction_mis(isect, light, random_light, random_bsdf, scene, sampler, skip_specular);
@@ -3894,7 +3916,7 @@ public:
             return isect.Le();
 
 
-        auto bs = isect.bsdf()->sample_f(isect.wo, sampler->get_vec2());
+        auto bs = isect.bsdf()->sample_f(isect.wo, sampler->get_float2());
 
         if (bs.f.is_black() || bs.pdf == 0.f) // pdf == 0 => NaN
             return isect.Le();
@@ -3913,8 +3935,8 @@ public:
           auto beta = f * abs_dot(wi, isect.normal) / pdf;
           return beta * Li(wi_ray, scene, sampler, depth));
         */
-        ray_t wi_ray(isect.position, bs.wi);
-        color_t Ls = bs.f * Li(wi_ray, scene, sampler, depth) * abs_dot(bs.wi, isect.normal) / bs.pdf;
+        ray_t wi(isect.position, bs.wi);
+        color_t Ls = bs.f * Li(wi, scene, sampler, depth) * abs_dot(bs.wi, isect.normal) / bs.pdf;
 
         // TODO: CHECK_DEBUG
         return isect.Le() + Ls;
@@ -4007,7 +4029,7 @@ private:
     color_t indirect_lighting(ray_t ray, scene_t* scene, sampler_t* sampler, int depth, bool is_last_specular,
         const isect_t& isect, lighting_enum_t lighting_enum)
     {
-        auto bs = isect.bsdf()->sample_f(isect.wo, sampler->get_vec2());
+        auto bs = isect.bsdf()->sample_f(isect.wo, sampler->get_float2());
 
         if (bs.f.is_black() || bs.pdf == 0.f)
             return color_t();
@@ -4090,7 +4112,7 @@ public:
             // Li: indirect lighting (compute by next iteration)
 
             // Sample BSDF to get new path direction
-            auto bs = isect.bsdf()->sample_f(isect.wo, sampler->get_vec2());
+            auto bs = isect.bsdf()->sample_f(isect.wo, sampler->get_float2());
 
             if (bs.f.is_black() || bs.pdf == 0.f)
                 break;
@@ -4361,8 +4383,8 @@ int main(int argc, char* argv[])
 
     //render_single_scene(argc, argv);
     //render_direct_sample_enum(argc, argv);
-    render_multiple_scene(argc, argv);
-    //render_mis_scene(argc, argv);
+    //render_multiple_scene(argc, argv);
+    render_mis_scene(argc, argv);
     //render_lighting_enum();
 
     LOG("\n{} sec\n", (Float)(clock() - start) / CLOCKS_PER_SEC); // MILO
