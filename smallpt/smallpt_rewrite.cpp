@@ -913,7 +913,7 @@ public:
     Color f_(const Vector3& wo, const Vector3& wi) const override { return Color(); }
     Float Pdf_(const Vector3& wo, const Vector3& wi) const override { return 0; }
 
-    BSDFSample Sample_f_(const Vector3& wo, const Point2& random) const override
+    BSDFSample Sample_f_(const Vector3& wo, const Float2& random) const override
     {
         // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#SpecularReflection
         // https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.h#L387-L408
@@ -929,6 +929,87 @@ public:
 
 private:
     Color R;
+};
+
+class FresnelSpecular : public BSDF
+{
+public:
+    FresnelSpecular(const Frame& shadingFrame, const Color& R, const Color& T, Float etaI, Float etaT) :
+        BSDF(shadingFrame), R{ R }, T{ T }, etaI{ etaI }, etaT{ etaT }
+    {
+    }
+
+    Color f_(const Vector3& wo, const Vector3& wi) const override { return Color(); }
+    Float Pdf_(const Vector3& wo, const Vector3& wi) const override { return 0; }
+
+    BSDFSample Sample_f_(const Vector3& wo, const Float2& random) const override
+    {
+        // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#FresnelReflectance
+        // https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.h#L440-L463
+        // https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.cpp#L627-L667
+
+        BSDFSample sample;
+
+        Normal3 normal(0, 0, 1); // use `z` as normal
+        bool into = normal.Dot(wo) > 0; // ray from outside going in?
+
+        Normal3 woNormal = into ? normal : normal * -1;
+        // IOR(index of refractive)
+        Float eta = into ? etaI / etaT : etaT / etaI;
+
+
+        // compute reflect direction by refection law
+        Vector3 reflectDirection = Vector3(-wo.x, -wo.y, wo.z);
+
+        // compute refract direction by Snell's law
+        // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#SpecularTransmission see `Refract()`
+        Float cosThetaI = Dot(wo, woNormal);
+        Float cosThetaT2 = 1 - eta * eta * (1 - cosThetaI * cosThetaI);
+        if (cosThetaT2 < 0) // Total internal reflection
+        {
+            return sample;
+        }
+        Float cosThetaT = sqrt(cosThetaT2);
+        Vector3 refractDirection = (-wo * eta + woNormal * (cosThetaI * eta - cosThetaT)).Normalize();
+
+
+        // compute the fraction of incoming light that is reflected or transmitted
+        // by Schlick Approximation of Fresnel Dielectric 1994 https://en.wikipedia.org/wiki/Schlick%27s_approximation
+        Float a = etaT - etaI;
+        Float b = etaT + etaI;
+        Float R0 = a * a / (b * b);
+        Float c = 1 - (into ? cosThetaI : cosThetaT);
+
+        Float Re = R0 + (1 - R0) * c * c * c * c * c;
+        Float Tr = 1 - Re;
+
+
+        if (random[0] < Re) // Russian roulette
+        {
+            // Compute specular reflection for _FresnelSpecular_
+
+            sample.wi = reflectDirection;
+            sample.pdf = Re;
+            sample.f = (R * Re) / AbsCosTheta(sample.wi);
+        }
+        else
+        {
+            // Compute specular transmission for _FresnelSpecular_
+
+            sample.wi = refractDirection;
+            sample.pdf = Tr;
+            sample.f = (T * Tr) / AbsCosTheta(sample.wi);
+        }
+
+        return sample;
+    }
+
+
+private:
+    Color R;
+    Color T;
+    Float etaI;
+    Float etaT;
 };
 
 #pragma endregion
@@ -996,6 +1077,8 @@ inline bool Intersect(Ray& ray, Isect* isect)
                 isect->bsdf_ = std::make_unique<LambertionReflection>(Frame(isect->normal), isect->bsdfValue);
             else if(isect->materialType == MaterialType::Specular)
                 isect->bsdf_ = std::make_unique<SpecularReflection>(Frame(isect->normal), isect->bsdfValue);
+            else
+                isect->bsdf_ = std::make_unique<FresnelSpecular>(Frame(isect->normal), isect->bsdfValue, isect->bsdfValue, 1, 1.5);
 
             isect->emission_ = Scene[i].emission;
             
@@ -1055,62 +1138,10 @@ Color Radiance(Ray ray, int depth, Sampler& sampler)
     }
     else // Ideal Dielectric Refraction
     {
-        bool into = normal.Dot(shading_normal) > 0; // Ray from outside going in?
+        auto bs = isect.bsdf()->Sample_f(isect.wo, sampler.Get2D());
 
-        // IOR(index of refractive)
-        Float etaI = 1; // vacuum
-        Float etaT = 1.5; // glass
-        Float eta = into ? etaI / etaT : etaT / etaI;
-
-
-        // compute reflect direction by refection law
-        Ray reflectRay(position, ray.direction - normal * 2 * normal.Dot(ray.direction));
-
-        // compute refract direction by Snell's law
-        Float cosThetaI = ray.direction.Dot(shading_normal);
-        Float cosThetaT2 = cosThetaT2 = 1 - eta * eta * (1 - cosThetaI * cosThetaI);
-        if (cosThetaT2 < 0) // Total internal reflection
-            return isect.Le() + f * Radiance(reflectRay, depth, sampler);
-
-        // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#SpecularTransmission see `Refract()`
-        Vector3 refractDirection = (ray.direction * eta - normal * ((into ? 1 : -1) * (cosThetaI * eta + sqrt(cosThetaT2)))).Normalize();
-
-
-        // compute the fraction of incoming light that is reflected or transmitted
-        // by Schlick Approximation of Fresnel Dielectric 1994 https://en.wikipedia.org/wiki/Schlick%27s_approximation
-        Float a = etaT - etaI;
-        Float b = etaT + etaI;
-        Float R0 = a * a / (b * b);
-        Float c = 1 - (into ? -cosThetaI : refractDirection.Dot(normal));
-
-        Float Re = R0 + (1 - R0) * c * c * c * c * c;
-        Float Tr = 1 - Re;
-
-
-        // probability of reflected or transmitted
-        Float P = .25 + .5 * Re;
-        Float RP = Re / P;
-        Float TP = Tr / (1 - P);
-
-        Color Li;
-        if (depth > 2)
-        {
-            // Russian roulette
-            if (sampler.Get1D() < P)
-            {
-                Li = Radiance(reflectRay, depth, sampler) * RP;
-            }
-            else
-            {
-                Li = Radiance(Ray(position, refractDirection), depth, sampler) * TP;
-            }
-        }
-        else
-        {
-            Li = Radiance(reflectRay, depth, sampler) * Re + Radiance(Ray(position, refractDirection), depth, sampler) * Tr;
-        }
-
-        return isect.Le() + f * Li;
+        Ray wi(isect.position, bs.wi);
+        return isect.Le() + (bs.f * Radiance(wi, depth, sampler) * AbsDot(bs.wi, isect.normal) / bs.pdf);
     }
 }
 
