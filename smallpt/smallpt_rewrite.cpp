@@ -1,4 +1,5 @@
 // http://www.kevinbeason.com/smallpt
+
 #include <cmath>    // smallpt, a Path Tracer by Kevin Beason, 2008
 #include <cstdlib>  // Make : g++ -O3 -fopenmp smallpt.cpp -o smallpt
 #include <cstdio>   //        Remove "-fopenmp" for g++ version < 4.2
@@ -12,6 +13,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+
 using namespace std::literals::string_literals;
 
 
@@ -39,13 +41,15 @@ constexpr Degree degrees(Radian rad) { return (180 / Pi) * rad; }
 
 #pragma region Geometry
 
+// https://www.pbr-book.org/3ed-2018/Geometry_and_Transformations
 // https://github.com/infancy/pbrt-v3/blob/master/src/core/geometry.h
 
 struct Vector2
 {
-    Float x, y;
+    Float x{}, y{};
 
-    Vector2(Float x = 0, Float y = 0) { this->x = x; this->y = y; }
+    Vector2() = default;
+    Vector2(Float x, Float y) : x{ x }, y{ y } {}
 
     Float operator[](int index) const
     {
@@ -53,10 +57,10 @@ struct Vector2
         else return y;
     }
 
-    Vector2 operator+(const Vector2& vec2) const { return Vector2(x + vec2.x, y + vec2.y); }
-    Vector2 operator-(const Vector2& vec2) const { return Vector2(x - vec2.x, y - vec2.y); }
+    Vector2 operator+(const Vector2& b) const { return Vector2(x + b.x, y + b.y); }
+    Vector2 operator-(const Vector2& b) const { return Vector2(x - b.x, y - b.y); }
 
-    friend Vector2 operator*(Float scalar, Vector2 v) { return Vector2(v.x * scalar, v.y * scalar); }
+    friend Vector2 operator*(Float a, Vector2 b) { return Vector2(a * b.x, a * b.y); }
 };
 
 using Float2 = Vector2;
@@ -71,12 +75,8 @@ struct Vector3
         struct { Float r, g, b; };
     };
 
-    Vector3(Float x_ = 0, Float y_ = 0, Float z_ = 0)
-    {
-        x = x_;
-        y = y_;
-        z = z_;
-    }
+    Vector3() : x{ 0 }, y{ 0 }, z{ 0 } {}
+    Vector3(Float x, Float y, Float z) : x{ x }, y{ y }, z{ z } {}
 
     Vector3 operator-() const { return Vector3(-x, -y, -z); }
 
@@ -86,11 +86,10 @@ struct Vector3
     Vector3 operator/(Float b) const { return Vector3(x / b, y / b, z / b); }
 
     Vector3 Normalize() const { return *this * (1 / sqrt(x * x + y * y + z * z)); }
-
     Float Dot(const Vector3& b) const { return x * b.x + y * b.y + z * b.z; }
     Vector3 Cross(const Vector3& b) const { return Vector3(y * b.z - z * b.y, z * b.x - x * b.z, x * b.y - y * b.x); }
 
-    friend Vector3 operator*(Float b, Vector3 v) { return v * b; }
+    friend Vector3 operator*(Float a, Vector3 v) { return v * a; }
     friend Vector3 Normalize(const Vector3& a) { return a.Normalize(); }
     friend Float Dot(const Vector3& a, const Vector3& b) { return a.Dot(b); }
     friend Float AbsDot(const Vector3& a, const Vector3& b) { return std::abs(a.Dot(b)); }
@@ -112,6 +111,8 @@ using Float3 = Vector3;
 using Point3 = Vector3;
 using Normal3 = Vector3;
 using UnitVector3 = Vector3;
+
+// https://www.pbr-book.org/3ed-2018/Color_and_Radiometry/RGBSpectrum_Implementation 
 using Color = Vector3;
 
 
@@ -171,6 +172,7 @@ private:
 };
 
 
+// https://www.pbr-book.org/3ed-2018/Geometry_and_Transformations/Rays
 
 struct Ray
 {
@@ -190,19 +192,11 @@ struct Ray
 };
 
 
-
+// https://www.pbr-book.org/3ed-2018/Geometry_and_Transformations/Interactions
 // https://github.com/infancy/pbrt-v3/blob/master/src/core/interaction.h
 
-// TODO: remove
 class BSDF;
 class Primitive;
-
-enum class MaterialType
-{
-    Diffuse,
-    Specular,
-    Refract
-}; // material types, used in radiance()
 
 /*
   surface intersection, called `SurfaceInteraction` on pbrt
@@ -249,6 +243,7 @@ private:
 
 #pragma region Sampling
 
+// https://www.pbr-book.org/3ed-2018/Monte_Carlo_Integration/2D_Sampling_with_Multidimensional_Transformations
 // https://github.com/infancy/pbrt-v3/blob/master/src/core/sampling.h#L138-L153
 // https://github.com/infancy/pbrt-v3/blob/master/src/core/sampling.cpp#L199-L230
 
@@ -268,7 +263,10 @@ inline Vector3 CosineSampleHemisphere(const Float2& random)
     return Vector3(pDisk.x, pDisk.y, z);
 }
 
-inline Float CosineHemispherePdf(Float cosTheta) { return cosTheta * InvPi; }
+inline Float CosineHemispherePdf(Float cosTheta)
+{
+    return cosTheta * InvPi;
+}
 
 #pragma endregion
 
@@ -618,6 +616,7 @@ private:
 
 #pragma region Camera
 
+// https://www.pbr-book.org/3ed-2018/Camera_Models
 // https://github.com/infancy/pbrt-v3/blob/master/src/core/camera.h
 
 /*
@@ -694,14 +693,15 @@ private:
 
 #pragma region Shape
 
+// https://www.pbr-book.org/3ed-2018/Shapes
 // https://github.com/infancy/pbrt-v3/blob/master/src/core/shape.h
+
 class Shape
 {
 public:
     virtual bool Intersect(Ray& ray, Isect* isect) const = 0;
 };
 
-// https://github.com/infancy/pbrt-v3/blob/master/src/shapes/sphere.cpp
 class Sphere : public Shape
 {
 public:
@@ -781,6 +781,9 @@ private:
 
 
 #pragma region BSDF
+
+// https://www.pbr-book.org/3ed-2018/Reflection_Models
+// https://github.com/mmp/pbrt-v3/blob/master/src/core/reflection.h
 
 // local shading coordinate
 inline Float cosTheta(const Vector3& w) { return w.z; }
@@ -1014,10 +1017,15 @@ private:
 
 #pragma region Texture
 
+// https://www.pbr-book.org/3ed-2018/Texture
+// https://github.com/mmp/pbrt-v3/blob/master/src/core/texture.h
 
 #pragma endregion
 
 #pragma region Material
+
+// https://www.pbr-book.org/3ed-2018/Materials
+// https://github.com/mmp/pbrt-v3/blob/master/src/core/material.h
 
 class Material
 {
@@ -1086,6 +1094,9 @@ private:
 
 #pragma region Light
 
+// https://www.pbr-book.org/3ed-2018/Light_Sources
+// https://github.com/mmp/pbrt-v3/blob/master/src/core/light.h
+
 class Light
 {
 };
@@ -1115,6 +1126,9 @@ private:
 
 #pragma region Primitive
 
+// https://www.pbr-book.org/3ed-2018/Primitives_and_Intersection_Acceleration
+// https://github.com/infancy/pbrt-v3/blob/master/src/core/primitive.h
+
 struct Primitive
 {
     const Shape* shape;
@@ -1138,9 +1152,18 @@ struct Primitive
 
 #pragma region Accelerator
 
+// https://www.pbr-book.org/3ed-2018/Primitives_and_Intersection_Acceleration/Aggregates
+
+// https://github.com/infancy/pbrt-v3/blob/master/src/core/primitive.h#L158-L183
+    // https://github.com/infancy/pbrt-v3/blob/master/src/accelerators/bvh.h
+    // https://github.com/infancy/pbrt-v3/blob/master/src/accelerators/kdtreeaccel.h
+
 #pragma endregion
 
 #pragma region Scene
+
+// https://www.pbr-book.org/3ed-2018/Scene_Description_Interface
+// https://github.com/infancy/pbrt-v3/blob/master/src/core/scene.h
 
 class Scene
 {
@@ -1233,6 +1256,23 @@ private:
 
 
 #pragma region Integrater
+
+// https://www.pbr-book.org/3ed-2018/Color_and_Radiometry
+    // https://www.pbr-book.org/3ed-2018/Color_and_Radiometry/Radiometry
+    // https://www.pbr-book.org/3ed-2018/Color_and_Radiometry/Working_with_Radiometric_Integrals
+    // https://www.pbr-book.org/3ed-2018/Color_and_Radiometry/Surface_Reflection
+
+// https://www.pbr-book.org/3ed-2018/Monte_Carlo_Integration
+    // https://www.pbr-book.org/3ed-2018/Monte_Carlo_Integration/The_Monte_Carlo_Estimator
+    // https://www.pbr-book.org/3ed-2018/Monte_Carlo_Integration/Russian_Roulette_and_Splitting 
+    // https://www.pbr-book.org/3ed-2018/Monte_Carlo_Integration/Importance_Sampling
+
+// https://www.pbr-book.org/3ed-2018/Light_Transport_I_Surface_Reflection
+    // https://www.pbr-book.org/3ed-2018/Light_Transport_I_Surface_Reflection/Sampling_Reflection_Functions
+
+// https://github.com/infancy/pbrt-v3/blob/master/src/core/integrator.h
+    // https://github.com/infancy/pbrt-v3/blob/master/src/integrators/directlighting.h
+    // https://github.com/infancy/pbrt-v3/blob/master/src/integrators/path.h
 
 class Integrater
 {
@@ -1331,7 +1371,12 @@ public:
 
 #pragma endregion
 
+// https://www.pbr-book.org/3ed-2018/Introduction/pbrt_System_Overview
+// https://www.pbr-book.org/3ed-2018/Scene_Description_Interface
 
+// https://github.com/infancy/pbrt-v3/blob/master/src/main/pbrt.cpp#L161-L171
+// https://github.com/infancy/pbrt-v3/blob/master/src/core/parser.cpp#L1080-L1087
+// https://github.com/infancy/pbrt-v3/blob/master/src/core/api.cpp#L1604-L1624
 
 int main(int argc, char* argv[])
 {
