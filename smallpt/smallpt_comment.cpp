@@ -64,7 +64,7 @@ struct Sphere
     Point3 center;
 
     Color emission; // for area light
-    Color color; // surface reflectance
+    Color color; // surface albedo, per-component is surface reflectance
     MaterialType materialType;
 
     Sphere(double radius_, Vector3 center_, Color emission_, Color color_, MaterialType materialType):
@@ -125,7 +125,7 @@ struct Sphere
 
 Sphere Scene[] =
 {
-    //Scene: radius, center, emission, color, material
+    //Scene: radius, center, emission, albedo, material
     Sphere(1e5, Vector3(1e5 + 1, 40.8, 81.6),   Color(), Color(.75, .25, .25), MaterialType::Diffuse), //Left
     Sphere(1e5, Vector3(-1e5 + 99, 40.8, 81.6), Color(), Color(.25, .25, .75), MaterialType::Diffuse), //Right
     Sphere(1e5, Vector3(50, 40.8, 1e5),         Color(), Color(.75, .75, .75), MaterialType::Diffuse), //Back
@@ -172,15 +172,15 @@ Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
 
     const Sphere& obj = Scene[id]; // the hit object
 
-    if (depth > 100)
-        return obj.emission;
+    if (depth > 10)
+        return obj.emission; // if path is too long, only return sphere's emission
 
     // intersection property
     Vector3 position = ray.origin + ray.direction * distance;
     Normal3 normal = (position - obj.center).Normalize();
 
-    Color f = obj.color; // bsdf value
-    double max_component = f.x > f.y && f.x > f.z ? f.x : f.y > f.z ? f.y : f.z; // max refl
+    Color f = obj.color; // this is surface albedo $\rho$
+    double max_component = std::max({ f.x, f.y, f.z }); // max refl
 
     //russian roulette
     if (++depth > 5)

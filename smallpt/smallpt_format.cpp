@@ -108,7 +108,7 @@ Vec radiance(const Ray& r, int depth, unsigned short* Xi)
         return Vec(); // if miss, return black
 
     const Sphere& obj = spheres[id]; // the hit object
-    if (depth > 100)
+    if (depth > 10)
         return obj.e;
 
     Vec x = r.o + r.d * t, n = (x - obj.p).norm(), nl = n.dot(r.d) < 0 ? n : n * -1, f = obj.c;

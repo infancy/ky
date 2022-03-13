@@ -52,6 +52,9 @@ using namespace std::literals::string_literals;
 using uint = uint32_t;
 using Float = float; // TODO: undef float_t; using float_t = float;
 
+// Normalized float, from 0 to 1
+using float01_t = Float;
+
 using radian_t = Float;
 using degree_t = Float;
 
@@ -924,7 +927,7 @@ public:
         /*
           convert light sample point to solid angle:
 
-              $$\mathrm{d} \omega = \fact{\mathrm{d} A}{l^{2}} $$
+              $$\mathrm{d} \omega = \fact{\mathrm{d} A^{\perp} }{l^{2}} $$
 
           first:
               unit_solid_angle = 1 / distance_squared(...)
@@ -1734,6 +1737,7 @@ Float fresnel_dielectric(
     Float cos_theta_i, 
     Float eta_i, Float eta_t)
 {
+    // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#FresnelReflectance
     // https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.cpp#L66-L90
 
     cos_theta_i = std::clamp(cos_theta_i, (Float)-1, (Float)1);
@@ -1767,16 +1771,6 @@ Float fresnel_dielectric(
 
 // schlick approximation 1994
 Float fresnel_dielectric_schlick(
-    Float cos_theta_i, 
-    Float eta_i, Float eta_t)
-{
-    Float R0 = (eta_t - eta_i) / (eta_t + eta_i);
-    R0 *= R0;
-
-    return lerp(R0, 1.0f, std::pow(1 - cos_theta_i, 5.0f));
-}
-
-Float fresnel_dielectric_schlick(
     Float cos_theta_i, Float cos_theta_t, 
     Float eta_i, Float eta_t)
 {
@@ -1802,6 +1796,15 @@ Float fresnel_dielectric_schlick(
     return lerp(R0, 1.0f, std::pow(1 - cos_i, 5.0f) );
 }
 
+Float fresnel_dielectric_schlick(
+    Float cos_theta_i,
+    Float eta_i, Float eta_t)
+{
+    Float R0 = (eta_t - eta_i) / (eta_t + eta_i);
+    R0 *= R0;
+
+    return lerp(R0, 1.0f, std::pow(1 - cos_theta_i, 5.0f));
+}
 
 /*
   given
@@ -1809,13 +1812,13 @@ Float fresnel_dielectric_schlick(
     the cosine of the angle of incidence `cos_theta_i`,
   compute reflectance
 */
-Float fresnel_dielectric_schlick(Float R0, Float cos_theta_i)
+Float fresnel_dielectric_schlick(Float cos_theta_i, Float R0)
 {
     return lerp(R0, 1.0f, std::pow((1.0f - cos_theta_i), 5.0f));
 }
 
 /*
-vec3_t fresnel_dielectric_schlick(vec3_t R0, Float cos_theta_i)
+color_t fresnel_dielectric_schlick(Float cos_theta_i, color_t R0)
 {
     return lerp(R0, vec3_t(1.0f), std::pow((1.0f - cos_theta_i), 5.0f));
 }
@@ -2006,8 +2009,9 @@ public:
     }
 
 private:
-    color_t R_; // surface reflectance
+    color_t R_; // surface albedo, per-component is surface reflectance
 };
+
 
 
 class specular_reflection_t : public bsdf_t
@@ -2100,7 +2104,7 @@ public:
 
         bsdf_sample_t sample;
 
-        Float Re = fresnel_dielectric(abs_cos_theta(wo), etaI_, etaT_);
+        Float Re = fresnel_dielectric(cos_theta(wo), etaI_, etaT_);
         Float Tr = 1 - Re;
 
         // Russian roulette
@@ -2193,12 +2197,13 @@ private:
 };
 
 
+
 // physically based(energy conservation) Phong specular reflection model
 // Lafortune and Willems, “Using the modified Phong reflectance model for physically based rendering”, Technical Report http://graphics.cs.kuleuven.be/publications/Phong/
-class phong_reflection_t : public bsdf_t
+class phong_specular_reflection_t : public bsdf_t
 {
 public:
-    phong_reflection_t(const frame_t& shading_frame, /*const color_t& Kd,*/ const color_t& Ks, Float exponent) :
+    phong_specular_reflection_t(const frame_t& shading_frame, /*const color_t& Kd,*/ const color_t& Ks, Float exponent) :
         bsdf_t(shading_frame), /*Kd_{Kd},*/ Ks_{Ks}, exponent_{exponent}
     {
     }
@@ -2264,7 +2269,22 @@ private:
     }
 
 private:
-    //color_t Kd_;
+    color_t Ks_;
+    Float exponent_;
+};
+
+// physically based(energy conservation) Blinn-Phong specular reflection model
+// Minimalist Cook-Torrance Microfacet Specular BRDF
+// The Blinn-Phong Normalization Zoo | The Tenth Planet http://www.thetenthplanet.de/archives/255
+class blinn_phong_specular_reflection_t : public bsdf_t
+{
+public:
+    blinn_phong_specular_reflection_t(const frame_t& shading_frame, const color_t& Ks, Float exponent) :
+        bsdf_t(shading_frame), Ks_{ Ks }, exponent_{ exponent }
+    {
+    }
+
+private:
     color_t Ks_;
     Float exponent_;
 };
@@ -2361,7 +2381,7 @@ public:
         auto random = rng_.uniform_float();
         if (random < specular_probility_)
         {
-            return std::make_unique<phong_reflection_t>(frame_t(isect.normal), Ks_ / specular_probility_, exponent_);
+            return std::make_unique<phong_specular_reflection_t>(frame_t(isect.normal), Ks_ / specular_probility_, exponent_);
         }
         else
         {
@@ -3887,7 +3907,7 @@ public:
 
 /*
   recursion style path tracing
-  Li = Le + T*(Le + T*(le + ...))
+  Li = Le + T*Le + T*(T*Le + T*(T*Le + ...))
 */
 class path_tracing_recursion_t : public path_integrater_t
 {
@@ -3907,10 +3927,10 @@ public:
     }
 
 private:
-    /// <param name="is_last_specular">last vertex is specular</param>
+    /// <param name="is_last_specular"> whether last vertex is specular</param>
     color_t Li(ray_t ray, scene_t* scene, sampler_t* sampler, int depth, bool is_last_specular, lighting_enum_t lighting_enum)
     {
-        color_t L;
+        color_t Lo;
         isect_t isect;
         bool hit = scene->intersect(ray, &isect);
 
@@ -3919,21 +3939,21 @@ private:
         if (!hit || (depth >= max_path_depth_))
         {
             if(enum_have(lighting_enum, lighting_enum_t::emit))
-                L += Le;
+                Lo += Le;
         }
         else
         {
             if (enum_have(lighting_enum, lighting_enum_t::emit))
-                L += Le;
+                Lo += Le;
 
             if (enum_have(lighting_enum, lighting_enum_t::direct))
-                L += direct_lighting(ray, scene, sampler, depth, is_last_specular, isect);
+                Lo += direct_lighting(ray, scene, sampler, depth, is_last_specular, isect);
 
             if (enum_have(lighting_enum, lighting_enum_t::indirect))
-                L += indirect_lighting(ray, scene, sampler, depth, is_last_specular, isect, lighting_enum_t::all);
+                Lo += indirect_lighting(ray, scene, sampler, depth, is_last_specular, isect, lighting_enum_t::all);
         }
 
-        return L;
+        return Lo;
     }
  
     color_t emission_lighting(ray_t ray, scene_t* scene, sampler_t* sampler, int depth, bool is_last_specular,
@@ -4005,7 +4025,7 @@ public:
     // Le(emit), Ld(direct), Li(indirect)
     color_t Li(ray_t ray, scene_t* scene, sampler_t* sampler) override
     {
-        color_t L{};
+        color_t Lo{};
         color_t beta(1., 1., 1.); // beta holds path throughput weight
         bool is_last_specular = false; // if last vertex's material has perfect specular property
 
@@ -4017,7 +4037,7 @@ public:
             bool hit = scene->intersect(ray, &isect);
 
 
-            // Le: Li
+            // Le: emission
 
             // Possibly add emitted light at intersection
             if (bounces == 0 || is_last_specular)
@@ -4025,12 +4045,12 @@ public:
                 // Add emitted light at path vertex or from the environment
                 if (hit)
                 {
-                    L += beta * isect.Le();
+                    Lo += beta * isect.Le();
                 }
                 else
                 {
                     if (auto env_light = scene->environment_light(); env_light != nullptr)
-                        L += beta * env_light->Le(ray);
+                        Lo += beta * env_light->Le(ray);
                 }
             }
 
@@ -4047,7 +4067,7 @@ public:
             if (!isect.bsdf()->is_delta())
             {
                 color_t Ld = beta * sample_all_light(isect, scene, *sampler, true, direct_sample_enum_);
-                L += Ld;
+                Lo += Ld;
             }
 
 
@@ -4085,7 +4105,7 @@ public:
             }
         }
 
-        return L;
+        return Lo;
     }
 };
 

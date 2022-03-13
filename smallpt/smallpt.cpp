@@ -65,7 +65,7 @@
    if (!intersect(r, t, id)) return Vec(); // if miss, return black 
   
    const Sphere &obj = spheres[id];        // the hit object 
-   if (depth > 100) return obj.e;
+   if (depth > 10) return obj.e;
 
    Vec x=r.o+r.d*t, n=(x-obj.p).norm(), nl=n.dot(r.d)<0?n:n*-1, f=obj.c; 
    double p = f.x>f.y && f.x>f.z ? f.x : f.y>f.z ? f.y : f.z; // max refl 

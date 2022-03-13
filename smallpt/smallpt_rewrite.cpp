@@ -1,4 +1,5 @@
-// http://www.kevinbeason.com/smallpt
+// `structured smallpt`, or call it `smallpbrt`
+// http://www.kevinbeason.com/smallp
 
 #include <cmath>    // smallpt, a Path Tracer by Kevin Beason, 2008
 #include <cstdlib>  // Make : g++ -O3 -fopenmp smallpt.cpp -o smallpt
@@ -247,7 +248,7 @@ private:
 // https://github.com/infancy/pbrt-v3/blob/master/src/core/sampling.h#L138-L153
 // https://github.com/infancy/pbrt-v3/blob/master/src/core/sampling.cpp#L199-L230
 
-Point2 UniformSampleDisk(const Point2& random)
+Point2 UniformSampleDisk(const Float2& random)
 {
     Float radius = std::sqrt(random[0]);
     Float theta = 2 * Pi * random[1];
@@ -302,9 +303,9 @@ public:
     }
 
     // [0, 1), [0, 1)
-    Vector2 UniformFloat2()
+    Float2 UniformFloat2()
     {
-        return Vector2(UniformFloat(), UniformFloat());
+        return Float2(UniformFloat(), UniformFloat());
     }
 
 private:
@@ -900,7 +901,7 @@ public:
     }
 
 private:
-    Color R; // surface reflectance
+    Color R; // surface albedo, per-component is surface reflectance
 };
 
 class SpecularReflection : public BSDF
@@ -945,7 +946,7 @@ public:
 
     BSDFSample Sample_f_(const Vector3& wo, const Float2& random) const override
     {
-        // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#FresnelReflectance
+        // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#Fresnelalbedo
         // https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.h#L440-L463
         // https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.cpp#L627-L667
 
@@ -1371,6 +1372,7 @@ public:
 
 #pragma endregion
 
+// https://www.pbr-book.org/3ed-2018/Introduction/Photorealistic_Rendering_and_the_Ray-Tracing_Algorithm
 // https://www.pbr-book.org/3ed-2018/Introduction/pbrt_System_Overview
 // https://www.pbr-book.org/3ed-2018/Scene_Description_Interface
 
