@@ -4176,7 +4176,7 @@ void render_direct_sample_enum(int argc, char* argv[])
     auto scene_params = std::vector<std::pair<cornell_box_enum_t, int>>
     {
         //{ cornell_box_enum_t::light_point, 1 },
-        { cornell_box_enum_t::light_direction, 100 },
+        { cornell_box_enum_t::light_direction, 10 },
         //{ cornell_box_enum_t::light_area, 1 },
         //{ cornell_box_enum_t::light_environment, 10 },
     };
@@ -4218,10 +4218,10 @@ void render_multiple_scene(int argc, char* argv[])
 {
     auto scene_params = std::vector<std::pair<cornell_box_enum_t, int>>
     {
-        { cornell_box_enum_t::light_point, 100 },
-        { cornell_box_enum_t::light_direction, 400 },
-        { cornell_box_enum_t::light_area, 400 },
-        { cornell_box_enum_t::light_environment, 100 },
+        { cornell_box_enum_t::light_point, 10 },
+        { cornell_box_enum_t::light_direction, 40 },
+        { cornell_box_enum_t::light_area, 40 },
+        { cornell_box_enum_t::light_environment, 10 },
     };
 
     auto sample_enums = std::vector<direct_sample_enum_t>
@@ -4280,7 +4280,7 @@ void render_mis_scene(int argc, char* argv[])
 {
     film_grid_t film(1, 3, 512, 308); //film.clear(color_t(1., 0., 0.));
     std::unique_ptr<sampler_t> sampler =
-        std::make_unique<random_sampler_t>(100);
+        std::make_unique<random_sampler_t>(10);
     scene_t scene = scene_t::create_mis_scene(film.get_resolution());
 
     auto sample_enums = std::vector<direct_sample_enum_t>
@@ -4311,7 +4311,7 @@ void render_lighting_enum()
 {
     film_grid_t film(1, 4, 256, 256); //film.clear(color_t(1., 0., 0.));
     std::unique_ptr<sampler_t> sampler =
-        std::make_unique<random_sampler_t>(100);
+        std::make_unique<random_sampler_t>(10);
     scene_t scene = scene_t::create_cornell_box_scene(
         cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_area, film.get_resolution());
 
@@ -4346,8 +4346,8 @@ int main(int argc, char* argv[])
     //render_single_scene(argc, argv);
     //render_direct_sample_enum(argc, argv);
     //render_multiple_scene(argc, argv);
-    render_mis_scene(argc, argv);
-    //render_lighting_enum();
+    //render_mis_scene(argc, argv);
+    render_lighting_enum();
 
     LOG("\n{} sec\n", (Float)(clock() - start) / CLOCKS_PER_SEC); // MILO
     return 0;

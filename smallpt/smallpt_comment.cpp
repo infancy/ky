@@ -3,6 +3,7 @@
 #include <cmath>    // smallpt, a Path Tracer by Kevin Beason, 2008
 #include <cstdlib>  // Make : g++ -O3 -fopenmp smallpt.cpp -o smallpt
 #include <cstdio>   //        Remove "-fopenmp" for g++ version < 4.2
+#include <algorithm>
 #include <numbers>
 
 constexpr double Pi = std::numbers::pi;
@@ -178,6 +179,7 @@ Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
     // intersection property
     Vector3 position = ray.origin + ray.direction * distance;
     Normal3 normal = (position - obj.center).Normalize();
+    Normal3 shading_normal = normal.Dot(ray.direction) < 0 ? normal : normal * -1;
 
     Color f = obj.color; // this is surface albedo $\rho$
     double max_component = std::max({ f.x, f.y, f.z }); // max refl
@@ -198,7 +200,7 @@ Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
         double random2Sqrt = sqrt(random2);
 
         // shading coordinate on intersection
-        Vector3 w = normal;
+        Vector3 w = shading_normal;
         Vector3 u = ((fabs(w.x) > .1 ? Vector3(0, 1, 0) : Vector3(1, 0, 0)).Cross(w)).Normalize();
         Vector3 v = w.Cross(u);
 
@@ -206,7 +208,7 @@ Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
         Vector3 direction = (u * cos(random1) * random2Sqrt + v * sin(random1) * random2Sqrt + w * sqrt(1 - random2)).Normalize();
 
         f = f / Pi; // for lambert brdf, f = R / Pi;
-        double abs_cos_theta = std::abs(normal.Dot(direction));
+        double abs_cos_theta = std::abs(shading_normal.Dot(direction));
         double pdf = abs_cos_theta / Pi; // cosine-weighted sampling
         return obj.emission + (f * Radiance(Ray(position, direction), depth, sampler) * abs_cos_theta) / pdf;
     }
@@ -217,8 +219,7 @@ Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
     }
     else // Ideal Dielectric Refraction
     {
-        bool into = normal.Dot(ray.direction) < 0; // Ray from outside going in?
-        Normal3 woNormal = into ? normal : normal * -1;
+        bool into = normal.Dot(shading_normal) > 0; // Ray from outside going in?
 
         // IOR(index of refractive)
         double etaI = 1; // vacuum
@@ -231,11 +232,11 @@ Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
 
         // compute refract direction by Snell's law
         // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#SpecularTransmission see `Refract()`
-        double cosThetaI = ray.direction.Dot(woNormal);
+        double cosThetaI = ray.direction.Dot(shading_normal);
         double cosThetaT2 = cosThetaT2 = 1 - eta * eta * (1 - cosThetaI * cosThetaI);
         if (cosThetaT2 < 0) // Total internal reflection
             return obj.emission + f * Radiance(reflectRay, depth, sampler);
-        Float cosThetaT = sqrt(cosThetaT2);
+        double cosThetaT = sqrt(cosThetaT2);
         Vector3 refractDirection = (ray.direction * eta - normal * ((into ? 1 : -1) * (cosThetaI * eta + cosThetaT))).Normalize();
 
 
