@@ -1,6 +1,6 @@
 # ky
 
-[中文讲解](https://infancy.github.io/%E6%8A%8A%20smallpt%20%E4%B8%80%E6%AD%A5%E6%AD%A5%E6%94%B9%E5%86%99%E6%88%90%20pbrt.html)
+[中文讲解](https://infancy.github.io/smallpt2pbrt.html)
 
 single file ray tracing renderer, [100](./smallpt/nanopt.cpp)/[300](./smallpt/smallpt_comment.cpp)/[1000](./smallpt/smallpt_rewrite.cpp)/[4000](./ky.cpp) lines of C++20, PBRT-like architecture, step-by-step integrator.
 
