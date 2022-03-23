@@ -4139,7 +4139,7 @@ class build_t_
 
 void render_single_scene(int argc, char* argv[])
 {
-    int width = 512, height = 512;
+    int width = 512, height = 308;
     int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 1; // # samples per pixel
 
     film_t film(width, height); //film.clear(color_t(1., 0., 0.));

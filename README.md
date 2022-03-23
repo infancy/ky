@@ -29,6 +29,7 @@ ky is based on smallpt at first, gradually rewritten into PBRT style...
 # milestone
 
 - [x] run smallpt
+
 - [x] rewrite smallpt
   - [x] geometry
   - [x] shape
@@ -42,6 +43,7 @@ ky is based on smallpt at first, gradually rewritten into PBRT style...
   - [x] light
   - [x] integrator
   - [ ] cmd
+
 - [ ] step-by-step integrator 
   - [ ] render depth, normal
   - [ ] render point light
@@ -50,7 +52,7 @@ ky is based on smallpt at first, gradually rewritten into PBRT style...
   - [x] MIS
   - [x] recursion style pathtracing
   - [x] iterative style pathtracing
-<br>
+
 - [x] bsdf/material
   - [x] Phong
 - [x] scene
