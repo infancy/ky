@@ -324,7 +324,8 @@ int main(int argc, char* argv[])
         }
     }
 
-    FILE* image = fopen("image.ppm", "w"); // Write image to PPM file.
+    FILE* image;
+    errno_t err = fopen_s(&image, "image_gpu.ppm", "w"); // Write image to PPM file.
     fprintf(image, "P3\n%d %d\n%d\n", width, height, 255);
     for (int i = 0; i < width * height; i++)
         fprintf(image, "%d %d %d ", GammaEncoding(film[i].x), GammaEncoding(film[i].y), GammaEncoding(film[i].z));
