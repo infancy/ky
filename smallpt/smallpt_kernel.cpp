@@ -9,7 +9,7 @@
 #include <string>
 #include <string_view>
 
-//#define USE_CUDA
+#define USE_CUDA
 //#define USE_HIP
 
 #if defined(USE_CUDA)
@@ -21,7 +21,7 @@
 #endif
 
 
-#if defined(__CUDACC__) || defined(__HIP__) //|| true
+#if defined(USE_CUDA) || defined(USE_HIP)
     #define GPU_RENDER
 
     #define HOST __host__
@@ -41,50 +41,41 @@
     #define GPU
 #endif
 
-template <typename... Ts>
-inline void LOG(const std::string_view fmt, Ts&&... args)
-{
-    auto msg = std::format(std::format(fmt, std::forward<Ts>(args)...));
-    std::printf("%s", msg.c_str());
-}
 
-template <typename... Ts>
-inline void LOG_ERROR(const std::string_view fmt, Ts&&... args)
-{
-    auto msg = std::format(std::format(fmt, std::forward<Ts>(args)...));
-    std::fprintf(stderr, "%s", msg.c_str());
-}
-
+#if defined(GPU_RENDER)
+constexpr double Pi = 3.1415626;
+#else
 constexpr double Pi = std::numbers::pi;
+#endif
 
 struct Vector3
 {                   // Usage: time ./smallpt 5000 && xv image.ppm
     double x, y, z; // position, also color (r,g,b)
 
-    Vector3(double x_ = 0, double y_ = 0, double z_ = 0)
+    KERNEL Vector3(double x_ = 0, double y_ = 0, double z_ = 0)
     {
         x = x_;
         y = y_;
         z = z_;
     }
 
-    Vector3 operator-() const { return Vector3(-x, -y, -z); }
+    KERNEL Vector3 operator-() const { return Vector3(-x, -y, -z); }
 
-    Vector3 operator+(const Vector3& b) const { return Vector3(x + b.x, y + b.y, z + b.z); }
-    Vector3 operator-(const Vector3& b) const { return Vector3(x - b.x, y - b.y, z - b.z); }
-    Vector3 operator*(double b) const { return Vector3(x * b, y * b, z * b); }
-    Vector3 operator/(double b) const { return Vector3(x / b, y / b, z / b); }
+    KERNEL Vector3 operator+(const Vector3& b) const { return Vector3(x + b.x, y + b.y, z + b.z); }
+    KERNEL Vector3 operator-(const Vector3& b) const { return Vector3(x - b.x, y - b.y, z - b.z); }
+    KERNEL Vector3 operator*(double b) const { return Vector3(x * b, y * b, z * b); }
+    KERNEL Vector3 operator/(double b) const { return Vector3(x / b, y / b, z / b); }
 
     // only for Color
-    Vector3 operator*(const Vector3& b) const { return Vector3(x * b.x, y * b.y, z * b.z); }
+    KERNEL Vector3 operator*(const Vector3& b) const { return Vector3(x * b.x, y * b.y, z * b.z); }
 
-    Vector3& Normalize() { return *this = *this * (1 / sqrt(x * x + y * y + z * z)); }
+    KERNEL Vector3& Normalize() { return *this = *this * (1 / sqrt(x * x + y * y + z * z)); }
 
-    double Dot(const Vector3& b) const { return x * b.x + y * b.y + z * b.z; }
-    Vector3 Cross(Vector3& b) { return Vector3(y * b.z - z * b.y, z * b.x - x * b.z, x * b.y - y * b.x); }
+    KERNEL double Dot(const Vector3& b) const { return x * b.x + y * b.y + z * b.z; }
+    KERNEL Vector3 Cross(Vector3& b) { return Vector3(y * b.z - z * b.y, z * b.x - x * b.z, x * b.y - y * b.x); }
 
-    friend Vector3 operator*(double b, Vector3 v) { return v * b; }
-    friend double Dot(const Vector3& a, const Vector3& b) { return a.Dot(b); }
+    KERNEL friend Vector3 operator*(double b, Vector3 v) { return v * b; }
+    KERNEL friend double Dot(const Vector3& a, const Vector3& b) { return a.Dot(b); }
 };
 
 using Float3 = Vector3;
@@ -329,14 +320,14 @@ Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
 
 #if defined(GPU_RENDER)
 
-#if defined(__CUDACC__) || true
+#if defined(USE_CUDA)
 
 void CheckCUDA(cudaError_t result, const char* const file, int const line, const char* const func)
 {
     if (result != cudaSuccess)
     {
         cudaError_t error = cudaGetLastError();
-        LOG_ERROR("CUDA error: {}, at {}:{} `{}`", cudaGetErrorString(error), file, line, func);
+        std::fprintf(stderr, "CUDA error: %s, at %s:%d `%s`", cudaGetErrorString(error), file, line, func);
 
         cudaDeviceReset();
         exit(99);
@@ -345,28 +336,36 @@ void CheckCUDA(cudaError_t result, const char* const file, int const line, const
 
 #define CHECK_CUDA(val) CheckCUDA((val), __FILE__, __LINE__,  #val)
 
-class Device
+ENTRY void kernel(Color* film, int width, int height)
 {
-    void Render()
-    {
+    int x = threadIdx.x + blockIdx.x * blockDim.x;
+    int y = threadIdx.y + blockIdx.y * blockDim.y;
+    if ((x >= width) || (y >= height))
+        return;
 
-    }
-};
-
-#elif defined(__HIP__) 
-// TODO
-#else
-#error
-#endif
-
-#else
+    int pixel_index = y * width + x;
+    film[pixel_index] = Color(double(x) / width, double(y) / height, 0.2);
+}
 
 class Device
 {
 public:
-    void Render(int width, int height, int samplesPerPixel, const Ray& camera, const Vector3& cx, const Vector3& cy, Color* film)
+    Color* Render(int width, int height, int samplesPerPixel, const Ray& camera, const Vector3& cx, const Vector3& cy)
     {
-#pragma omp parallel for schedule(dynamic, 1) // OpenMP
+        Color* film;
+        size_t film_size = width * height * 3 * sizeof(double);
+        CHECK_CUDA(cudaMallocManaged((void**)&film, film_size));
+
+        int tx = 8;
+        int ty = 8;
+        dim3 blocks(width / tx + 1, height / ty + 1);
+        dim3 threads(tx, ty);
+        kernel<<<blocks, threads>>>(film, width, height);
+
+        CHECK_CUDA(cudaGetLastError());
+        CHECK_CUDA(cudaDeviceSynchronize());
+
+        /*
         for (int y = 0; y < height; y++) // Loop over image rows
         {
             fprintf(stderr, "\rRendering (%d spp) %5.2f%%", samplesPerPixel * 4, 100. * y / (height - 1));
@@ -399,7 +398,80 @@ public:
                 }
             }
         }
+        */
+
+        return film;
     }
+
+    ~Device()
+    {
+        CHECK_CUDA(cudaFree(film));
+    }
+
+private:
+    Color* film;
+};
+
+#elif defined(USE_HIP) 
+// TODO
+#else
+#error
+#endif
+
+#else
+
+class Device
+{
+public:
+    Color* Render(int width, int height, int samplesPerPixel, const Ray& camera, const Vector3& cx, const Vector3& cy)
+    {
+        film = new Vector3[width * height];
+
+        #pragma omp parallel for schedule(dynamic, 1) // OpenMP
+        for (int y = 0; y < height; y++) // Loop over image rows
+        {
+            fprintf(stderr, "\rRendering (%d spp) %5.2f%%", samplesPerPixel * 4, 100. * y / (height - 1));
+
+            unsigned short sampler[3] = { 0, 0, y * y * y };
+            for (unsigned short x = 0; x < width; x++) // Loop cols
+            {
+                Color Li{};
+                int i = (height - y - 1) * width + x;
+                for (int sy = 0; sy < 2; sy++) // 2x2 subpixel rows
+                {
+                    for (int sx = 0; sx < 2; sx++) // 2x2 subpixel cols
+                    {
+                        for (int s = 0; s < samplesPerPixel; s++)
+                        {
+                            double random1 = 2 * erand48(sampler);
+                            double random2 = 2 * erand48(sampler);
+                            double dx = random1 < 1 ? sqrt(random1) - 1 : 1 - sqrt(2 - random1);
+                            double dy = random2 < 1 ? sqrt(random2) - 1 : 1 - sqrt(2 - random2);
+
+                            Vector3 direction =
+                                cx * (((sx + .5 + dx) / 2 + x) / width - .5) +
+                                cy * (((sy + .5 + dy) / 2 + y) / height - .5) + camera.direction;
+
+                            Li = Li + Radiance(Ray(camera.origin + direction * 140, direction.Normalize()), 0, sampler) * (1. / samplesPerPixel);
+                        } // Camera rays are pushed ^^^^^ forward to start in interior
+
+                        film[i] = film[i] + Vector3(Clamp(Li.x), Clamp(Li.y), Clamp(Li.z)) * .25;
+                    }
+                }
+            }
+        }
+
+        return film;
+    }
+
+    ~Device()
+    {
+        if (film)
+            delete[] film;
+    }
+
+private:
+    Color* film;
 };
 
 #endif // GPU_RENDER
@@ -407,17 +479,15 @@ public:
 int main(int argc, char* argv[])
 {
     int width = 1024, height = 768;
-    int samplesPerPixel = argc == 2 ? atoi(argv[1]) / 4 : 10;
+    int samplesPerPixel = argc == 2 ? atoi(argv[1]) / 4 : 1;
 
     // right hand
     Ray camera(Vector3(50, 52, 295.6), Vector3(0, -0.042612, -1).Normalize()); // camera posotion, direction
     Vector3 cx = Vector3(width * .5135 / height); // left
     Vector3 cy = (cx.Cross(camera.direction)).Normalize() * .5135; // up
     
-    Color* film = new Vector3[width * height];
-
     Device device;
-    device.Render(width, height, samplesPerPixel, camera, cx, cy, film);
+    Color* film = device.Render(width, height, samplesPerPixel, camera, cx, cy);
 
     FILE* image;
     errno_t err = fopen_s(&image, "image_kernel.ppm", "w"); // Write image to PPM file.
