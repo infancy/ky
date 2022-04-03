@@ -4,7 +4,56 @@
 #include <cstdlib>  // Make : g++ -O3 -fopenmp smallpt.cpp -o smallpt
 #include <cstdio>   //        Remove "-fopenmp" for g++ version < 4.2
 #include <algorithm>
+#include <format>
 #include <numbers>
+#include <string>
+#include <string_view>
+
+//#define USE_CUDA
+//#define USE_HIP
+
+#if defined(USE_CUDA)
+#include "cuda.h"
+#include "cuda_runtime.h"
+#include "device_launch_parameters.h"
+#elif defined(USE_HIP)
+// TODO
+#endif
+
+
+#if defined(__CUDACC__) || defined(__HIP__) //|| true
+    #define GPU_RENDER
+
+    #define HOST __host__
+    #define ENTRY __global__
+    #define KERNEL __host__ __device__
+    #define GPU __device__
+
+    #if defined(__CUDA_ARCH__) || defined(__HIP__)
+        #define GPU_CODE
+    #endif
+#else
+    #define CPU_RENDER
+
+    #define HOST
+    #define ENTRY
+    #define KERNEL
+    #define GPU
+#endif
+
+template <typename... Ts>
+inline void LOG(const std::string_view fmt, Ts&&... args)
+{
+    auto msg = std::format(std::format(fmt, std::forward<Ts>(args)...));
+    std::printf("%s", msg.c_str());
+}
+
+template <typename... Ts>
+inline void LOG_ERROR(const std::string_view fmt, Ts&&... args)
+{
+    auto msg = std::format(std::format(fmt, std::forward<Ts>(args)...));
+    std::fprintf(stderr, "%s", msg.c_str());
+}
 
 constexpr double Pi = std::numbers::pi;
 
@@ -278,6 +327,83 @@ Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
     }
 }
 
+#if defined(GPU_RENDER)
+
+#if defined(__CUDACC__) || true
+
+void CheckCUDA(cudaError_t result, const char* const file, int const line, const char* const func)
+{
+    if (result != cudaSuccess)
+    {
+        cudaError_t error = cudaGetLastError();
+        LOG_ERROR("CUDA error: {}, at {}:{} `{}`", cudaGetErrorString(error), file, line, func);
+
+        cudaDeviceReset();
+        exit(99);
+    }
+}
+
+#define CHECK_CUDA(val) CheckCUDA((val), __FILE__, __LINE__,  #val)
+
+class Device
+{
+    void Render()
+    {
+
+    }
+};
+
+#elif defined(__HIP__) 
+// TODO
+#else
+#error
+#endif
+
+#else
+
+class Device
+{
+public:
+    void Render(int width, int height, int samplesPerPixel, const Ray& camera, const Vector3& cx, const Vector3& cy, Color* film)
+    {
+#pragma omp parallel for schedule(dynamic, 1) // OpenMP
+        for (int y = 0; y < height; y++) // Loop over image rows
+        {
+            fprintf(stderr, "\rRendering (%d spp) %5.2f%%", samplesPerPixel * 4, 100. * y / (height - 1));
+
+            unsigned short sampler[3] = { 0, 0, y * y * y };
+            for (unsigned short x = 0; x < width; x++) // Loop cols
+            {
+                Color Li{};
+                int i = (height - y - 1) * width + x;
+                for (int sy = 0; sy < 2; sy++) // 2x2 subpixel rows
+                {
+                    for (int sx = 0; sx < 2; sx++) // 2x2 subpixel cols
+                    {
+                        for (int s = 0; s < samplesPerPixel; s++)
+                        {
+                            double random1 = 2 * erand48(sampler);
+                            double random2 = 2 * erand48(sampler);
+                            double dx = random1 < 1 ? sqrt(random1) - 1 : 1 - sqrt(2 - random1);
+                            double dy = random2 < 1 ? sqrt(random2) - 1 : 1 - sqrt(2 - random2);
+
+                            Vector3 direction =
+                                cx * (((sx + .5 + dx) / 2 + x) / width - .5) +
+                                cy * (((sy + .5 + dy) / 2 + y) / height - .5) + camera.direction;
+
+                            Li = Li + Radiance(Ray(camera.origin + direction * 140, direction.Normalize()), 0, sampler) * (1. / samplesPerPixel);
+                        } // Camera rays are pushed ^^^^^ forward to start in interior
+
+                        film[i] = film[i] + Vector3(Clamp(Li.x), Clamp(Li.y), Clamp(Li.z)) * .25;
+                    }
+                }
+            }
+        }
+    }
+};
+
+#endif // GPU_RENDER
+
 int main(int argc, char* argv[])
 {
     int width = 1024, height = 768;
@@ -290,42 +416,11 @@ int main(int argc, char* argv[])
     
     Color* film = new Vector3[width * height];
 
-    #pragma omp parallel for schedule(dynamic, 1) // OpenMP
-    for (int y = 0; y < height; y++) // Loop over image rows
-    {
-        fprintf(stderr, "\rRendering (%d spp) %5.2f%%", samplesPerPixel * 4, 100. * y / (height - 1));
-
-        unsigned short sampler[3] = { 0, 0, y * y * y };
-        for (unsigned short x = 0; x < width; x++) // Loop cols
-        {
-            Color Li{};
-            int i = (height - y - 1) * width + x;
-            for (int sy = 0; sy < 2; sy++) // 2x2 subpixel rows
-            {
-                for (int sx = 0; sx < 2; sx++) // 2x2 subpixel cols
-                {
-                    for (int s = 0; s < samplesPerPixel; s++)
-                    {
-                        double random1 = 2 * erand48(sampler);
-                        double random2 = 2 * erand48(sampler);
-                        double dx = random1 < 1 ? sqrt(random1) - 1 : 1 - sqrt(2 - random1);
-                        double dy = random2 < 1 ? sqrt(random2) - 1 : 1 - sqrt(2 - random2);
-
-                        Vector3 direction =
-                            cx * (((sx + .5 + dx) / 2 + x) /  width - .5) + 
-                            cy * (((sy + .5 + dy) / 2 + y) / height - .5) + camera.direction;
-
-                        Li = Li + Radiance(Ray(camera.origin + direction * 140, direction.Normalize()), 0, sampler) * (1. / samplesPerPixel);
-                    } // Camera rays are pushed ^^^^^ forward to start in interior
-
-                    film[i] = film[i] + Vector3(Clamp(Li.x), Clamp(Li.y), Clamp(Li.z)) * .25;
-                }
-            }
-        }
-    }
+    Device device;
+    device.Render(width, height, samplesPerPixel, camera, cx, cy, film);
 
     FILE* image;
-    errno_t err = fopen_s(&image, "image_gpu.ppm", "w"); // Write image to PPM file.
+    errno_t err = fopen_s(&image, "image_kernel.ppm", "w"); // Write image to PPM file.
     fprintf(image, "P3\n%d %d\n%d\n", width, height, 255);
     for (int i = 0; i < width * height; i++)
         fprintf(image, "%d %d %d ", GammaEncoding(film[i].x), GammaEncoding(film[i].y), GammaEncoding(film[i].z));
