@@ -2,10 +2,11 @@
 #include <cmath>    // smallpt, a Path Tracer by Kevin Beason, 2008
 #include <cstdlib>  // Make : g++ -O3 -fopenmp smallpt.cpp -o smallpt
 #include <cstdio>   //        Remove "-fopenmp" for g++ version < 4.2
+#include <ctime>
 #include <algorithm>
 #include <numbers>
 
-#define USE_CUDA
+//#define USE_CUDA
 //#define USE_HIP
 
 #if defined(USE_CUDA)
@@ -441,10 +442,12 @@ private:
 int main(int argc, char* argv[])
 {
     int width = 1024, height = 768;
-    int samplesPerPixel = argc == 2 ? atoi(argv[1]) / 4 : 10;
+    int samplesPerPixel = argc == 2 ? atoi(argv[1]) / 4 : 100;
     
     Device device;
+    clock_t start = clock();
     Color* film = device.Render(width, height, samplesPerPixel);
+    printf("\n%f sec\n", (float)(clock() - start) / CLOCKS_PER_SEC);
 
     FILE* image;
     errno_t err = fopen_s(&image, "image_kernel.ppm", "w"); // Write image to PPM file.
