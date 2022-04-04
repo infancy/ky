@@ -893,7 +893,6 @@ public:
 
     // TODO: return position_sample_t
     virtual isect_t sample_position(const float2_t& random, Float* out_pdf_position) const = 0;
-    virtual Float pdf_position(const isect_t& isect) const { return 1 / area(); }
 
     // TODO: return direction_sample_t
     // default compute `*_direction` by `*_position` 
@@ -2496,23 +2495,8 @@ public:
 
     virtual color_t power() const = 0;
 
-public:
-    // Le: camera <- light
-
     // only for environment light
     virtual color_t Le(const ray_t& r) const { return color_t(); }
-
-    // TODO: remove
-    // for bidirectional method
-    // sample_position, sample_ray
-    virtual color_t sample_Le(
-        const float2_t& random1, const float2_t& random2,
-        ray_t* ray, normal_t* light_normal, 
-        Float* pdf_position, Float* pdf_direction) const = 0;
-
-    virtual void pdf_Le(
-        const ray_t& ray, const normal_t& light_normal, 
-        Float* pdf_position, Float* pdf_direction) const = 0;
 
 public:
     // Li: camera <-wo isect wi-> light
@@ -2543,29 +2527,6 @@ public:
     bool is_finite() const override { return true; }
 
     color_t power() const override { return 4 * k_pi * intensity_; }
-
-public:
-    color_t sample_Le(
-        const float2_t& random1, const float2_t& random2,
-        ray_t* ray, normal_t* light_normal,
-        Float* pdf_position, Float* pdf_direction) const override
-    {
-        *ray = ray_t(world_position_, sample_sphere_uniform(random1));
-        *light_normal = ray->direction();
-
-        *pdf_position = 1;
-        *pdf_direction = pdf_sphere_uniform();
-
-        return intensity_;
-    }
-
-    void pdf_Le(
-        const ray_t& ray, const normal_t& light_normal,
-        Float* pdf_position, Float* pdf_direction) const override
-    {
-        *pdf_position = 0;
-        *pdf_direction = pdf_sphere_uniform();
-    }
 
 public:
     direction_sample_t sample_Li(const isect_t& isect, const float2_t& random) const override
@@ -2632,33 +2593,6 @@ public:
     }
 
 public:
-    color_t sample_Le(
-        const float2_t& random1, const float2_t& random2,
-        ray_t* ray, normal_t* light_normal,
-        Float* pdf_position, Float* pdf_direction) const override
-    {
-        // TODO: sample from disk_t
-        point2_t sample_point = sample_disk_concentric(random1);
-        point3_t disk_position = world_center_ + world_radius_ * (frame_.binormal() * sample_point.x + frame_.tangent() * sample_point.y);
-
-        *ray = ray_t(disk_position + world_radius_ * world_direction_, -world_direction_);
-        *light_normal = ray->direction();
-
-        *pdf_position = 1 / area_;
-        *pdf_direction = 1;
-
-        return irradiance_;
-    }
-
-    void pdf_Le(
-        const ray_t& ray, const normal_t& light_normal,
-        Float* pdf_position, Float* pdf_direction) const override
-    {
-        *pdf_position = 1 / area_;
-        *pdf_direction = 0;
-    }
-
-public:
     direction_sample_t sample_Li(const isect_t& isect, const float2_t& random) const override
     {
         direction_sample_t sample;
@@ -2709,7 +2643,6 @@ public:
         return power_;
     }
 
-public:
     /*
        prev
        ----
@@ -2725,38 +2658,6 @@ public:
     color_t Le(const isect_t& light_isect, const vec3_t& wo) const
     {
         return (dot(light_isect.normal, wo) > 0) ? radiance_ : color_t();
-    }
-
-    color_t sample_Le(
-        const float2_t& random1, const float2_t& random2,
-        ray_t* ray, normal_t* light_normal,
-        Float* pdf_position, Float* pdf_direction) const override
-    {
-        // sample_position a point on the area light's _Shape_, _pShape_
-        isect_t light_isect = shape_->sample_position(random1, pdf_position);
-        *light_normal = light_isect.normal;
-
-        // sample_position a cosine-weighted outgoing direction _w_ for area light
-        vec3_t w;
-        w = sample_hemisphere_cosine(random2);
-        *pdf_direction = pdf_hemisphere_cosine(w.z);
-
-        // TODO
-        frame_t frame{ light_isect.normal };
-        vec3_t w2 = w.x * frame.binormal() + w.y * frame.tangent() + w.z * frame.normal();
-        *ray = light_isect.spawn_ray(w2);
-
-        return Le(light_isect, w2);
-    }
-
-    void pdf_Le(
-        const ray_t& ray, const normal_t& light_normal,
-        Float* pdf_position, Float* pdf_direction) const override
-    {
-        isect_t isect(ray.origin(), light_normal, vec3_t());
-        *pdf_position = shape_->pdf_position(isect);
-
-        *pdf_direction = pdf_hemisphere_cosine(dot(light_normal, ray.direction()));
     }
 
 public:
@@ -2814,40 +2715,9 @@ public:
         return power_;
     }
 
-public:
     color_t Le(const ray_t& ray) const
     {
         return radiance_;
-    }
-
-    color_t sample_Le(
-        const float2_t& random1, const float2_t& random2,
-        ray_t* ray, normal_t* light_normal,
-        Float* pdf_position, Float* pdf_direction) const override
-    {
-        *light_normal = sample_sphere_uniform(random1);
-
-        frame_t frame{ *light_normal };
-        point2_t sample_point = sample_disk_concentric(random2);
-        point3_t disk_position = world_center_ + 
-            world_radius_ * (frame.binormal() * sample_point.x + frame.tangent() * sample_point.y);
-        *ray = ray_t(disk_position + world_radius_ * -*light_normal, *light_normal);
-
-        Float theta = spherical_theta(*light_normal);
-        Float sin_theta = std::sin(theta);
-        *pdf_direction = sin_theta == 0 ? 0 : 1 / (2 * k_pi * k_pi * sin_theta);
-        *pdf_position = 1 / (k_pi * world_radius_ * world_radius_);
-
-        return radiance_;
-    }
-
-    void pdf_Le(
-        const ray_t& ray, const normal_t& light_normal,
-        Float* pdf_position, Float* pdf_direction) const override
-    {
-        Float theta = spherical_theta(ray.direction());
-        *pdf_direction = 1 / (2 * k_pi * k_pi * std::sin(theta));
-        *pdf_position = 1 / area_;
     }
 
 public:
