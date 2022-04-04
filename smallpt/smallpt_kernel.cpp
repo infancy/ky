@@ -3,10 +3,7 @@
 #include <cstdlib>  // Make : g++ -O3 -fopenmp smallpt.cpp -o smallpt
 #include <cstdio>   //        Remove "-fopenmp" for g++ version < 4.2
 #include <algorithm>
-#include <format>
 #include <numbers>
-#include <string>
-#include <string_view>
 
 #define USE_CUDA
 //#define USE_HIP
@@ -193,7 +190,7 @@ KERNEL Color Radiance(const Ray& ray, int depth, RandomLCG& rng)
 
     const Sphere& obj = Scene[id]; // the hit object
 
-    if (depth > 10)
+    if (depth > 5)
         return obj.emission; // if path is too long, only return sphere's emission
 
     // intersection property
@@ -202,10 +199,10 @@ KERNEL Color Radiance(const Ray& ray, int depth, RandomLCG& rng)
     Normal3 shading_normal = normal.Dot(ray.direction) < 0 ? normal : normal * -1;
 
     Color f = obj.color; // this is surface albedo $\rho$
-    double max_component = std::max({ f.x, f.y, f.z }); // max refl
+    double max_component = (f.x > f.y && f.x > f.z) ? f.x : (f.y > f.z ? f.y : f.z); // max refl
 
     //russian roulette
-    if (++depth > 5)
+    if (++depth > 3)
     {
         if (rng() < max_component)
             f = f * (1 / max_component);
@@ -320,8 +317,8 @@ void CheckCUDA(cudaError_t result, const char* const file, int const line, const
 
 ENTRY void Kernel(Color* film, int width, int height, int samplesPerPixel)
 {
-    int x = threadIdx.x + blockIdx.x * blockDim.x;
-    int y = threadIdx.y + blockIdx.y * blockDim.y;
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
     if ((x >= width) || (y >= height))
         return;
 
@@ -331,9 +328,9 @@ ENTRY void Kernel(Color* film, int width, int height, int samplesPerPixel)
     Vector3 cy = (cx.Cross(camera.direction)).Normalize() * .5135; // up
 
     Color color;
-    RandomLCG rng;
     for (int s = 0; s < samplesPerPixel; ++s)
     {
+        RandomLCG rng(y * width + x * samplesPerPixel + s);
         Vector3 direction = cx * ((rng() + x) / width - .5) +
                             cy * ((rng() + y) / height - .5) + camera.direction;
 
@@ -350,6 +347,12 @@ class Device
 public:
     Color* Render(int width, int height, int samplesPerPixel)
     {
+        // TODO
+        size_t stackSize{};
+        CHECK_CUDA(cudaDeviceGetLimit(&stackSize, cudaLimitStackSize));
+        printf("stack size: %d\n", stackSize);
+        CHECK_CUDA(cudaDeviceSetLimit(cudaLimitStackSize, stackSize * 50));
+
         Color* film;
         size_t film_size = width * height * 3 * sizeof(double);
         CHECK_CUDA(cudaMallocManaged((void**)&film, film_size));
@@ -368,7 +371,7 @@ public:
 
     ~Device()
     {
-        CHECK_CUDA(cudaFree(film));
+        CHECK_CUDA(cudaFree((void*)film));
     }
 
 private:
@@ -400,32 +403,21 @@ public:
         {
             fprintf(stderr, "\rRendering (%d spp) %5.2f%%", samplesPerPixel, 100. * y / (height - 1));
 
-            RandomLCG rng;
             for (unsigned short x = 0; x < width; x++) // Loop cols
             {
                 Color Li{};
-                int i = (height - y - 1) * width + x;
-                for (int sy = 0; sy < 2; sy++) // 2x2 subpixel rows
+                for (int s = 0; s < samplesPerPixel; s++)
                 {
-                    for (int sx = 0; sx < 2; sx++) // 2x2 subpixel cols
-                    {
-                        for (int s = 0; s < samplesPerPixel; s++)
-                        {
-                            double random1 = 2 * rng();
-                            double random2 = 2 * rng();
-                            double dx = random1 < 1 ? sqrt(random1) - 1 : 1 - sqrt(2 - random1);
-                            double dy = random2 < 1 ? sqrt(random2) - 1 : 1 - sqrt(2 - random2);
+                    RandomLCG rng(y * width + x * samplesPerPixel + s);
+                    Vector3 direction =
+                        cx * ((rng() + x) / width - .5) +
+                        cy * ((rng() + y) / height - .5) + camera.direction;
 
-                            Vector3 direction =
-                                cx * (((sx + .5 + dx) / 2 + x) / width - .5) +
-                                cy * (((sy + .5 + dy) / 2 + y) / height - .5) + camera.direction;
+                    Li = Li + Radiance(Ray(camera.origin + direction * 140, direction.Normalize()), 0, rng) * (1. / samplesPerPixel);
+                } // Camera rays are pushed ^^^^^ forward to start in interior
 
-                            Li = Li + Radiance(Ray(camera.origin + direction * 140, direction.Normalize()), 0, rng) * (1. / samplesPerPixel);
-                        } // Camera rays are pushed ^^^^^ forward to start in interior
-
-                        film[i] = film[i] + Vector3(Clamp(Li.x), Clamp(Li.y), Clamp(Li.z)) * .25;
-                    }
-                }
+                int i = (height - y - 1) * width + x;
+                film[i] = film[i] + Vector3(Clamp(Li.x), Clamp(Li.y), Clamp(Li.z));
             }
         }
 
@@ -449,7 +441,7 @@ private:
 int main(int argc, char* argv[])
 {
     int width = 1024, height = 768;
-    int samplesPerPixel = argc == 2 ? atoi(argv[1]) / 4 : 1;
+    int samplesPerPixel = argc == 2 ? atoi(argv[1]) / 4 : 10;
     
     Device device;
     Color* film = device.Render(width, height, samplesPerPixel);
