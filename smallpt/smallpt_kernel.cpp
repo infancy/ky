@@ -28,6 +28,7 @@
     #define ENTRY __global__
     #define KERNEL __host__ __device__
     #define GPU __device__
+    #define CONST __constant__
 
     #if defined(__CUDA_ARCH__) || defined(__HIP__)
         #define GPU_CODE
@@ -39,6 +40,7 @@
     #define ENTRY
     #define KERNEL
     #define GPU
+    #define CONST
 #endif
 
 
@@ -52,11 +54,9 @@ struct Vector3
 {                   // Usage: time ./smallpt 5000 && xv image.ppm
     double x, y, z; // position, also color (r,g,b)
 
-    KERNEL Vector3(double x_ = 0, double y_ = 0, double z_ = 0)
+    KERNEL constexpr Vector3(double x_ = 0, double y_ = 0, double z_ = 0):
+        x{ x_ }, y{ y_ }, z{ z_ }
     {
-        x = x_;
-        y = y_;
-        z = z_;
     }
 
     KERNEL Vector3 operator-() const { return Vector3(-x, -y, -z); }
@@ -89,7 +89,7 @@ struct Ray
     Point3 origin;
     UnitVector3 direction;
 
-    Ray(Point3 origin_, UnitVector3 direction_): origin(origin_), direction(direction_) {}
+    KERNEL Ray(Point3 origin_, UnitVector3 direction_): origin(origin_), direction(direction_) {}
 };
 
 enum class MaterialType
@@ -108,39 +108,13 @@ struct Sphere
     Color color; // surface albedo, per-component is surface reflectance
     MaterialType materialType;
 
-    Sphere(double radius_, Vector3 center_, Color emission_, Color color_, MaterialType materialType):
+    KERNEL constexpr Sphere(double radius_, Vector3 center_, Color emission_, Color color_, MaterialType materialType):
         radius(radius_), center(center_), emission(emission_), color(color_), materialType(materialType) {}
 
-    double Intersect(const Ray& ray) const
+    KERNEL double Intersect(const Ray& ray) const
     {
         // returns distance, 0 if nohit
 
-        /*
-          ray: p(t) = o + t*d,
-          sphere: ||p - c||^2 = r^2
-
-          if ray and sphere have a intersection p, then:
-             ||p(t) - c||^2 = r^2
-          => ||o + t*d - c||^2 = r^2
-          => (t*d + o - c).(t*d + o - c) = r^2
-          => d.d*t^2 + 2d.(o-c)*t + (o-c).(o-c)-r^2 = 0
-         
-          compare with:
-             at^2 + bt + c = 0
-
-          there have:
-             co = o - c
-             a = dot(d, d) = 1;
-             b = 2 * dot(d, co), neg_b' = dot(d, oc);
-             c = dot(co, co) - r^2;
-
-          so:
-             t = (-b +/- sqrt(b^2 - 4ac)) / 2a
-               = (-b +/- sqrt(b^2 - 4c)) / 2
-               = ((-2 * dot(d, co) +/- sqrt(4 * dot(d, co)^2 - 4 * (dot(co, co) - r^2))) / 2
-               = -dot(d, co) +/- sqrt( dot(d, co)^2 - dot(co, co) + r^2 )
-               = neg_b' +/- sqrt(Delta)
-        */
         Vector3 oc = center - ray.origin;
         double neg_b = oc.Dot(ray.direction);
         double det = neg_b * neg_b - oc.Dot(oc) + radius * radius;
@@ -164,7 +138,7 @@ struct Sphere
     }
 };
 
-Sphere Scene[] =
+CONST constexpr Sphere Scene[] =
 {
     //Scene: radius, center, emission, albedo, material
     Sphere(1e5, Vector3(1e5 + 1, 40.8, 81.6),   Color(), Color(.75, .25, .25), MaterialType::Diffuse), //Left
@@ -174,16 +148,16 @@ Sphere Scene[] =
     Sphere(1e5, Vector3(50, 1e5, 81.6),         Color(), Color(.75, .75, .75), MaterialType::Diffuse), //Bottom
     Sphere(1e5, Vector3(50, -1e5 + 81.6, 81.6), Color(), Color(.75, .75, .75), MaterialType::Diffuse), //Top
 
-    Sphere(16.5, Vector3(27, 16.5, 47),          Color(), Color(1, 1, 1) * .999, MaterialType::Specular), //Mirror
-    Sphere(16.5, Vector3(73, 16.5, 78),          Color(), Color(1, 1, 1) * .999, MaterialType::Refract),  //Glass
-    Sphere(600,  Vector3(50, 681.6 - .27, 81.6), Color(12, 12, 12), Color(),     MaterialType::Diffuse)   //Light
+    Sphere(16.5, Vector3(27, 16.5, 47),          Color(), Color(1, 1, 1),      MaterialType::Specular), //Mirror
+    Sphere(16.5, Vector3(73, 16.5, 78),          Color(), Color(1, 1, 1),      MaterialType::Refract),  //Glass
+    Sphere(600,  Vector3(50, 681.6 - .27, 81.6), Color(12, 12, 12), Color(),   MaterialType::Diffuse)   //Light
 };
 
-inline double Lerp(double a, double b, double t) { return a + t * (b - a); }
-inline double Clamp(double x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+KERNEL inline double Lerp(double a, double b, double t) { return a + t * (b - a); }
+KERNEL inline double Clamp(double x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
 inline int GammaEncoding(double x) { return int(pow(Clamp(x), 1 / 2.2) * 255 + .5); }
 
-inline bool Intersect(const Ray& ray, double& minDistance, int& id)
+KERNEL inline bool Intersect(const Ray& ray, double& minDistance, int& id)
 {
     double infinity = 1e20;
     minDistance = infinity;
@@ -203,7 +177,7 @@ inline bool Intersect(const Ray& ray, double& minDistance, int& id)
     return minDistance < infinity;
 }
 
-Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
+KERNEL Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
 {
     double distance; // distance to intersection
     int id = 0; // id of intersected object
@@ -318,6 +292,8 @@ Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
     }
 }
 
+
+
 #if defined(GPU_RENDER)
 
 #if defined(USE_CUDA)
@@ -336,21 +312,56 @@ void CheckCUDA(cudaError_t result, const char* const file, int const line, const
 
 #define CHECK_CUDA(val) CheckCUDA((val), __FILE__, __LINE__,  #val)
 
-ENTRY void kernel(Color* film, int width, int height)
+ENTRY void Kernel(Color* film, int width, int height, int samplesPerPixel)
 {
     int x = threadIdx.x + blockIdx.x * blockDim.x;
     int y = threadIdx.y + blockIdx.y * blockDim.y;
     if ((x >= width) || (y >= height))
         return;
 
-    int pixel_index = y * width + x;
-    film[pixel_index] = Color(double(x) / width, double(y) / height, 0.2);
+    // TODO
+    Ray camera(Vector3(50, 52, 295.6), Vector3(0, -0.042612, -1).Normalize()); // camera posotion, direction
+    Vector3 cx = Vector3(width * .5135 / height); // left
+    Vector3 cy = (cx.Cross(camera.direction)).Normalize() * .5135; // up
+
+    Color r;
+    for (int s = 0; s < samplesPerPixel; ++s)
+    {
+        /*
+        Vector3 direction = cx * ((erand48(Xi) + x) / width - .5) +
+                            cy * ((erand48(Xi) + y) / height - .5) + camera.direction;
+
+        r = r + Radiance(Ray(camera.origin + direction * 140, direction.Normalize()), 0, Xi) * (1. / samplesPerPixel);
+        */ 
+
+        Vector3 direction = cx * (double( x) / width - .5) +
+                            cy * (double( y) / height - .5) + camera.direction;
+
+        Ray ray(camera.origin + direction * 140, direction.Normalize());
+        double distance; // distance to intersection
+        int id = 0; // id of intersected object
+
+        if (Intersect(ray, distance, id))
+        {
+            const Sphere& obj = Scene[id]; // the hit object
+
+            // intersection property
+            Vector3 position = ray.origin + ray.direction * distance;
+            Normal3 normal = (position - obj.center).Normalize();
+            Normal3 shading_normal = normal.Dot(ray.direction) < 0 ? normal : normal * -1;
+
+            r = r + obj.color * 1. / samplesPerPixel; // this is surface albedo $\rho$
+        }
+    }
+
+    int index = (height - y - 1) * width + x;
+    film[index] = Color(Clamp(r.x), Clamp(r.y), Clamp(r.z));
 }
 
 class Device
 {
 public:
-    Color* Render(int width, int height, int samplesPerPixel, const Ray& camera, const Vector3& cx, const Vector3& cy)
+    Color* Render(int width, int height, int samplesPerPixel)
     {
         Color* film;
         size_t film_size = width * height * 3 * sizeof(double);
@@ -360,45 +371,10 @@ public:
         int ty = 8;
         dim3 blocks(width / tx + 1, height / ty + 1);
         dim3 threads(tx, ty);
-        kernel<<<blocks, threads>>>(film, width, height);
+        Kernel<<<blocks, threads>>>(film, width, height, samplesPerPixel);
 
         CHECK_CUDA(cudaGetLastError());
         CHECK_CUDA(cudaDeviceSynchronize());
-
-        /*
-        for (int y = 0; y < height; y++) // Loop over image rows
-        {
-            fprintf(stderr, "\rRendering (%d spp) %5.2f%%", samplesPerPixel * 4, 100. * y / (height - 1));
-
-            unsigned short sampler[3] = { 0, 0, y * y * y };
-            for (unsigned short x = 0; x < width; x++) // Loop cols
-            {
-                Color Li{};
-                int i = (height - y - 1) * width + x;
-                for (int sy = 0; sy < 2; sy++) // 2x2 subpixel rows
-                {
-                    for (int sx = 0; sx < 2; sx++) // 2x2 subpixel cols
-                    {
-                        for (int s = 0; s < samplesPerPixel; s++)
-                        {
-                            double random1 = 2 * erand48(sampler);
-                            double random2 = 2 * erand48(sampler);
-                            double dx = random1 < 1 ? sqrt(random1) - 1 : 1 - sqrt(2 - random1);
-                            double dy = random2 < 1 ? sqrt(random2) - 1 : 1 - sqrt(2 - random2);
-
-                            Vector3 direction =
-                                cx * (((sx + .5 + dx) / 2 + x) / width - .5) +
-                                cy * (((sy + .5 + dy) / 2 + y) / height - .5) + camera.direction;
-
-                            Li = Li + Radiance(Ray(camera.origin + direction * 140, direction.Normalize()), 0, sampler) * (1. / samplesPerPixel);
-                        } // Camera rays are pushed ^^^^^ forward to start in interior
-
-                        film[i] = film[i] + Vector3(Clamp(Li.x), Clamp(Li.y), Clamp(Li.z)) * .25;
-                    }
-                }
-            }
-        }
-        */
 
         return film;
     }
@@ -418,14 +394,19 @@ private:
 #error
 #endif
 
-#else
+#else // CPU_RENDER
 
 class Device
 {
 public:
-    Color* Render(int width, int height, int samplesPerPixel, const Ray& camera, const Vector3& cx, const Vector3& cy)
+    Color* Render(int width, int height, int samplesPerPixel)
     {
         film = new Vector3[width * height];
+
+        // right hand
+        Ray camera(Vector3(50, 52, 295.6), Vector3(0, -0.042612, -1).Normalize()); // camera posotion, direction
+        Vector3 cx = Vector3(width * .5135 / height); // left
+        Vector3 cy = (cx.Cross(camera.direction)).Normalize() * .5135; // up
 
         #pragma omp parallel for schedule(dynamic, 1) // OpenMP
         for (int y = 0; y < height; y++) // Loop over image rows
@@ -474,20 +455,17 @@ private:
     Color* film;
 };
 
-#endif // GPU_RENDER
+#endif
+
+
 
 int main(int argc, char* argv[])
 {
     int width = 1024, height = 768;
     int samplesPerPixel = argc == 2 ? atoi(argv[1]) / 4 : 1;
-
-    // right hand
-    Ray camera(Vector3(50, 52, 295.6), Vector3(0, -0.042612, -1).Normalize()); // camera posotion, direction
-    Vector3 cx = Vector3(width * .5135 / height); // left
-    Vector3 cy = (cx.Cross(camera.direction)).Normalize() * .5135; // up
     
     Device device;
-    Color* film = device.Render(width, height, samplesPerPixel, camera, cx, cy);
+    Color* film = device.Render(width, height, samplesPerPixel);
 
     FILE* image;
     errno_t err = fopen_s(&image, "image_kernel.ppm", "w"); // Write image to PPM file.
