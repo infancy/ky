@@ -352,7 +352,7 @@ public:
         size_t stackSize{};
         CHECK_CUDA(cudaDeviceGetLimit(&stackSize, cudaLimitStackSize));
         printf("stack size: %d\n", stackSize);
-        CHECK_CUDA(cudaDeviceSetLimit(cudaLimitStackSize, stackSize * 50));
+        CHECK_CUDA(cudaDeviceSetLimit(cudaLimitStackSize, stackSize * 3));
 
         Color* film;
         size_t film_size = width * height * 3 * sizeof(double);
