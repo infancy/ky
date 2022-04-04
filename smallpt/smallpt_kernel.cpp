@@ -1,5 +1,4 @@
 // http://www.kevinbeason.com/smallpt
-#include "erand48.h" // pseudo-random number generator, not in <cstdlib>
 #include <cmath>    // smallpt, a Path Tracer by Kevin Beason, 2008
 #include <cstdlib>  // Make : g++ -O3 -fopenmp smallpt.cpp -o smallpt
 #include <cstdio>   //        Remove "-fopenmp" for g++ version < 4.2
@@ -19,7 +18,6 @@
 #elif defined(USE_HIP)
 // TODO
 #endif
-
 
 #if defined(USE_CUDA) || defined(USE_HIP)
     #define GPU_RENDER
@@ -45,10 +43,18 @@
 
 
 #if defined(GPU_RENDER)
-constexpr double Pi = 3.1415626;
+constexpr double Pi = 3.141592653589793;
 #else
 constexpr double Pi = std::numbers::pi;
 #endif
+
+struct RandomLCG
+{
+    unsigned mSeed;
+
+    KERNEL RandomLCG(unsigned seed = 0) : mSeed(seed) {}
+    KERNEL double operator()() { mSeed = 214013 * mSeed + 2531011; return mSeed * (1.0 / 4294967296); }
+};
 
 struct Vector3
 {                   // Usage: time ./smallpt 5000 && xv image.ppm
@@ -177,7 +183,7 @@ KERNEL inline bool Intersect(const Ray& ray, double& minDistance, int& id)
     return minDistance < infinity;
 }
 
-KERNEL Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
+KERNEL Color Radiance(const Ray& ray, int depth, RandomLCG& rng)
 {
     double distance; // distance to intersection
     int id = 0; // id of intersected object
@@ -201,7 +207,7 @@ KERNEL Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
     //russian roulette
     if (++depth > 5)
     {
-        if (erand48(sampler) < max_component)
+        if (rng() < max_component)
             f = f * (1 / max_component);
         else
             return obj.emission;
@@ -209,8 +215,8 @@ KERNEL Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
 
     if (obj.materialType == MaterialType::Diffuse) // Ideal Diffuse reflection
     {
-        double random1 = 2 * Pi * erand48(sampler);
-        double random2 = erand48(sampler);
+        double random1 = 2 * Pi * rng();
+        double random2 = rng();
         double random2Sqrt = sqrt(random2);
 
         // shading coordinate on intersection
@@ -224,12 +230,12 @@ KERNEL Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
         f = f / Pi; // for lambert brdf, f = R / Pi;
         double abs_cos_theta = std::abs(shading_normal.Dot(direction));
         double pdf = abs_cos_theta / Pi; // cosine-weighted sampling
-        return obj.emission + (f * Radiance(Ray(position, direction), depth, sampler) * abs_cos_theta) / pdf;
+        return obj.emission + (f * Radiance(Ray(position, direction), depth, rng) * abs_cos_theta) / pdf;
     }
     else if (obj.materialType == MaterialType::Specular) // Ideal Specular reflection
     {
         Vector3 direction = ray.direction - normal * 2 * normal.Dot(ray.direction);
-        return obj.emission + f * Radiance(Ray(position, direction), depth, sampler);
+        return obj.emission + f * Radiance(Ray(position, direction), depth, rng);
     }
     else // Ideal Dielectric Refraction
     {
@@ -249,7 +255,7 @@ KERNEL Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
         double cosThetaI = ray.direction.Dot(shading_normal);
         double cosThetaT2 = cosThetaT2 = 1 - eta * eta * (1 - cosThetaI * cosThetaI);
         if (cosThetaT2 < 0) // Total internal reflection
-            return obj.emission + f * Radiance(reflectRay, depth, sampler);
+            return obj.emission + f * Radiance(reflectRay, depth, rng);
         double cosThetaT = sqrt(cosThetaT2);
         Vector3 refractDirection = (ray.direction * eta - normal * ((into ? 1 : -1) * (cosThetaI * eta + cosThetaT))).Normalize();
 
@@ -274,18 +280,18 @@ KERNEL Color Radiance(const Ray& ray, int depth, unsigned short* sampler)
         if (depth > 2)
         {
             // Russian roulette
-            if (erand48(sampler) < P)
+            if (rng() < P)
             {
-                Li = Radiance(reflectRay, depth, sampler) * RP;
+                Li = Radiance(reflectRay, depth, rng) * RP;
             }
             else
             {
-                Li = Radiance(Ray(position, refractDirection), depth, sampler) * TP;
+                Li = Radiance(Ray(position, refractDirection), depth, rng) * TP;
             }
         }
         else
         {
-            Li = Radiance(reflectRay, depth, sampler) * Re + Radiance(Ray(position, refractDirection), depth, sampler) * Tr;
+            Li = Radiance(reflectRay, depth, rng) * Re + Radiance(Ray(position, refractDirection), depth, rng) * Tr;
         }
 
         return obj.emission + f * Li;
@@ -324,38 +330,19 @@ ENTRY void Kernel(Color* film, int width, int height, int samplesPerPixel)
     Vector3 cx = Vector3(width * .5135 / height); // left
     Vector3 cy = (cx.Cross(camera.direction)).Normalize() * .5135; // up
 
-    Color r;
+    Color color;
+    RandomLCG rng;
     for (int s = 0; s < samplesPerPixel; ++s)
     {
-        /*
-        Vector3 direction = cx * ((erand48(Xi) + x) / width - .5) +
-                            cy * ((erand48(Xi) + y) / height - .5) + camera.direction;
+        Vector3 direction = cx * ((rng() + x) / width - .5) +
+                            cy * ((rng() + y) / height - .5) + camera.direction;
 
-        r = r + Radiance(Ray(camera.origin + direction * 140, direction.Normalize()), 0, Xi) * (1. / samplesPerPixel);
-        */ 
-
-        Vector3 direction = cx * (double( x) / width - .5) +
-                            cy * (double( y) / height - .5) + camera.direction;
-
-        Ray ray(camera.origin + direction * 140, direction.Normalize());
-        double distance; // distance to intersection
-        int id = 0; // id of intersected object
-
-        if (Intersect(ray, distance, id))
-        {
-            const Sphere& obj = Scene[id]; // the hit object
-
-            // intersection property
-            Vector3 position = ray.origin + ray.direction * distance;
-            Normal3 normal = (position - obj.center).Normalize();
-            Normal3 shading_normal = normal.Dot(ray.direction) < 0 ? normal : normal * -1;
-
-            r = r + obj.color * 1. / samplesPerPixel; // this is surface albedo $\rho$
-        }
+        color = color + Radiance(Ray(camera.origin + direction * 140, direction.Normalize()), 0, rng);
     }
+    color = color * (1. / samplesPerPixel);
 
     int index = (height - y - 1) * width + x;
-    film[index] = Color(Clamp(r.x), Clamp(r.y), Clamp(r.z));
+    film[index] = Color(Clamp(color.x), Clamp(color.y), Clamp(color.z));
 }
 
 class Device
@@ -411,9 +398,9 @@ public:
         #pragma omp parallel for schedule(dynamic, 1) // OpenMP
         for (int y = 0; y < height; y++) // Loop over image rows
         {
-            fprintf(stderr, "\rRendering (%d spp) %5.2f%%", samplesPerPixel * 4, 100. * y / (height - 1));
+            fprintf(stderr, "\rRendering (%d spp) %5.2f%%", samplesPerPixel, 100. * y / (height - 1));
 
-            unsigned short sampler[3] = { 0, 0, y * y * y };
+            RandomLCG rng;
             for (unsigned short x = 0; x < width; x++) // Loop cols
             {
                 Color Li{};
@@ -424,8 +411,8 @@ public:
                     {
                         for (int s = 0; s < samplesPerPixel; s++)
                         {
-                            double random1 = 2 * erand48(sampler);
-                            double random2 = 2 * erand48(sampler);
+                            double random1 = 2 * rng();
+                            double random2 = 2 * rng();
                             double dx = random1 < 1 ? sqrt(random1) - 1 : 1 - sqrt(2 - random1);
                             double dy = random2 < 1 ? sqrt(random2) - 1 : 1 - sqrt(2 - random2);
 
@@ -433,7 +420,7 @@ public:
                                 cx * (((sx + .5 + dx) / 2 + x) / width - .5) +
                                 cy * (((sy + .5 + dy) / 2 + y) / height - .5) + camera.direction;
 
-                            Li = Li + Radiance(Ray(camera.origin + direction * 140, direction.Normalize()), 0, sampler) * (1. / samplesPerPixel);
+                            Li = Li + Radiance(Ray(camera.origin + direction * 140, direction.Normalize()), 0, rng) * (1. / samplesPerPixel);
                         } // Camera rays are pushed ^^^^^ forward to start in interior
 
                         film[i] = film[i] + Vector3(Clamp(Li.x), Clamp(Li.y), Clamp(Li.z)) * .25;
