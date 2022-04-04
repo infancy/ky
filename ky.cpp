@@ -100,19 +100,18 @@ private:
 
 
 template <typename... Ts>
-inline void _LOG(const std::source_location& location, const std::string_view fmt, Ts&&... args)
+inline void _LOG(const std::source_location& location, const std::string& fmt, Ts&&... args)
 {
-    auto msg = std::format("{}(...) line{}: ", location.function_name(), location.line()) + 
-        std::format(fmt, std::forward<Ts>(args)...);
+    auto msg = std::format("{}(...) line{}: " + fmt,
+        location.function_name(), location.line(), std::forward<Ts>(args)...);
     std::printf("%s", msg.c_str());
 }
 
-// TODO: file, line
 template <typename... Ts>
-inline void _LOG_ERROR(const std::source_location& location, const std::string_view fmt, Ts&&... args)
+inline void _LOG_ERROR(const std::source_location& location, const std::string& fmt, Ts&&... args)
 {
-    auto msg = std::format("{}(...) line{}: ", location.function_name(), location.line()) + 
-        std::format(fmt, std::forward<Ts>(args)...);
+    auto msg = std::format("{}(...) line{}: " + fmt, 
+        location.function_name(), location.line(), std::forward<Ts>(args)...);
     std::printf("%s", msg.c_str());
 
     throw std::exception(msg.c_str());
@@ -3406,8 +3405,9 @@ enum class direct_sample_enum_t
 enum class integrater_enum_t
 {
     // debug
-    depth,
+    position,
     normal,
+    albedo,
 
     // discrete
     delta_bsdf, // + area light
@@ -3810,16 +3810,72 @@ protected:
 };
 
 
-/*
-class direct_lighting_t : public integrater_t
+class debug_integrater_t : public integrater_t
 {
+private:
+    integrater_enum_t integrater_enum_;
+
 public:
-    direct_lighting_t()
+    debug_integrater_t(integrater_enum_t integrater_enum_) :
+        integrater_enum_{ integrater_enum_ }
     {
+    }
+
+    color_t Li(ray_t ray, scene_t* scene, sampler_t* sampler) override
+    {
+        isect_t isect;
+        if (scene->intersect(ray, &isect))
+        {
+            switch (integrater_enum_)
+            {
+            case integrater_enum_t::position:
+                return isect.position.normalize();
+            case integrater_enum_t::normal:
+                return isect.normal.normalize();
+            case integrater_enum_t::albedo:
+                return isect.bsdf()->f(isect.wo, isect.normal); // TODO
+            }
+        }
+
+        return color_t();
     }
 };
 
+class direct_lighting_t : public integrater_t
+{
+private:
+    direct_sample_enum_t direct_sample_enum_;
 
+public:
+    direct_lighting_t(direct_sample_enum_t direct_sample_enum) :
+        direct_sample_enum_{ direct_sample_enum }
+    {
+    }
+
+    color_t Li(ray_t ray, scene_t* scene, sampler_t* sampler) override
+    {
+        isect_t isect;
+        bool hit = scene->intersect(ray, &isect);
+        if (!hit)
+        {
+            if (auto env_light = scene->environment_light(); env_light != nullptr)
+                return env_light->Le(ray);
+        }
+
+        // emission lighting
+        color_t Lo = isect.Le();
+
+        if (!isect.bsdf()->is_delta())
+        {
+            // direct lighting
+            Lo += sample_all_light(isect, scene, *sampler, true, direct_sample_enum_);
+        }
+
+        return Lo;
+    }
+};
+
+/*
 class stochastic_raytracing_t : public integrater_t
 {
 public:
@@ -4146,7 +4202,7 @@ void render_single_scene(int argc, char* argv[])
     std::unique_ptr<sampler_t> sampler =
         std::make_unique<random_sampler_t>(samples_per_pixel);
     std::unique_ptr<integrater_t> integrater =
-        std::make_unique<path_tracing_iteration_t>(5, direct_sample_enum_t::both_mis);
+        std::make_unique<direct_lighting_t>(direct_sample_enum_t::both_mis);
 
     scene_t scene = scene_t::create_mis_scene(film.get_resolution());
     //scene_t scene = scene_t::create_cornell_box_scene(
@@ -4168,6 +4224,34 @@ void render_single_scene(int argc, char* argv[])
     })
     .detach();
     */
+#endif
+}
+
+void render_debug(int argc, char* argv[])
+{
+    film_grid_t film(1, 3, 512, 308);
+    std::unique_ptr<sampler_t> sampler = std::make_unique<random_sampler_t>(10);
+    scene_t scene = scene_t::create_mis_scene(film.get_resolution());
+
+    auto debug_integrater_enums = std::vector<integrater_enum_t>
+    {
+        integrater_enum_t::position,
+        integrater_enum_t::normal,
+        integrater_enum_t::albedo
+    };
+
+    for (auto debug_integrater_enum : debug_integrater_enums)
+    {
+        std::unique_ptr<integrater_t> integrater =
+            std::make_unique<debug_integrater_t>(debug_integrater_enum);
+        integrater->render(&scene, sampler.get(), &film);
+
+        film.next_cell();
+    }
+
+    film.store_image("render_debug.bmp"s);
+#ifdef KY_WINDOWS
+    system("mspaint render_debug.bmp");
 #endif
 }
 
@@ -4344,10 +4428,11 @@ int main(int argc, char* argv[])
     clock_t start = clock(); // MILO
 
     //render_single_scene(argc, argv);
+    render_debug(argc, argv);
     //render_direct_sample_enum(argc, argv);
     //render_multiple_scene(argc, argv);
     //render_mis_scene(argc, argv);
-    render_lighting_enum();
+    //render_lighting_enum();
 
     LOG("\n{} sec\n", (Float)(clock() - start) / CLOCKS_PER_SEC); // MILO
     return 0;

@@ -12,6 +12,10 @@ the name `ky` is meaningless, you can call this project `structured smallpt`, `s
 ky is based on smallpt at first, gradually rewritten into PBRT style...
 -->
 
+`render_debug()`:
+
+![](./docs/images/render_debug.png)
+
 `render_lighting_enum()`:
 
 ![](./docs/images/lighting_enum.jpg)
@@ -20,7 +24,7 @@ ky is based on smallpt at first, gradually rewritten into PBRT style...
 
 ![](./docs/images/veach_mis.jpg)
 
-`render_multi_sceen()`:
+`render_multiple_scene()`:
 
 ![](./docs/images/multi_scene_mis.jpg)
 
