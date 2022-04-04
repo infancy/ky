@@ -46,7 +46,7 @@
    Sphere(1e5, Vec(50, 1e5, 81.6),    Vec(),Vec(.75,.75,.75),DIFF),//Botm 
    Sphere(1e5, Vec(50,-1e5+81.6,81.6),Vec(),Vec(.75,.75,.75),DIFF),//Top 
    Sphere(16.5,Vec(50,16.5,62),       Vec(),Vec(1,1,1)*.999, SPEC),//Mirr 
-   Sphere(600, Vec(50,681.6-.27,81.6),Vec(24,24,24),  Vec(), DIFF) //Lite 
+   Sphere(600, Vec(50,681.6-.27,81.6),Vec(12,12,12),  Vec(), DIFF) //Lite 
  }; 
   
  inline double clamp(double x){ return x<0 ? 0 : x>1 ? 1 : x; } 
@@ -99,7 +99,7 @@
 
          r = r + radiance(Ray(cam.o+d*140,d.norm()),0,Xi)*(1./samps); 
        } // Camera rays are pushed ^^^^^ forward to start in interior 
-       c[i] = c[i] + Vec(clamp(r.x),clamp(r.y),clamp(r.z))*.25; 
+       c[i] = c[i] + Vec(clamp(r.x),clamp(r.y),clamp(r.z)); 
      } 
    } 
   
