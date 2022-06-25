@@ -1,5 +1,5 @@
-#include <cmath>   // smallpt, a Path Tracer by Kevin Beason, 2008
-#include <cstdlib> // Make : g++ -O3 -fopenmp smallpt.cpp -o smallpt
+#include <cmath>
+#include <cstdlib>
 #include <cstdio>
 #include <ctime>
 
@@ -20,7 +20,9 @@
 #include <string_view>
 #include <thread>
 #include <vector>
+
 using namespace std::literals::string_literals;
+
 
 
 #pragma region macro
@@ -213,7 +215,7 @@ using point2_t = vec2_t;
 
 
 struct vec3_t
-{        // Usage: time ./smallpt 5000 && xv image.ppm
+{
     union
     {
         struct { Float x, y, z; };
@@ -1466,6 +1468,7 @@ public:
     }
 
 public:
+    // TODO
     //virtual bool store_image(bool with_alpha);
     virtual bool store_image(std::string filename, bool with_alpha = false) const
     {
@@ -1570,6 +1573,11 @@ public:
 
 
         return true;
+    }
+
+    static bool store_hdr_impl(const std::string& filename, int width, int height, int channel, const Float* floats)
+    {
+
     }
 
 private:
@@ -2046,39 +2054,6 @@ private:
     color_t R_;
 };
 
-// TODO
-class specular_transmission_t : public bsdf_t
-{
-public:
-    specular_transmission_t(const frame_t& shading_frame, const color_t& T) :
-        bsdf_t(shading_frame), T_{ T }
-    {
-    }
-
-    bool is_delta() const override { return true; }
-
-    color_t f_(const vec3_t& wo, const vec3_t& wi) const override { return color_t(); }
-    Float pdf_(const vec3_t& wo, const vec3_t& wi) const override { return 0; }
-
-    bsdf_sample_t sample_f_(const vec3_t& wo, const float2_t& random) const override
-    {
-        // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#SpecularTransmission
-        // https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.h#L410-L436
-        // https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.cpp#L198-L218
-
-        bsdf_sample_t sample;
-        sample.wi = vec3_t(-wo.x, -wo.y, wo.z); // TODO ERROR
-        sample.pdf = 1;
-        sample.f = T_ / abs_cos_theta(sample.wi);
-        sample.bsdf_type = bsdf_enum_t::transmission | bsdf_enum_t::specluar;
-
-        CHECK_DEBUG(sample.f.is_valid());
-        return sample;
-    }
-
-private:
-    color_t T_;
-};
 
 
 class fresnel_specular_t : public bsdf_t
@@ -2271,26 +2246,13 @@ private:
     Float exponent_;
 };
 
-// physically based(energy conservation) Blinn-Phong specular reflection model
-// Minimalist Cook-Torrance Microfacet Specular BRDF
-// The Blinn-Phong Normalization Zoo | The Tenth Planet http://www.thetenthplanet.de/archives/255
-class blinn_phong_specular_reflection_t : public bsdf_t
-{
-public:
-    blinn_phong_specular_reflection_t(const frame_t& shading_frame, const color_t& Ks, Float exponent) :
-        bsdf_t(shading_frame), Ks_{ Ks }, exponent_{ exponent }
-    {
-    }
-
-private:
-    color_t Ks_;
-    Float exponent_;
-};
-
 #pragma endregion
 
-// TODO
+#pragma region texture
+
 // class texture_t
+
+#pragma endregion
 
 #pragma region material
 
@@ -2405,7 +2367,7 @@ private:
 
 #pragma region light
 
-enum class light_flag : int
+enum class light_flag
 {
     delta_position = 1,
     delta_direction = 2,
@@ -4039,11 +4001,17 @@ public:
 
 
 
+#pragma region window/input
+
+#pragma endregion
+
 #pragma region interactive/debug
 
 // single ray debug
 
 #pragma endregion
+
+
 
 #pragma region main
 
@@ -4309,10 +4277,3 @@ int main(int argc, char* argv[])
 }
 
 #pragma endregion
-
-
-
-#pragma region window/input
-
-#pragma endregion
-

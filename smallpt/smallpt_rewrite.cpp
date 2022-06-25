@@ -1,5 +1,5 @@
 // `structured smallpt`, or call it `smallpbrt`
-// http://www.kevinbeason.com/smallp
+// http://www.kevinbeason.com/smallpt
 
 #include <cmath>    // smallpt, a Path Tracer by Kevin Beason, 2008
 #include <cstdlib>  // Make : g++ -O3 -fopenmp smallpt.cpp -o smallpt

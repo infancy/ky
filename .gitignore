@@ -33,9 +33,13 @@
 
 # Other
 .vs
+assets
 build
+enhance
+enhance_
 ky
 out
+simpleify
 style
 tmp
 *.lnk
