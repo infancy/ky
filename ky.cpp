@@ -1468,6 +1468,9 @@ public:
     }
 
 public:
+
+#pragma region store
+
     // TODO
     //virtual bool store_image(bool with_alpha);
     virtual bool store_image(std::string filename, bool with_alpha = false) const
@@ -1580,6 +1583,8 @@ public:
 
     }
 
+#pragma endregion
+
 private:
     int32_t width_;
     int32_t height_;
@@ -1669,6 +1674,7 @@ public:
     }
 
 public:
+    // generate primary ray from camera
     virtual ray_t generate_ray(const camera_sample_t& sample) const
     {
         vec3_t direction =
@@ -1992,7 +1998,11 @@ public:
 
     bool is_delta() const override { return false; }
 
-    color_t f_(const vec3_t& wo, const vec3_t& wi) const override { return R_ * k_inv_pi; }
+    color_t f_(const vec3_t& wo, const vec3_t& wi) const override
+    {
+        return R_ * k_inv_pi;
+    }
+
     Float pdf_(const vec3_t& wo, const vec3_t& wi) const override
     {
         return same_hemisphere(wo, wi) ? pdf_hemisphere_cosine(abs_cos_theta(wi)) : 0;
@@ -2250,6 +2260,7 @@ private:
 
 #pragma region texture
 
+// TODO
 // class texture_t
 
 #pragma endregion
@@ -3201,7 +3212,10 @@ void environment_light_t::preprocess(const scene_t& scene)
 /* 
   Li = Lo = Le + ∫Li
           = Le + ∫(Le + ∫Li)
-          = Le + ∫Le + ∫∫(Le + ∫Li)) = ...
+          = Le + ∫Le  + ∫∫Li
+          = Le + ∫Le  + ∫∫(Le + ∫Li)
+          = Le + ∫Le  + ∫∫Le  + ∫∫∫(Le + ∫Li)
+          = Le + ∫Le  + ∫∫Le  + ∫∫∫Le  + ∫∫∫∫Le + ...
 */
 enum class lighting_enum_t
 {
@@ -3271,6 +3285,7 @@ struct light_sample_t
     Float pdf_light{};
 };
 
+// TODO: rename path_sample_t
 struct scene_sample_t
 {
     scene_t* scene{};
@@ -3307,7 +3322,7 @@ public:
         for (int y = 0; y < height; y += 1)
         {
             auto sampler = original_sampler->clone(); // multi thread
-            LOG("rendering... ({} spp) {:.2f}%\r", sampler->ge_samples_per_pixel(), 100. * y / (height - 1));
+            LOG("rendering... {} spp, {:.2f}%\r", sampler->ge_samples_per_pixel(), 100. * y / (height - 1));
 
             for (int x = 0; x < width; x += 1)
             {
@@ -3374,6 +3389,9 @@ public:
     virtual color_t Li(ray_t ray, scene_t* scene, sampler_t* sampler) = 0;
 
 protected:
+
+#pragma region sampling_light
+
     light_sample_t pick_single_light(
         const isect_t& isect, scene_t* scene, sampler_t& sampler)
     {
@@ -3447,8 +3465,11 @@ protected:
         return Ld;
     }
 
+#pragma endregion
+
 protected:
-    // sample direct lighting
+
+#pragma region estimate_direct_lighting
 
     // sample from bsdf/direction
     static color_t estimate_direct_lighting_direction(
@@ -3531,9 +3552,11 @@ protected:
         return Ld;
     }
 
+#pragma endregion
 
-    // sample direct lighting with MIS
+#pragma region estimate_direct_lighting_with_MIS
 
+    // sample from bsdf/direction
     static color_t estimate_direct_lighting_direction_mis(
         const isect_t& isect, const light_t& light,
         const float2_t& random_light, const float2_t& random_bsdf,
@@ -3592,6 +3615,7 @@ protected:
         return Ld;
     }
 
+    // sample from light/position
     static color_t estimate_direct_lighting_position_mis(
         const isect_t& isect, const light_t& light,
         const float2_t& random_light, const float2_t& random_bsdf,
@@ -3639,6 +3663,8 @@ protected:
 
         return Ld;
     }
+
+#pragma endregion
 };
 
 
@@ -3793,6 +3819,7 @@ public:
     }
 };
 
+
 /*
   recursion style path tracing
   Li = Le + T*Le + T*(T*Le + T*(T*Le + ...))
@@ -3815,25 +3842,36 @@ public:
     }
 
 private:
-    /// <param name="is_last_specular"> whether last vertex is specular</param>
-    color_t Li(ray_t ray, scene_t* scene, sampler_t* sampler, int depth, bool is_last_specular, lighting_enum_t lighting_enum)
+    /*
+      prev   n   next
+      ----   ^   ----
+        ^    |    ^
+         \   | θ /
+       wo \  |  / wi is unknown, sampling from bsdf
+           \ | /
+            \|/
+          -------
+           isect
+
+      is_last_specular: whether last vertex is specular
+    */
+    color_t Li(ray_t ray, scene_t* scene, sampler_t* sampler, int depth, bool is_last_specular,
+        lighting_enum_t lighting_enum)
     {
         color_t Lo;
+
         isect_t isect;
         bool hit = scene->intersect(ray, &isect);
 
-        color_t Le = emission_lighting(ray, scene, sampler, depth, is_last_specular, isect, hit);
-
-        if (!hit || (depth >= max_path_depth_))
-        {
-            if(enum_have(lighting_enum, lighting_enum_t::emit))
-                Lo += Le;
-        }
-        else
+        // only accum Le for 
+        if (depth == 0 || is_last_specular)
         {
             if (enum_have(lighting_enum, lighting_enum_t::emit))
-                Lo += Le;
+                Lo += emission_lighting(ray, scene, sampler, depth, is_last_specular, isect, hit);
+        }
 
+        if (hit && (depth < max_path_depth_))
+        {
             if (enum_have(lighting_enum, lighting_enum_t::direct))
                 Lo += direct_lighting(ray, scene, sampler, depth, is_last_specular, isect);
 
@@ -3848,17 +3886,15 @@ private:
         const isect_t& isect, bool hit)
     {
         color_t Le;
-        if (depth == 0 || is_last_specular)
+
+        if (hit)
         {
-            if (hit)
-            {
-                Le = isect.Le();
-            }
-            else
-            {
-                if (auto env_light = scene->environment_light(); env_light != nullptr)
-                    Le = env_light->Le(ray);
-            }
+            Le = isect.Le();
+        }
+        else
+        {
+            if (auto env_light = scene->environment_light(); env_light != nullptr)
+                Le = env_light->Le(ray);
         }
 
         return Le;
@@ -3868,59 +3904,66 @@ private:
         const isect_t& isect)
     {
         color_t Ld{};
-        // skip specular bsdf
+
+        // skip specular bsdf (delta distribute)
         if (!isect.bsdf()->is_delta())
         {
             Ld = sample_all_light(isect, scene, *sampler, true, direct_sample_enum_);
         }
+
         return Ld;
     }
 
+    // for diffuse/glossy BSDF, compute indirect lighting, so skip _Le_ on Li()
+    // for specular BSDF, compute reflect/refract direciotn's lighting, so skip _Ld_ on direct_lighting()
     color_t indirect_lighting(ray_t ray, scene_t* scene, sampler_t* sampler, int depth, bool is_last_specular,
         const isect_t& isect, lighting_enum_t lighting_enum)
     {
         auto bs = isect.bsdf()->sample_f(isect.wo, sampler->get_float2());
 
         if (bs.f.is_black() || bs.pdf == 0.f)
-            return color_t();
+            return color_t{};
 
         //russian roulette
         if (++depth > 3)
         {
             Float bsdf_max_comp = bs.f.max_component_value();
+
             if (sampler->get_float() < bsdf_max_comp) // continue
-                bs.f *= (1 / bsdf_max_comp);
+                bs.f *= 1 / bsdf_max_comp;
             else
-                return isect.Le();
+                return color_t{};
         }
 
-        ray_t wi_ray(isect.position, bs.wi);
+        ray_t wi_ray{ isect.position, bs.wi };
         return bs.f * Li(wi_ray, scene, sampler, depth, isect.bsdf()->is_delta(), lighting_enum) * abs_dot(bs.wi, isect.normal) / bs.pdf;
     }
 };
 
+
 /*
   iteration style path tracing
-  Li = Le + T*Le + T^2*Le + ...
+  Li = Le + T*Le + T*(T*Le + T*(T*Le + ...))
+     = Le + T*Le + T^2*Le  + ...
 */
 class path_tracing_iteration_t : public path_integrater_t
 {
 public:
     using path_integrater_t::path_integrater_t;
 
-    // sample direction on front vertexs, and sample position/point/area on last vertex
-    // Le + T * Le + T(T * Le + T(T * Le + T(...)))
-    // Le(emit), Ld(direct), Li(indirect)
+    // sample bsdf/direction on front vertexs, and sample light/position on final vertex
     color_t Li(ray_t ray, scene_t* scene, sampler_t* sampler) override
     {
+        // Lo(out), Le(emit), Ld(direct), Li(indirect)
         color_t Lo{};
-        color_t beta(1., 1., 1.); // beta holds path throughput weight
+
+        color_t beta{ 1, 1, 1 }; // beta holds path throughput weight
         bool is_last_specular = false; // if last vertex's material has perfect specular property
 
         for (int bounces = 0; ; ++bounces)
         {
-            // Find next path vertex and accumulate contribution
-            // Intersect _ray_ with scene and store intersection in _isect_
+            // find next path vertex and accumulate contribution
+            // cast _ray_ to scene and store intersection in _isect_
             isect_t isect;
             bool hit = scene->intersect(ray, &isect);
 
@@ -3961,7 +4004,7 @@ public:
 
             // Li: indirect lighting (compute by next iteration)
 
-            // Sample BSDF to get new path direction
+            // sample BSDF to get new path direction
             auto bs = isect.bsdf()->sample_f(isect.wo, sampler->get_float2());
 
             if (bs.f.is_black() || bs.pdf == 0.f)
@@ -3976,8 +4019,7 @@ public:
             is_last_specular = is_delta_bsdf(bs.bsdf_type);
             ray = isect.spawn_ray(bs.wi); 
 
-            // Possibly terminate the path with Russian roulette.
-            // Factor out radiance scaling due to refraction in rrBeta.
+            // possibly terminate the path with Russian roulette.
             if (bounces > 3)
             {
                 Float beta_max_comp = beta.max_component_value();
@@ -4034,7 +4076,7 @@ class build_t_
 void render_single_scene(int argc, char* argv[])
 {
     int width = 512, height = 308;
-    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 1; // # samples per pixel
+    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 100; // # samples per pixel
 
     film_t film(width, height); //film.clear(color_t(1., 0., 0.));
     std::unique_ptr<sampler_t> sampler =
@@ -4265,8 +4307,8 @@ int main(int argc, char* argv[])
 {
     clock_t start = clock(); // MILO
 
-    //render_single_scene(argc, argv);
-    render_debug(argc, argv);
+    render_single_scene(argc, argv);
+    //render_debug(argc, argv);
     //render_direct_sample_enum(argc, argv);
     //render_multiple_scene(argc, argv);
     //render_mis_scene(argc, argv);
