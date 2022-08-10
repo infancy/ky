@@ -2904,6 +2904,13 @@ public:
     }
 
     const environment_light_t* environment_light() const { return environment_light_; }
+    color_t environment_light(ray_t ray) const
+    {
+        if (environment_light_ != nullptr)
+            return environment_light_->Le(ray);
+
+        return color_t();
+    }
 
 public:
     static scene_t create_cornell_box_scene(cornell_box_enum_t scene_enum, point2_t film_resolution)
@@ -3715,15 +3722,14 @@ public:
     {
         isect_t isect;
         bool hit = scene->intersect(ray, &isect);
+
         if (!hit)
-        {
-            if (auto env_light = scene->environment_light(); env_light != nullptr)
-                return env_light->Le(ray);
-        }
+            return scene->environment_light(ray);
 
         // emission lighting
         color_t Lo = isect.Le();
 
+        // TODO
         if (!isect.bsdf()->is_delta())
         {
             // direct lighting
@@ -3783,10 +3789,7 @@ public:
         isect_t isect;
         if (!scene->intersect(ray, &isect))
         {
-            if (auto env_light = scene->environment_light(); env_light != nullptr)
-                return env_light->Le(ray);
-            else
-                return color_t();
+            return scene->environment_light(ray);
         }
 
         if (depth >= max_path_depth_)
@@ -3872,7 +3875,7 @@ public:
 
   `path_tracing_recursion_t` are implemention of above
 
-  since there have duplicate code, in actual code implementatioin, 
+  since there have duplicate code and compute, in actual code implementatioin, 
   only compute specular vertex's reflect/refract direction once, 
   defer it's direct lighting to the next recursion
 
@@ -3895,13 +3898,13 @@ public:
 
     color_t Li(ray_t ray, scene_t* scene, sampler_t* sampler) override
     {
-        return Li(ray, scene, sampler, 0 /*, lighting_enum_*/);
+        return Li(scene, sampler, ray, 0 /*, lighting_enum_*/);
     }
 
 private:
     // cast ray to scene, find the nearest isect, return the indident radiance alone ray's direciotn from isect
     // this function will be called recursion from `indirect_lighting(...)`
-    color_t Li(ray_t ray, scene_t* scene, sampler_t* sampler, int depth)
+    color_t Li(scene_t* scene, sampler_t* sampler, ray_t ray, int depth)
     {
         color_t Lo;
 
@@ -3910,17 +3913,16 @@ private:
 
         if (depth == 0)
         {
-            Lo += emission_lighting(ray, scene, sampler, isect, hit);
+            Lo += emission_lighting(scene, sampler, ray, isect, hit);
         }
 
         if (hit && depth < max_path_depth_)
         {
             if (!isect.bsdf()->is_delta())
             {
-                Lo +=   direct_lighting(ray, scene, sampler, isect);
-                Lo += indirect_lighting(ray, scene, sampler, isect, depth);
+                Lo += direct_lighting(scene, sampler, isect);
             }
-            else // specular bsdf
+            else // specular vertex' direct lighting
             { 
                 bsdf_sample_t bs = isect.bsdf()->sample_f(isect.wo, sampler->get_float2());
 
@@ -3928,18 +3930,18 @@ private:
                 isect_t next_isect;
                 bool next_hit = scene->intersect(wi_ray, &next_isect);
 
-                // direct lighting
-                // TODO: Lo += bs.F0 * emission_lighting(wi_ray, scene, sampler, next_isect, next_hit);
-                Lo += bs.f * emission_lighting(wi_ray, scene, sampler, next_isect, next_hit) * abs_dot(bs.wi, isect.normal) / bs.pdf;
-
-                Lo += indirect_lighting(ray, scene, sampler, isect, depth);
+                // cos_theta is offset, bs.pdf=1 below, so actual:
+                // Lo += isect.bsdf().f(wo, reflect(wo)) * emission_lighting(...);
+                Lo += bs.f * emission_lighting(scene, sampler, wi_ray, next_isect, next_hit) * abs_dot(bs.wi, isect.normal) / bs.pdf;
             }
+
+            Lo += indirect_lighting(scene, sampler, isect, depth);
         }
 
         return Lo;
     }
 
-    color_t emission_lighting(ray_t ray, scene_t* scene, sampler_t* sampler, const isect_t& isect, bool hit)
+    color_t emission_lighting(scene_t* scene, sampler_t* sampler, ray_t ray, const isect_t& isect, bool hit)
     {
         color_t Le;
 
@@ -3949,21 +3951,20 @@ private:
         }
         else
         {
-            if (auto env_light = scene->environment_light(); env_light != nullptr)
-                Le = env_light->Le(ray);
+            Le = scene->environment_light(ray);
         }
 
         return Le;
     }
 
-    color_t direct_lighting(ray_t ray, scene_t* scene, sampler_t* sampler, const isect_t& isect)
+    color_t direct_lighting(scene_t* scene, sampler_t* sampler, const isect_t& isect)
     {
         color_t Ld = sample_all_light(isect, scene, *sampler, true, direct_sample_enum_);
 
         return Ld;
     }
 
-    color_t indirect_lighting(ray_t ray, scene_t* scene, sampler_t* sampler, const isect_t& isect, int depth)
+    color_t indirect_lighting(scene_t* scene, sampler_t* sampler, const isect_t& isect, int depth)
     {
         bsdf_sample_t bs = isect.bsdf()->sample_f(isect.wo, sampler->get_float2());
 
@@ -3982,7 +3983,7 @@ private:
         }
 
         ray_t wi_ray{ isect.position, bs.wi };
-        return bs.f * Li(wi_ray, scene, sampler, depth) * abs_dot(bs.wi, isect.normal) / bs.pdf;
+        return bs.f * Li(scene, sampler, wi_ray, depth) * abs_dot(bs.wi, isect.normal) / bs.pdf;
     }
 };
 
@@ -4005,7 +4006,7 @@ public:
 
     color_t Li(ray_t ray, scene_t* scene, sampler_t* sampler) override
     {
-        return Li(ray, scene, sampler, 0, false /*, lighting_enum_*/);
+        return Li(scene, sampler, ray, 0, false /*, lighting_enum_*/);
     }
 
 private:
@@ -4022,7 +4023,7 @@ private:
 
       is_prev_specular: whether previous vertex is specular<
     */
-    color_t Li(ray_t ray, scene_t* scene, sampler_t* sampler, int depth, bool is_prev_specular)
+    color_t Li(scene_t* scene, sampler_t* sampler, ray_t ray, int depth, bool is_prev_specular)
     {
         color_t Lo;
 
@@ -4030,27 +4031,27 @@ private:
         bool hit = scene->intersect(ray, &isect);
 
         // current isect's _Le_ is already integral by previous vertex's direct lighting
-        // only accumulate _Le_ for first vertex, or previous vertex is specular(it skips integral, restore below)  
+        // only accumulate _Le_ for first vertex, or previous vertex is specular(it skips integral, restore below)
         if (depth == 0 || is_prev_specular)
         {
-            Lo += emission_lighting(ray, scene, sampler, isect, hit);
+            Lo += emission_lighting(scene, sampler, ray, isect, hit);
         }
 
         if (hit && depth < max_path_depth_)
         {
             if (!isect.bsdf()->is_delta())
             {
-                Lo += direct_lighting(ray, scene, sampler, isect);
+                Lo += direct_lighting(scene, sampler, isect);
             }
             // else, defer specular vertex's direct lighting to the next recursion
 
-            Lo += indirect_lighting(ray, scene, sampler, isect, depth);
+            Lo += indirect_lighting(scene, sampler, isect, depth);
         }
 
         return Lo;
     }
  
-    color_t emission_lighting(ray_t ray, scene_t* scene, sampler_t* sampler, const isect_t& isect, bool hit)
+    color_t emission_lighting(scene_t* scene, sampler_t* sampler, ray_t ray, const isect_t& isect, bool hit)
     {
         color_t Le;
 
@@ -4060,14 +4061,13 @@ private:
         }
         else
         {
-            if (auto env_light = scene->environment_light(); env_light != nullptr)
-                Le = env_light->Le(ray);
+            Le = scene->environment_light(ray);
         }
 
         return Le;
     }
  
-    color_t direct_lighting(ray_t ray, scene_t* scene, sampler_t* sampler, const isect_t& isect)
+    color_t direct_lighting(scene_t* scene, sampler_t* sampler, const isect_t& isect)
     {
         color_t Ld = sample_all_light(isect, scene, *sampler, true, direct_sample_enum_);
 
@@ -4076,7 +4076,7 @@ private:
 
     // for diffuse/glossy BSDF, compute indirect lighting, so skip _Le_ on Li()
     // for specular BSDF, compute reflect/refract direciotn's lighting, so skip _Ld_ on direct_lighting()
-    color_t indirect_lighting(ray_t ray, scene_t* scene, sampler_t* sampler, const isect_t& isect, int depth)
+    color_t indirect_lighting(scene_t* scene, sampler_t* sampler, const isect_t& isect, int depth)
     {
         auto bs = isect.bsdf()->sample_f(isect.wo, sampler->get_float2());
 
@@ -4095,7 +4095,7 @@ private:
         }
 
         ray_t wi_ray{ isect.position, bs.wi };
-        return bs.f * Li(wi_ray, scene, sampler, depth, isect.bsdf()->is_delta()) * abs_dot(bs.wi, isect.normal) / bs.pdf;
+        return bs.f * Li(scene, sampler, wi_ray, depth, isect.bsdf()->is_delta()) * abs_dot(bs.wi, isect.normal) / bs.pdf;
     }
 };
 
@@ -4140,8 +4140,7 @@ public:
                 }
                 else
                 {
-                    if (auto env_light = scene->environment_light(); env_light != nullptr)
-                        Lo += beta * env_light->Le(ray);
+                    Lo += beta * scene->environment_light(ray);
                 }
             }
 
@@ -4206,6 +4205,10 @@ std::unique_ptr<integrater_t> create_integrater(integrater_enum_t integrater_enu
 {
     switch (integrater_enum)
     {
+    case integrater_enum_t::direct_lighting:
+        return std::make_unique<direct_lighting_t>(direct_sample_enum);
+    case integrater_enum_t::simple_path_tracing_recursion:
+        return std::make_unique<simple_path_tracing_recursion_t>(depth, direct_sample_enum);
     case integrater_enum_t::path_tracing_recursion:
         return std::make_unique<path_tracing_recursion_t>(depth, direct_sample_enum);
     case integrater_enum_t::path_tracing_recursion_defered:
@@ -4253,23 +4256,25 @@ class build_t_
 
 void render_single_scene(int argc, char* argv[])
 {
-    int width = 512, height = 308;
+    //int width = 512, height = 308;
+    int width = 256, height = 256;
     int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 100; // # samples per pixel
 
     film_t film(width, height); //film.clear(color_t(1., 0., 0.));
+
+    //scene_t scene = scene_t::create_mis_scene(film.get_resolution());
+    scene_t scene = scene_t::create_cornell_box_scene(
+        cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_environment, film.get_resolution());
+
     std::unique_ptr<sampler_t> sampler =
         std::make_unique<random_sampler_t>(samples_per_pixel);
-    std::unique_ptr<integrater_t> integrater =
-        std::make_unique<direct_lighting_t>(direct_sample_enum_t::both_mis);
 
-    scene_t scene = scene_t::create_mis_scene(film.get_resolution());
-    //scene_t scene = scene_t::create_cornell_box_scene(
-    //    cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_direction, film.get_resolution());
+    auto integrater = create_integrater(integrater_enum_t::path_tracing_recursion, 5, direct_sample_enum_t::both_mis);
 
 #ifndef KY_DEBUG
     integrater->render(&scene, sampler.get(), &film);
 #else
-    integrater->debug(&scene, sampler.get(), &film, { 0, 160 }, { 5, 165 });
+    integrater->debug(&scene, sampler.get(), &film, { 85, 180 }, { 256, 256 });
 #endif
 
     film.store_image("single.bmp"s);
@@ -4325,12 +4330,14 @@ void render_multiple_integrater()
 
     auto integrater_enums = std::vector<integrater_enum_t>
     {
+        integrater_enum_t::direct_lighting,
+        integrater_enum_t::simple_path_tracing_recursion,
         integrater_enum_t::path_tracing_recursion,
         integrater_enum_t::path_tracing_recursion_defered,
         integrater_enum_t::path_tracing_iteration
     };
 
-    film_grid_t film(4, 3, 256, 256); //film.clear(color_t(1., 0., 0.));
+    film_grid_t film(4, 5, 256, 256); //film.clear(color_t(1., 0., 0.));
     for (auto [scene_enum, spp] : scene_params)
     {
         scene_t scene = scene_t::create_cornell_box_scene(
