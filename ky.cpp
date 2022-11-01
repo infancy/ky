@@ -3274,7 +3274,7 @@ void environment_light_t::preprocess(const scene_t& scene)
 
 
 
-#pragma region integrater
+#pragma region integrator
 
 /* 
   Li = Lo = Le + ∫Li
@@ -3315,7 +3315,7 @@ enum class direct_sample_enum_t
     default_stragtgy = sample_all_light | both_mis
 };
 
-enum class integrater_enum_t
+enum class integrator_enum_t
 {
     // debug
     position,
@@ -3368,11 +3368,11 @@ struct scene_sample_t
   rendering scene by Rendering Equation(Li = Lo = Le + ∫Li)
   solving Rendering Equation(a integral equation) by numerical integration(monte carlo integration)
 */
-class integrater_t
+class integrator_t
 {
 public:
-    ~integrater_t() = default;
-    integrater_t()
+    ~integrator_t() = default;
+    integrator_t()
     {
     }
 
@@ -3736,14 +3736,14 @@ protected:
 };
 
 
-class debug_integrater_t : public integrater_t
+class debug_integrator_t : public integrator_t
 {
 private:
-    integrater_enum_t integrater_enum_;
+    integrator_enum_t integrator_enum_;
 
 public:
-    debug_integrater_t(integrater_enum_t integrater_enum_) :
-        integrater_enum_{ integrater_enum_ }
+    debug_integrator_t(integrator_enum_t integrator_enum_) :
+        integrator_enum_{ integrator_enum_ }
     {
     }
 
@@ -3752,13 +3752,13 @@ public:
         isect_t isect;
         if (scene->intersect(ray, &isect))
         {
-            switch (integrater_enum_)
+            switch (integrator_enum_)
             {
-            case integrater_enum_t::position:
+            case integrator_enum_t::position:
                 return isect.position.normalize();
-            case integrater_enum_t::normal:
+            case integrator_enum_t::normal:
                 return isect.normal.normalize();
-            case integrater_enum_t::albedo:
+            case integrator_enum_t::albedo:
                 return isect.bsdf()->f(isect.wo, isect.normal); // TODO
             }
         }
@@ -3767,7 +3767,7 @@ public:
     }
 };
 
-class direct_lighting_t : public integrater_t
+class direct_lighting_t : public integrator_t
 {
 private:
     direct_sample_enum_t direct_sample_enum_;
@@ -3801,7 +3801,7 @@ public:
 };
 
 /*
-class stochastic_raytracing_t : public integrater_t
+class stochastic_raytracing_t : public integrator_t
 {
 public:
     stochastic_raytracing_t(int max_path_depth) :
@@ -3815,10 +3815,10 @@ protected:
 */
 
 
-class path_integrater_t : public integrater_t
+class path_integrator_t : public integrator_t
 {
 public:
-    path_integrater_t(int max_path_depth, direct_sample_enum_t direct_sample_enum):
+    path_integrator_t(int max_path_depth, direct_sample_enum_t direct_sample_enum):
         max_path_depth_{ max_path_depth },
         direct_sample_enum_{ direct_sample_enum }
     {
@@ -3834,10 +3834,10 @@ protected:
   simple path tracing implementation, only sample BRDF
   Li = Le + T*(Le + T*(le + ...))
 */
-class simple_path_tracing_recursion_t : public path_integrater_t
+class simple_path_tracing_recursion_t : public path_integrator_t
 {
 public:
-    using path_integrater_t::path_integrater_t;
+    using path_integrator_t::path_integrator_t;
 
     color_t Li(ray_t ray, scene_t* scene, sampler_t* sampler) override
     {
@@ -3948,11 +3948,11 @@ public:
   Li = Le + T*Le + T*(T*Le + T*(T*Le + ...))
 */
 
-class path_tracing_recursion_t : public path_integrater_t
+class path_tracing_recursion_t : public path_integrator_t
 {
 public:
     path_tracing_recursion_t(int max_path_depth, direct_sample_enum_t direct_sample_enum) :
-        path_integrater_t(max_path_depth, direct_sample_enum)
+        path_integrator_t(max_path_depth, direct_sample_enum)
     {
     }
 
@@ -4052,14 +4052,14 @@ private:
 /*
   based on path_tracing_recursion_t, defer specular vertex's direct lighting to the next recursion
 */
-class path_tracing_recursion_defered_t : public path_integrater_t
+class path_tracing_recursion_defered_t : public path_integrator_t
 {
 private:
     lighting_enum_t lighting_enum_;
 
 public:
     path_tracing_recursion_defered_t(int max_path_depth, direct_sample_enum_t direct_sample_enum, lighting_enum_t lighting_enum) :
-        path_integrater_t(max_path_depth, direct_sample_enum),
+        path_integrator_t(max_path_depth, direct_sample_enum),
         lighting_enum_{ lighting_enum }
     {
     }
@@ -4166,10 +4166,10 @@ private:
   Li = Le + T*Le + T*(T*Le + T*(T*Le + ...))
      = Le + T*Le + T^2*Le  + ...
 */
-class path_tracing_iteration_t : public path_integrater_t
+class path_tracing_iteration_t : public path_integrator_t
 {
 public:
-    using path_integrater_t::path_integrater_t;
+    using path_integrator_t::path_integrator_t;
 
     // sample bsdf/direction on front vertexs, and sample light/position on final vertex
     color_t Li(ray_t ray, scene_t* scene, sampler_t* sampler) override
@@ -4260,20 +4260,20 @@ public:
 };
 
 
-std::unique_ptr<integrater_t> create_integrater(integrater_enum_t integrater_enum,
+std::unique_ptr<integrator_t> create_integrator(integrator_enum_t integrator_enum,
     int depth, direct_sample_enum_t direct_sample_enum)
 {
-    switch (integrater_enum)
+    switch (integrator_enum)
     {
-    case integrater_enum_t::direct_lighting:
+    case integrator_enum_t::direct_lighting:
         return std::make_unique<direct_lighting_t>(direct_sample_enum);
-    case integrater_enum_t::simple_path_tracing_recursion:
+    case integrator_enum_t::simple_path_tracing_recursion:
         return std::make_unique<simple_path_tracing_recursion_t>(depth, direct_sample_enum);
-    case integrater_enum_t::path_tracing_recursion:
+    case integrator_enum_t::path_tracing_recursion:
         return std::make_unique<path_tracing_recursion_t>(depth, direct_sample_enum);
-    case integrater_enum_t::path_tracing_recursion_defered:
+    case integrator_enum_t::path_tracing_recursion_defered:
         return std::make_unique<path_tracing_recursion_defered_t>(depth, direct_sample_enum, lighting_enum_t::all);
-    case integrater_enum_t::path_tracing_iteration:
+    case integrator_enum_t::path_tracing_iteration:
         return std::make_unique<path_tracing_iteration_t>(depth, direct_sample_enum);
     }
 
@@ -4329,12 +4329,12 @@ void render_single_scene(int argc, char* argv[])
     std::unique_ptr<sampler_t> sampler =
         std::make_unique<random_sampler_t>(samples_per_pixel);
 
-    auto integrater = create_integrater(integrater_enum_t::path_tracing_recursion, 5, direct_sample_enum_t::both_mis);
+    auto integrator = create_integrator(integrator_enum_t::path_tracing_recursion, 5, direct_sample_enum_t::both_mis);
 
 #ifndef KY_DEBUG
-    integrater->render(&scene, sampler.get(), &film);
+    integrator->render(&scene, sampler.get(), &film);
 #else
-    integrater->debug(&scene, sampler.get(), &film, { 85, 180 }, { 256, 256 });
+    integrator->debug(&scene, sampler.get(), &film, { 85, 180 }, { 256, 256 });
 #endif
 
     film.store_image("single.bmp"s);
@@ -4356,18 +4356,18 @@ void render_debug(int argc, char* argv[])
     std::unique_ptr<sampler_t> sampler = std::make_unique<random_sampler_t>(10);
     scene_t scene = scene_t::create_mis_scene(film.get_resolution());
 
-    auto debug_integrater_enums = std::vector<integrater_enum_t>
+    auto debug_integrator_enums = std::vector<integrator_enum_t>
     {
-        integrater_enum_t::position,
-        integrater_enum_t::normal,
-        integrater_enum_t::albedo
+        integrator_enum_t::position,
+        integrator_enum_t::normal,
+        integrator_enum_t::albedo
     };
 
-    for (auto debug_integrater_enum : debug_integrater_enums)
+    for (auto debug_integrator_enum : debug_integrator_enums)
     {
-        std::unique_ptr<integrater_t> integrater =
-            std::make_unique<debug_integrater_t>(debug_integrater_enum);
-        integrater->render(&scene, sampler.get(), &film);
+        std::unique_ptr<integrator_t> integrator =
+            std::make_unique<debug_integrator_t>(debug_integrator_enum);
+        integrator->render(&scene, sampler.get(), &film);
 
         film.next_cell();
     }
@@ -4378,7 +4378,7 @@ void render_debug(int argc, char* argv[])
 #endif
 }
 
-void render_multiple_integrater()
+void render_multiple_integrator()
 {
     auto scene_params = std::vector<std::pair<cornell_box_enum_t, int>>
     {
@@ -4388,13 +4388,13 @@ void render_multiple_integrater()
         { cornell_box_enum_t::light_environment, 10 },
     };
 
-    auto integrater_enums = std::vector<integrater_enum_t>
+    auto integrator_enums = std::vector<integrator_enum_t>
     {
-        integrater_enum_t::direct_lighting,
-        integrater_enum_t::simple_path_tracing_recursion,
-        integrater_enum_t::path_tracing_recursion,
-        integrater_enum_t::path_tracing_recursion_defered,
-        integrater_enum_t::path_tracing_iteration
+        integrator_enum_t::direct_lighting,
+        integrator_enum_t::simple_path_tracing_recursion,
+        integrator_enum_t::path_tracing_recursion,
+        integrator_enum_t::path_tracing_recursion_defered,
+        integrator_enum_t::path_tracing_iteration
     };
 
     film_grid_t film(4, 5, 256, 256); //film.clear(color_t(1., 0., 0.));
@@ -4405,10 +4405,10 @@ void render_multiple_integrater()
         std::unique_ptr<sampler_t> sampler =
             std::make_unique<random_sampler_t>(spp);
 
-        for (auto integrater_enum : integrater_enums)
+        for (auto integrator_enum : integrator_enums)
         {
-            auto integrater = create_integrater(integrater_enum, 5, direct_sample_enum_t::both_mis);
-            integrater->render(&scene, sampler.get(), &film);
+            auto integrator = create_integrator(integrator_enum, 5, direct_sample_enum_t::both_mis);
+            integrator->render(&scene, sampler.get(), &film);
 
             film.next_cell();
         }
@@ -4449,9 +4449,9 @@ void render_direct_sample_enum(int argc, char* argv[])
 
         for (auto sample_enum : sample_enums)
         {
-            std::unique_ptr<integrater_t> integrater =
+            std::unique_ptr<integrator_t> integrator =
                 std::make_unique<path_tracing_iteration_t>(5, sample_enum);
-            integrater->render(&scene, sampler.get(), &film);
+            integrator->render(&scene, sampler.get(), &film);
 
             film.next_cell();
         }
@@ -4485,7 +4485,7 @@ void render_multiple_scene(int argc, char* argv[])
     film_grid_t film(3, 4, 256, 256); //film.clear(color_t(1., 0., 0.));
     for (auto sample_enum : sample_enums)
     {
-        std::unique_ptr<integrater_t> integrater =
+        std::unique_ptr<integrator_t> integrator =
             std::make_unique<path_tracing_iteration_t>(5, sample_enum);
 
         for (auto [scene_enum, spp] : scene_params)
@@ -4495,7 +4495,7 @@ void render_multiple_scene(int argc, char* argv[])
             scene_t scene = scene_t::create_cornell_box_scene(
                 cornell_box_enum_t::both_small_spheres | scene_enum, film.get_resolution());
 
-            integrater->render(&scene, sampler.get(), &film);
+            integrator->render(&scene, sampler.get(), &film);
             film.next_cell();
         }
     }
@@ -4510,9 +4510,9 @@ void render_multiple_scene(int argc, char* argv[])
 
         for (auto sample_enum : sample_enums)
         {
-            std::unique_ptr<integrater_t> integrater =
+            std::unique_ptr<integrator_t> integrator =
                 std::make_unique<path_tracing_iteration_t>(5, sample_enum);
-            integrater->render(&scene, sampler.get(), &film);
+            integrator->render(&scene, sampler.get(), &film);
             
             film.next_cell();
         }
@@ -4543,9 +4543,9 @@ void render_mis_scene(int argc, char* argv[])
 
     for (auto sample_enum : sample_enums)
     {
-        std::unique_ptr<integrater_t> integrater =
+        std::unique_ptr<integrator_t> integrator =
             std::make_unique<path_tracing_iteration_t>(5, sample_enum);
-        integrater->render(&scene, sampler.get(), &film);
+        integrator->render(&scene, sampler.get(), &film);
 
         film.next_cell();
     }
@@ -4575,9 +4575,9 @@ void render_lighting_enum()
 
     for (auto lighing_enum : lighting_enums)
     {
-        std::unique_ptr<integrater_t> integrater =
+        std::unique_ptr<integrator_t> integrator =
             std::make_unique<path_tracing_recursion_defered_t>(10, direct_sample_enum_t::both_mis, lighing_enum);
-        integrater->render(&scene, sampler.get(), &film);
+        integrator->render(&scene, sampler.get(), &film);
 
         film.next_cell();
     }
@@ -4597,7 +4597,7 @@ int main(int argc, char* argv[])
 
     render_single_scene(argc, argv);
     //render_debug(argc, argv);
-    //render_multiple_integrater();
+    //render_multiple_integrator();
     //render_direct_sample_enum(argc, argv);
     //render_multiple_scene(argc, argv);
     //render_mis_scene(argc, argv);
