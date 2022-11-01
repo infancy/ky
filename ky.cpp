@@ -49,39 +49,6 @@ using namespace std::literals::string_literals;
 
 // namespace ky
 
-#pragma region math
-
-//using float_t = float_t; // already defined in math.h
-static_assert(sizeof(float_t) == 4);
-
-using unit_float_t = float_t; // 'normalized float_t', from 0 to 1
-
-using radian_t = float_t;
-using degree_t = float_t;
-
-constexpr float_t k_epsilon = std::numeric_limits<float_t>::epsilon();
-constexpr float_t k_infinity = std::numeric_limits<float_t>::infinity();
-constexpr float_t k_pi = std::numbers::pi;
-constexpr float_t k_2pi = 2 * k_pi;
-constexpr float_t k_pi_over2 = k_pi / 2;
-constexpr float_t k_pi_over4 = k_pi / 4;
-constexpr float_t k_inv_pi = std::numbers::inv_pi;
-constexpr float_t k_inv_2pi = k_inv_pi / 2;
-constexpr float_t k_inv_4pi = k_inv_pi / 4;
-
-constexpr radian_t radians(degree_t deg) { return (k_pi / 180) * deg; }
-constexpr degree_t degrees(radian_t rad) { return (180 / k_pi) * rad; }
-
-constexpr float_t lerp(float_t a, float_t b, float_t t) { return a + t * (b - a); }
-
-inline bool is_infinity(const std::floating_point auto x) { return std::isinf(x); }
-inline bool is_nan(const std::floating_point auto x) { return std::isnan(x); }
-
-inline bool is_invalid(const std::floating_point auto x) { return is_infinity(x) || is_nan(x); }
-inline bool is_valid(const std::floating_point auto x) { return !is_invalid(x); }
-
-#pragma endregion
-
 #pragma region utility
 
 class nocopyable_t
@@ -111,7 +78,7 @@ inline void _LOG(const std::source_location& location, const std::string& fmt, T
 template <typename... Ts>
 inline void _LOG_ERROR(const std::source_location& location, const std::string& fmt, Ts&&... args)
 {
-    auto msg = std::format("{}(...) line{}: " + fmt, 
+    auto msg = std::format("{}(...) line{}: " + fmt,
         location.function_name(), location.line(), std::forward<Ts>(args)...);
     std::printf("%s", msg.c_str());
 
@@ -158,6 +125,40 @@ constexpr enum_t  operator&(const enum_t a, const enum_t b) { return (enum_t)((i
 constexpr enum_t& operator|=(enum_t& a, const enum_t b) { a = a | b; return a; };                 \
 constexpr enum_t& operator&=(enum_t& a, const enum_t b) { a = a & b; return a; };                 \
 constexpr bool enum_have(const enum_t group, const enum_t value) { return (group & value) != (enum_t)0; }
+
+#pragma endregion
+
+
+#pragma region math
+
+//using float_t = float_t; // already defined in math.h
+static_assert(sizeof(float_t) == 4);
+
+using unit_float_t = float_t; // 'normalized float_t', from 0 to 1
+
+using radian_t = float_t;
+using degree_t = float_t;
+
+constexpr float_t k_epsilon = std::numeric_limits<float_t>::epsilon();
+constexpr float_t k_infinity = std::numeric_limits<float_t>::infinity();
+constexpr float_t k_pi = std::numbers::pi;
+constexpr float_t k_2pi = 2 * k_pi;
+constexpr float_t k_pi_over2 = k_pi / 2;
+constexpr float_t k_pi_over4 = k_pi / 4;
+constexpr float_t k_inv_pi = std::numbers::inv_pi;
+constexpr float_t k_inv_2pi = k_inv_pi / 2;
+constexpr float_t k_inv_4pi = k_inv_pi / 4;
+
+constexpr radian_t radians(degree_t deg) { return (k_pi / 180) * deg; }
+constexpr degree_t degrees(radian_t rad) { return (180 / k_pi) * rad; }
+
+constexpr float_t lerp(float_t a, float_t b, float_t t) { return a + t * (b - a); }
+
+inline bool is_infinity(const std::floating_point auto x) { return std::isinf(x); }
+inline bool is_nan(const std::floating_point auto x) { return std::isnan(x); }
+
+inline bool is_invalid(const std::floating_point auto x) { return is_infinity(x) || is_nan(x); }
+inline bool is_valid(const std::floating_point auto x) { return !is_invalid(x); }
 
 #pragma endregion
 
