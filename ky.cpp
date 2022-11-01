@@ -45,26 +45,6 @@ using namespace std::literals::string_literals;
     #define KY_MACOS
 #endif
 
-#pragma endregion
-
-// namespace ky
-
-#pragma region utility
-
-class nocopyable_t
-{
-protected:
-    constexpr nocopyable_t() = default;
-    ~nocopyable_t() = default;
-
-    nocopyable_t(nocopyable_t&&) = default;
-    nocopyable_t& operator=(nocopyable_t&&) = default;
-
-private:
-    nocopyable_t(const nocopyable_t&);
-    nocopyable_t& operator=(const nocopyable_t&);
-};
-
 
 
 template <typename... Ts>
@@ -89,6 +69,7 @@ inline void _LOG_ERROR(const std::source_location& location, const std::string& 
 #define LOG_ERROR(...) _LOG_ERROR(std::source_location::current(), __VA_ARGS__)
 
 
+
 #define _EXPAND( x ) x
 #define _CHECK1(condition)      if(!(condition)) LOG_ERROR("{}", #condition)
 #define _CHECK2(condition, msg) if(!(condition)) LOG_ERROR("{}", msg)
@@ -96,6 +77,7 @@ inline void _LOG_ERROR(const std::source_location& location, const std::string& 
 #define _GET_MACRO_(_1, _2, _3, _4, _5, NAME, ...) NAME
 
 #define CHECK(...) _EXPAND( _GET_MACRO_(__VA_ARGS__, _CHECK3, _CHECK3, _CHECK3, _CHECK2, _CHECK1, UNUSED)(__VA_ARGS__) )
+
 
 
 #ifdef KY_DEBUG
@@ -118,7 +100,7 @@ inline void _LOG_ERROR(const std::source_location& location, const std::string& 
 
 
 
-#define KY_ENUM_OPERATORS(enum_t)                                                                                                     \
+#define KY_ENUM_OPERATORS(enum_t)                                                                 \
 constexpr enum_t  operator~(const enum_t a)                 { return (enum_t)(~(int)a); }         \
 constexpr enum_t  operator|(const enum_t a, const enum_t b) { return (enum_t)((int)a | (int)b); } \
 constexpr enum_t  operator&(const enum_t a, const enum_t b) { return (enum_t)((int)a & (int)b); } \
@@ -127,6 +109,25 @@ constexpr enum_t& operator&=(enum_t& a, const enum_t b) { a = a & b; return a; }
 constexpr bool enum_have(const enum_t group, const enum_t value) { return (group & value) != (enum_t)0; }
 
 #pragma endregion
+
+#pragma region utility
+
+class nocopyable_t
+{
+protected:
+    constexpr nocopyable_t() = default;
+    ~nocopyable_t() = default;
+
+    nocopyable_t(nocopyable_t&&) = default;
+    nocopyable_t& operator=(nocopyable_t&&) = default;
+
+private:
+    nocopyable_t(const nocopyable_t&);
+    nocopyable_t& operator=(const nocopyable_t&);
+};
+
+#pragma endregion
+
 
 
 #pragma region math
@@ -160,13 +161,30 @@ inline bool is_nan(const std::floating_point auto x) { return std::isnan(x); }
 inline bool is_invalid(const std::floating_point auto x) { return is_infinity(x) || is_nan(x); }
 inline bool is_valid(const std::floating_point auto x) { return !is_invalid(x); }
 
+
+// https://stackoverflow.com/questions/17333/what-is-the-most-effective-way-for-float_t-and-double-comparison
+// http://realtimecollisiondetection.net/blog/?p=89
+
+template <typename T>
+struct equal_epsilon
+{
+    static constexpr T absolute_epsilon = std::numeric_limits<T>::epsilon();
+    static constexpr T relative_epsilon = std::numeric_limits<T>::epsilon();
+};
+
+template <typename T>
+constexpr bool is_equal(T x, T y, T epsilon = equal_epsilon<T>::absolute_epsilon)
+{
+    if constexpr (std::is_floating_point_v<T>)
+        // return std::fabs(x - y) <= std::max(absolute_epsilon, relative_epsilon * std::max(fabs(x), fabs(y)) );
+        return std::abs(x - y) <= epsilon * std::max({ T(1), std::abs(x), std::abs(y) });
+    else
+        return x == y;
+}
+
 #pragma endregion
 
-// TODO: math
-
 #pragma region geometry
-
-// TODO: move to `math`
 
 struct color_t
 {
@@ -201,27 +219,6 @@ struct color_t
 
     bool is_black() const { return (r <= 0) && (g <= 0) && (b <= 0); }
 };
-
-
-// https://stackoverflow.com/questions/17333/what-is-the-most-effective-way-for-float_t-and-double-comparison
-// http://realtimecollisiondetection.net/blog/?p=89
-
-template <typename T>
-struct equal_epsilon
-{
-    static constexpr T absolute_epsilon = std::numeric_limits<T>::epsilon();
-    static constexpr T relative_epsilon = std::numeric_limits<T>::epsilon();
-};
-
-template <typename T>
-constexpr bool is_equal(T x, T y, T epsilon = equal_epsilon<T>::absolute_epsilon)
-{
-    if constexpr (std::is_floating_point_v<T>)
-        // return std::fabs(x - y) <= std::max(absolute_epsilon, relative_epsilon * std::max(fabs(x), fabs(y)) );
-        return std::abs(x - y) <= epsilon * std::max({ T(1), std::abs(x), std::abs(y) });
-    else
-        return x == y;
-}
 
 
 
@@ -371,6 +368,7 @@ inline radian_t spherical_phi(const unit_vec3_t& v)
     float_t phi = std::atan2(v.y, v.x);
     return (phi < 0) ? (phi + 2 * k_pi) : phi;
 }
+
 
 // convert spherical coordinate (θ theta, φ phi) into direction vector (x, y, z)
 inline vec3_t spherical_to_direction(float_t sin_theta, float_t cos_theta, float_t phi)
