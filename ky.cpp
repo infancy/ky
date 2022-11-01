@@ -51,14 +51,10 @@ using namespace std::literals::string_literals;
 
 #pragma region math
 
-using uint = uint32_t;
-
-//using float_t = float; // already defined in math.h
+//using float_t = float_t; // already defined in math.h
 static_assert(sizeof(float_t) == 4);
 
-// normalized float, from 0 to 1
-using float01_t = float_t;
-using unit_float_t = float_t;
+using unit_float_t = float_t; // 'normalized float_t', from 0 to 1
 
 using radian_t = float_t;
 using degree_t = float_t;
@@ -171,7 +167,42 @@ constexpr bool enum_have(const enum_t group, const enum_t value) { return (group
 
 // TODO: move to `math`
 
-// https://stackoverflow.com/questions/17333/what-is-the-most-effective-way-for-float-and-double-comparison
+struct color_t
+{
+    float_t r{}, g{}, b{};
+
+    color_t operator*(float_t s) const { return { r * s, g * s, b * s }; }
+    color_t operator/(float_t s) const { return { r / s, g / s, b / s }; }
+
+    color_t operator*=(float_t s) { r *= s, g *= s, b *= s; return *this; }
+    color_t operator/=(float_t s) { r /= s, g /= s, b /= s; return *this; }
+
+    color_t operator+(const color_t& c) const { return { r + c.r, g + c.g, b + c.b }; }
+    color_t operator*(const color_t& c) const { return { r * c.r, g * c.g, b * c.b }; }
+
+    color_t operator+=(const color_t& c) { r += c.r, g += c.g, b += c.b; return *this; }
+    color_t operator*=(const color_t& c) { r *= c.r, g *= c.g, b *= c.b; return *this; }
+
+    friend color_t operator*(float_t s, color_t c) { return { s * c.r, s * c.g, s * c.b }; }
+
+    float_t max_component_value() const
+    {
+        return std::max({ r, g, b });
+    }
+
+    float_t luminance() const
+    {
+        return
+            0.212671f * r +
+            0.715160f * g +
+            0.072169f * b;
+    }
+
+    bool is_black() const { return (r <= 0) && (g <= 0) && (b <= 0); }
+};
+
+
+// https://stackoverflow.com/questions/17333/what-is-the-most-effective-way-for-float_t-and-double-comparison
 // http://realtimecollisiondetection.net/blog/?p=89
 
 template <typename T>
@@ -226,7 +257,6 @@ struct vec3_t
     union
     {
         struct { float_t x, y, z; };
-        struct { float_t r, g, b; };
         //std::array<float_t, 3> a_{};
     };
 
@@ -246,16 +276,13 @@ struct vec3_t
     vec3_t operator*(float_t scalar)    const { return vec3_t(x * scalar, y * scalar, z * scalar); }
     vec3_t operator/(float_t scalar)    const { return vec3_t(x / scalar, y / scalar, z / scalar); }
 
-    friend vec3_t operator*(float_t scalar, vec3_t v) { return vec3_t(v.x * scalar, v.y * scalar, v.z * scalar); }
+    // or length(), abs(), absolute_value()
+    float_t magnitude()    const { return sqrt(magnitude_squared()); }
+    float_t magnitude_squared() const { return x * x + y * y + z * z; }
 
-    friend float_t     dot(const vec3_t& u, const vec3_t& v) { return u.dot(v); }
-    friend float_t abs_dot(const vec3_t& u, const vec3_t& v) { return std::abs(u.dot(v)); }
-    friend vec3_t  cross(const vec3_t& u, const vec3_t& v) { return u.cross(v); }
-    friend vec3_t normalize(const vec3_t& v) { return v.normalize(); }
-
-    friend float_t     cos(const vec3_t& u, const vec3_t& v) { return u.dot(v); }
-    friend float_t abs_cos(const vec3_t& u, const vec3_t& v) { return std::abs(u.dot(v)); }
-    friend vec3_t   lerp(const vec3_t& u, const vec3_t& v, float_t t) { return u + t * (v - u); }
+    // unit_vec3_t& normlize() const { return *this * (1 / sqrt(x * x + y * y + z * z)); }
+    vec3_t normalize() const { return *this * (1 / sqrt(x * x + y * y + z * z)); }
+    bool is_unit() const { return is_equal(magnitude(), (float_t)1); }
 
     float_t dot(const vec3_t& v) const { return x * v.x + y * v.y + z * v.z; }
     vec3_t cross(const vec3_t& v) const
@@ -271,15 +298,20 @@ struct vec3_t
             x * v.y - y * v.x);
     }
 
-    // or length(), abs(), absolute_value()
-    float_t magnitude()    const { return sqrt(magnitude_squared()); }
-    float_t magnitude_squared() const { return x * x + y * y + z * z; }
-
-    // unit_vec3_t& normlize() const { return *this * (1 / sqrt(x * x + y * y + z * z)); }
-    vec3_t normalize() const { return *this * (1 / sqrt(x * x + y * y + z * z)); }
-    bool is_unit() const { return is_equal(magnitude(), (float_t)1); }
+    operator color_t() { return { x, y, z }; }
 
 public:
+    friend vec3_t operator*(float_t scalar, vec3_t v) { return vec3_t(v.x * scalar, v.y * scalar, v.z * scalar); }
+
+    friend float_t     dot(const vec3_t& u, const vec3_t& v) { return u.dot(v); }
+    friend float_t abs_dot(const vec3_t& u, const vec3_t& v) { return std::abs(u.dot(v)); }
+    friend vec3_t  cross(const vec3_t& u, const vec3_t& v) { return u.cross(v); }
+    friend vec3_t normalize(const vec3_t& v) { return v.normalize(); }
+
+    friend float_t     cos(const vec3_t& u, const vec3_t& v) { return u.dot(v); }
+    friend float_t abs_cos(const vec3_t& u, const vec3_t& v) { return std::abs(u.dot(v)); }
+    friend vec3_t   lerp(const vec3_t& u, const vec3_t& v, float_t t) { return u + t * (v - u); }
+
     // per-component
     friend vec3_t min(const vec3_t& a, const vec3_t& b)
     {
@@ -290,28 +322,6 @@ public:
     {
         return vec3_t(std::max(a.x, b.x), std::max(a.y, b.y), std::max(a.z, b.z));
     }
-
-
-public:
-    // TODO
-    // only for color_t
-    vec3_t& operator*=(const vec3_t& v) { r *= v.r; g *= v.g; b *= v.b; return *this; }
-    vec3_t operator*(const vec3_t& v) const { return vec3_t(r * v.r, g * v.g, b * v.b); }
-
-    float_t max_component_value() const
-    {
-        return std::max({ r, g, b });
-    }
-
-    float_t luminance() const
-    {
-        return
-            0.212671f * r +
-            0.715160f * g +
-            0.072169f * b;
-    }
-
-    bool is_black() const { return (r <= 0) && (g <= 0) && (b <= 0); }
 
 public:
     // deubg
@@ -338,9 +348,6 @@ using point3_t    = vec3_t; // object_point, world_point... we need a frame
 using normal_t    = vec3_t;
 using unit_vec3_t = vec3_t;
 using float3_t    = vec3_t;
-
-// TODO
-using color_t  = vec3_t;
 
 
 inline float_t distance(const point3_t& p1, const point3_t& p2)
@@ -1424,7 +1431,7 @@ struct film_desc_t
 };
 
 constexpr float_t clamp01(float_t x) { return std::clamp(x, (float_t)0, (float_t)1); }
-inline vec3_t clamp01(vec3_t vec3) { return vec3_t(clamp01(vec3.x), clamp01(vec3.y), clamp01(vec3.z)); }
+inline color_t clamp01(color_t c) { return color_t(clamp01(c.r), clamp01(c.g), clamp01(c.b)); }
 
 inline uint8_t gamma_encoding(float_t x) { return pow(clamp01(x), 1 / 2.2) * 255 + .5; }
 
@@ -2256,16 +2263,16 @@ public:
     color_t f_(const vec3_t& wo, const vec3_t& wi) const override
     {
         const vec3_t wr = reflect(wo, vec3_t(0, 0, 1));
-        const float cos_alpha = dot(wr, wi);
+        const float_t cos_alpha = dot(wr, wi);
 
-        const vec3_t rho = Ks_ * (exponent_ + 2.f) * k_inv_2pi;
+        const color_t rho = Ks_ * (exponent_ + 2.f) * k_inv_2pi;
         return rho * std::pow(cos_alpha, exponent_);
     }
 
     float_t pdf_(const vec3_t& wo, const vec3_t& wi) const override
     {
         const vec3_t wr = reflect(wo, vec3_t(0, 0, 1));
-        //const float cos_alpha = dot(wr, wi);
+        //const float_t cos_alpha = dot(wr, wi);
 
         return pdf_hemisphere_cosine_phong(wr, wi);
     }
@@ -2294,9 +2301,9 @@ private:
     // Cosine lobe hemisphere sampling
     vec3_t sample_hemisphere_cosine_phong(const vec2_t& random) const
     {
-        const float phi = 2.f * k_pi * random[0];
-        const float cos_theta = std::pow(random[1], 1.f / (exponent_ + 1.f));
-        const float sin_theta = std::sqrt(1.f - cos_theta * cos_theta);
+        const float_t phi = 2.f * k_pi * random[0];
+        const float_t cos_theta = std::pow(random[1], 1.f / (exponent_ + 1.f));
+        const float_t sin_theta = std::sqrt(1.f - cos_theta * cos_theta);
 
         return vec3_t(
             std::cos(phi) * sin_theta,
@@ -2304,10 +2311,10 @@ private:
             cos_theta);
     }
 
-    float pdf_hemisphere_cosine_phong(
+    float_t pdf_hemisphere_cosine_phong(
         const vec3_t& aNormal, const vec3_t& aDirection) const
     {
-        const float cosTheta = std::max(0.f, dot(aNormal, aDirection));
+        const float_t cosTheta = std::max(0.f, dot(aNormal, aDirection));
         return (exponent_ + 1.f) * std::pow(cosTheta, exponent_) * k_inv_2pi;
     }
 
@@ -2920,7 +2927,7 @@ public:
     bool occluded(
         const vec3_t& point,
         const vec3_t& dir,
-        float distance) //const
+        float_t distance) //const
     {
         ray_t ray(point + dir * k_epsilon, dir, distance - 2 * k_epsilon);
         isect_t unused;
@@ -3105,7 +3112,7 @@ public:
         environment_light_t* environment_light{};
         if (enum_have(scene_enum, light_environment))
         {
-            color_t L = vec3_t(135. / 255, 206. / 255, 250. / 255);
+            color_t L = color_t(135. / 255, 206. / 255, 250. / 255);
             auto light = std::make_shared<environment_light_t>(point3_t(), 1, L);
             light_list.push_back(light);
 
