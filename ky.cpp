@@ -52,29 +52,31 @@ using namespace std::literals::string_literals;
 #pragma region math
 
 using uint = uint32_t;
-using Float = float; // TODO: undef float_t; using float_t = float;
 
-// Normalized float, from 0 to 1
-using float01_t = Float;
-using unit_float_t = Float;
+//using float_t = float; // already defined in math.h
+static_assert(sizeof(float_t) == 4);
 
-using radian_t = Float;
-using degree_t = Float;
+// normalized float, from 0 to 1
+using float01_t = float_t;
+using unit_float_t = float_t;
 
-constexpr Float k_epsilon = std::numeric_limits<Float>::epsilon();
-constexpr Float k_infinity = std::numeric_limits<Float>::infinity();
-constexpr Float k_pi = std::numbers::pi;
-constexpr Float k_2pi = 2 * k_pi;
-constexpr Float k_pi_over2 = k_pi / 2;
-constexpr Float k_pi_over4 = k_pi / 4;
-constexpr Float k_inv_pi = std::numbers::inv_pi;
-constexpr Float k_inv_2pi = k_inv_pi / 2;
-constexpr Float k_inv_4pi = k_inv_pi / 4;
+using radian_t = float_t;
+using degree_t = float_t;
+
+constexpr float_t k_epsilon = std::numeric_limits<float_t>::epsilon();
+constexpr float_t k_infinity = std::numeric_limits<float_t>::infinity();
+constexpr float_t k_pi = std::numbers::pi;
+constexpr float_t k_2pi = 2 * k_pi;
+constexpr float_t k_pi_over2 = k_pi / 2;
+constexpr float_t k_pi_over4 = k_pi / 4;
+constexpr float_t k_inv_pi = std::numbers::inv_pi;
+constexpr float_t k_inv_2pi = k_inv_pi / 2;
+constexpr float_t k_inv_4pi = k_inv_pi / 4;
 
 constexpr radian_t radians(degree_t deg) { return (k_pi / 180) * deg; }
 constexpr degree_t degrees(radian_t rad) { return (180 / k_pi) * rad; }
 
-constexpr Float lerp(Float a, Float b, Float t) { return a + t * (b - a); }
+constexpr float_t lerp(float_t a, float_t b, float_t t) { return a + t * (b - a); }
 
 inline bool is_infinity(const std::floating_point auto x) { return std::isinf(x); }
 inline bool is_nan(const std::floating_point auto x) { return std::isnan(x); }
@@ -195,12 +197,12 @@ struct vec2_t
 {
     union
     {
-        struct { Float x, y; };
+        struct { float_t x, y; };
     };
 
-    vec2_t(Float x = 0, Float y = 0) { this->x = x; this->y = y; }
+    vec2_t(float_t x = 0, float_t y = 0) { this->x = x; this->y = y; }
 
-    Float operator[](int index) const
+    float_t operator[](int index) const
     {
         CHECK_DEBUG((index >= 0) && (index <= 1));
 
@@ -211,7 +213,7 @@ struct vec2_t
     vec2_t operator+(const vec2_t& vec2) const { return vec2_t(x + vec2.x, y + vec2.y); }
     vec2_t operator-(const vec2_t& vec2) const { return vec2_t(x - vec2.x, y - vec2.y); }
 
-    friend vec2_t operator*(Float scalar, vec2_t v) { return vec2_t(v.x * scalar, v.y * scalar); }
+    friend vec2_t operator*(float_t scalar, vec2_t v) { return vec2_t(v.x * scalar, v.y * scalar); }
 };
 
 using point2_t = vec2_t;
@@ -223,39 +225,39 @@ struct vec3_t
 {
     union
     {
-        struct { Float x, y, z; };
-        struct { Float r, g, b; };
-        //std::array<Float, 3> a_{};
+        struct { float_t x, y, z; };
+        struct { float_t r, g, b; };
+        //std::array<float_t, 3> a_{};
     };
 
     vec3_t() : x{ 0 }, y{ 0 }, z{ 0 } {}
-    vec3_t(Float x, Float y, Float z) { this->x = x; this->y = y; this->z = z; }
+    vec3_t(float_t x, float_t y, float_t z) { this->x = x; this->y = y; this->z = z; }
 
-    Float operator[](int i) const { CHECK_DEBUG(i >= 0 && i < 3); return (&x)[i]; }
+    float_t operator[](int i) const { CHECK_DEBUG(i >= 0 && i < 3); return (&x)[i]; }
     vec3_t operator-() const { return vec3_t(-x, -y, -z); }
 
     vec3_t& operator+=(const vec3_t& v) { x += v.x; y += v.y; z += v.z; return *this; }
     vec3_t& operator-=(const vec3_t& v) { x -= v.x; y -= v.y; z -= v.z; return *this; }
-    vec3_t& operator*=(Float s) { x *= s; y *= s; z *= s; return *this; }
-    vec3_t& operator/=(Float s) { x /= s; y /= s; z /= s; return *this; }
+    vec3_t& operator*=(float_t s) { x *= s; y *= s; z *= s; return *this; }
+    vec3_t& operator/=(float_t s) { x /= s; y /= s; z /= s; return *this; }
 
     vec3_t operator+(const vec3_t& v) const { return vec3_t(x + v.x, y + v.y, z + v.z); }
     vec3_t operator-(const vec3_t& v) const { return vec3_t(x - v.x, y - v.y, z - v.z); }
-    vec3_t operator*(Float scalar)    const { return vec3_t(x * scalar, y * scalar, z * scalar); }
-    vec3_t operator/(Float scalar)    const { return vec3_t(x / scalar, y / scalar, z / scalar); }
+    vec3_t operator*(float_t scalar)    const { return vec3_t(x * scalar, y * scalar, z * scalar); }
+    vec3_t operator/(float_t scalar)    const { return vec3_t(x / scalar, y / scalar, z / scalar); }
 
-    friend vec3_t operator*(Float scalar, vec3_t v) { return vec3_t(v.x * scalar, v.y * scalar, v.z * scalar); }
+    friend vec3_t operator*(float_t scalar, vec3_t v) { return vec3_t(v.x * scalar, v.y * scalar, v.z * scalar); }
 
-    friend Float     dot(const vec3_t& u, const vec3_t& v) { return u.dot(v); }
-    friend Float abs_dot(const vec3_t& u, const vec3_t& v) { return std::abs(u.dot(v)); }
+    friend float_t     dot(const vec3_t& u, const vec3_t& v) { return u.dot(v); }
+    friend float_t abs_dot(const vec3_t& u, const vec3_t& v) { return std::abs(u.dot(v)); }
     friend vec3_t  cross(const vec3_t& u, const vec3_t& v) { return u.cross(v); }
     friend vec3_t normalize(const vec3_t& v) { return v.normalize(); }
 
-    friend Float     cos(const vec3_t& u, const vec3_t& v) { return u.dot(v); }
-    friend Float abs_cos(const vec3_t& u, const vec3_t& v) { return std::abs(u.dot(v)); }
-    friend vec3_t   lerp(const vec3_t& u, const vec3_t& v, Float t) { return u + t * (v - u); }
+    friend float_t     cos(const vec3_t& u, const vec3_t& v) { return u.dot(v); }
+    friend float_t abs_cos(const vec3_t& u, const vec3_t& v) { return std::abs(u.dot(v)); }
+    friend vec3_t   lerp(const vec3_t& u, const vec3_t& v, float_t t) { return u + t * (v - u); }
 
-    Float dot(const vec3_t& v) const { return x * v.x + y * v.y + z * v.z; }
+    float_t dot(const vec3_t& v) const { return x * v.x + y * v.y + z * v.z; }
     vec3_t cross(const vec3_t& v) const
     {
         /*
@@ -270,12 +272,12 @@ struct vec3_t
     }
 
     // or length(), abs(), absolute_value()
-    Float magnitude()    const { return sqrt(magnitude_squared()); }
-    Float magnitude_squared() const { return x * x + y * y + z * z; }
+    float_t magnitude()    const { return sqrt(magnitude_squared()); }
+    float_t magnitude_squared() const { return x * x + y * y + z * z; }
 
     // unit_vec3_t& normlize() const { return *this * (1 / sqrt(x * x + y * y + z * z)); }
     vec3_t normalize() const { return *this * (1 / sqrt(x * x + y * y + z * z)); }
-    bool is_unit() const { return is_equal(magnitude(), (Float)1); }
+    bool is_unit() const { return is_equal(magnitude(), (float_t)1); }
 
 public:
     // per-component
@@ -296,12 +298,12 @@ public:
     vec3_t& operator*=(const vec3_t& v) { r *= v.r; g *= v.g; b *= v.b; return *this; }
     vec3_t operator*(const vec3_t& v) const { return vec3_t(r * v.r, g * v.g, b * v.b); }
 
-    Float max_component_value() const
+    float_t max_component_value() const
     {
         return std::max({ r, g, b });
     }
 
-    Float luminance() const
+    float_t luminance() const
     {
         return
             0.212671f * r +
@@ -341,11 +343,11 @@ using float3_t    = vec3_t;
 using color_t  = vec3_t;
 
 
-inline Float distance(const point3_t& p1, const point3_t& p2)
+inline float_t distance(const point3_t& p1, const point3_t& p2)
 {
     return (p1 - p2).magnitude();
 }
-inline Float distance_squared(const point3_t& p1, const point3_t& p2)
+inline float_t distance_squared(const point3_t& p1, const point3_t& p2)
 {
     return (p1 - p2).magnitude_squared();
 }
@@ -354,16 +356,16 @@ inline Float distance_squared(const point3_t& p1, const point3_t& p2)
 // unit direction vector -> spherical coordinate
 inline radian_t spherical_theta(const unit_vec3_t& v)
 {
-    return std::acos(std::clamp(v.z, (Float)-1, (Float)1));
+    return std::acos(std::clamp(v.z, (float_t)-1, (float_t)1));
 }
 inline radian_t spherical_phi(const unit_vec3_t& v)
 {
-    Float phi = std::atan2(v.y, v.x);
+    float_t phi = std::atan2(v.y, v.x);
     return (phi < 0) ? (phi + 2 * k_pi) : phi;
 }
 
 // convert spherical coordinate (θ theta, φ phi) into direction vector (x, y, z)
-inline vec3_t spherical_to_direction(Float sin_theta, Float cos_theta, Float phi)
+inline vec3_t spherical_to_direction(float_t sin_theta, float_t cos_theta, float_t phi)
 {
     return vec3_t(
         sin_theta * std::cos(phi),
@@ -373,7 +375,7 @@ inline vec3_t spherical_to_direction(Float sin_theta, Float cos_theta, Float phi
 // takes three basis vectors representing the x, y, and z axes and
 // returns the appropriate direction vector with respect to the coordinate frame defined by them
 inline vec3_t spherical_to_direction(
-    Float sin_theta, Float cos_theta, Float phi,
+    float_t sin_theta, float_t cos_theta, float_t phi,
     const vec3_t& x, const vec3_t& y, const vec3_t& z)
 {
     return
@@ -407,8 +409,8 @@ class bounds3_t
 public:
     bounds3_t() 
     {
-        Float min = std::numeric_limits<Float>::lowest();
-        Float max = std::numeric_limits<Float>::max();
+        float_t min = std::numeric_limits<float_t>::lowest();
+        float_t max = std::numeric_limits<float_t>::max();
 
         min_ = point3_t(max, max, max);
         max_ = point3_t(min, min, min);
@@ -449,9 +451,9 @@ public:
 
 public:
     // return a sphere that hold this bounding box
-    void bounding_sphere(point3_t* center, Float* radius_) const
+    void bounding_sphere(point3_t* center, float_t* radius_) const
     {
-        *center = lerp(min_, max_, (Float)0.5);
+        *center = lerp(min_, max_, (float_t)0.5);
         *radius_ = contain(*center) ? distance(*center, max_) : 0;
     }
 
@@ -525,7 +527,7 @@ private:
 class ray_t
 {
 public:
-    ray_t(const point3_t& origin, const unit_vec3_t& direction, const Float distance = k_infinity) :
+    ray_t(const point3_t& origin, const unit_vec3_t& direction, const float_t distance = k_infinity) :
         origin_{ origin },
         direction_{ direction },
         distance_{ distance }
@@ -537,11 +539,11 @@ public:
 
     point3_t origin() const { return origin_; }
     unit_vec3_t direction() const { return direction_; }
-    Float distance() const { return distance_; }
+    float_t distance() const { return distance_; }
 
-    void set_distance(Float distance) const { distance_ = distance; }
+    void set_distance(float_t distance) const { distance_ = distance; }
 
-    point3_t operator()(Float t) const
+    point3_t operator()(float_t t) const
     {
         CHECK_DEBUG(t >= 0);
         return origin_ + t * direction_;
@@ -550,7 +552,7 @@ public:
 private:
     point3_t origin_;
     unit_vec3_t direction_; // confirm it is a unit vector
-    mutable Float distance_; // distance from ray to intersection
+    mutable float_t distance_; // distance from ray to intersection
 };
 
 
@@ -635,8 +637,8 @@ private:
 
 inline point2_t sample_disk_uniform(const float2_t& random)
 {
-    Float r = std::sqrt(random[0]);
-    Float theta = 2 * k_pi * random[1];
+    float_t r = std::sqrt(random[0]);
+    float_t theta = 2 * k_pi * random[1];
     return point2_t(r * std::cos(theta), r * std::sin(theta));
 }
 
@@ -650,7 +652,7 @@ inline point2_t sample_disk_concentric(const float2_t& random)
         return point2_t(0, 0);
 
     // Apply concentric mapping to point
-    Float theta, r;
+    float_t theta, r;
     if (std::abs(uOffset.x) > std::abs(uOffset.y))
     {
         r = uOffset.x;
@@ -670,38 +672,38 @@ inline point2_t sample_disk_concentric(const float2_t& random)
 inline vec3_t sample_hemisphere_cosine(const float2_t& random)
 {
     point2_t d = sample_disk_concentric(random);
-    Float z = std::sqrt(std::max((Float)0, 1 - d.x * d.x - d.y * d.y));
+    float_t z = std::sqrt(std::max((float_t)0, 1 - d.x * d.x - d.y * d.y));
     return vec3_t(d.x, d.y, z);
 }
 
 // TODO: rename
-inline Float pdf_hemisphere_cosine(Float cos_theta) { return cos_theta * k_inv_pi; }
+inline float_t pdf_hemisphere_cosine(float_t cos_theta) { return cos_theta * k_inv_pi; }
 
 
 inline vec3_t sample_hemisphere_uniform(const float2_t& random)
 {
-    Float z = random[0]; // [0, 1)
+    float_t z = random[0]; // [0, 1)
 
-    Float r = std::sqrt(std::max((Float)0, (Float)1. - z * z));
-    Float phi = 2 * k_pi * random[1];
+    float_t r = std::sqrt(std::max((float_t)0, (float_t)1. - z * z));
+    float_t phi = 2 * k_pi * random[1];
 
     return vec3_t(r * std::cos(phi), r * std::sin(phi), z);
 }
 
-inline Float pdf_hemisphere_uniform() { return k_inv_2pi; }
+inline float_t pdf_hemisphere_uniform() { return k_inv_2pi; }
 
 
 inline vec3_t sample_sphere_uniform(const float2_t& random)
 {
-    Float z = 1 - 2 * random[0]; // (-1, 1)
+    float_t z = 1 - 2 * random[0]; // (-1, 1)
 
-    Float r = std::sqrt(std::max((Float)0, (Float)1 - z * z));
-    Float phi = 2 * k_pi * random[1];
+    float_t r = std::sqrt(std::max((float_t)0, (float_t)1 - z * z));
+    float_t phi = 2 * k_pi * random[1];
 
     return vec3_t(r * std::cos(phi), r * std::sin(phi), z);
 }
 
-inline Float pdf_sphere_uniform() { return k_inv_4pi; }
+inline float_t pdf_sphere_uniform() { return k_inv_4pi; }
 
 
 /*
@@ -715,11 +717,11 @@ inline Float pdf_sphere_uniform() { return k_inv_4pi; }
   . _ _ _ _ _ _ _ _
 
 */
-vec3_t sample_cone_uniform(const float2_t& random, Float cos_theta_max)
+vec3_t sample_cone_uniform(const float2_t& random, float_t cos_theta_max)
 {
-    Float cos_theta = ((Float)1 - random[0]) + random[0] * cos_theta_max;
-    Float sin_theta = std::sqrt((Float)1 - cos_theta * cos_theta);
-    Float phi = random[1] * 2 * k_pi;
+    float_t cos_theta = ((float_t)1 - random[0]) + random[0] * cos_theta_max;
+    float_t sin_theta = std::sqrt((float_t)1 - cos_theta * cos_theta);
+    float_t phi = random[1] * 2 * k_pi;
 
     return vec3_t(
         std::cos(phi) * sin_theta,
@@ -727,7 +729,7 @@ vec3_t sample_cone_uniform(const float2_t& random, Float cos_theta_max)
         cos_theta);
 }
 
-Float pdf_cone_uniform(Float cos_theta_max)
+float_t pdf_cone_uniform(float_t cos_theta_max)
 {
     return 1 / (2 * k_pi * (1 - cos_theta_max));
 }
@@ -735,14 +737,14 @@ Float pdf_cone_uniform(Float cos_theta_max)
 
 point2_t sample_triangle_uniform(const float2_t& random)
 {
-    Float su0 = std::sqrt(random[0]);
+    float_t su0 = std::sqrt(random[0]);
     return point2_t(1 - su0, random[1] * su0);
 }
 
 
-inline Float power_heuristic(int nf, Float fPdf, int ng, Float gPdf)
+inline float_t power_heuristic(int nf, float_t fPdf, int ng, float_t gPdf)
 {
-    Float f = nf * fPdf, g = ng * gPdf;
+    float_t f = nf * fPdf, g = ng * gPdf;
     return (f * f) / (f * f + g * g);
 }
 
@@ -773,7 +775,7 @@ public:
     }
 
     // [0, 1)
-    Float uniform_float()
+    float_t uniform_float()
     {
         return float_dist_(rng_engine_);
     }
@@ -789,7 +791,7 @@ private:
 
     std::uniform_int_distribution<int> int_dist_;
     std::uniform_int_distribution<uint32_t> uint_dist_;
-    std::uniform_real_distribution<Float> float_dist_{ (Float)0, (Float)1 };
+    std::uniform_real_distribution<float_t> float_dist_{ (float_t)0, (float_t)1 };
 };
 
 
@@ -833,7 +835,7 @@ public:
     }
 
 public:
-    virtual Float get_float() = 0;
+    virtual float_t get_float() = 0;
     virtual vec2_t get_float2() = 0;
     virtual camera_sample_t get_camera_sample(point2_t p_film) = 0;
 
@@ -855,7 +857,7 @@ public:
     }
 
 public:
-    Float get_float() override
+    float_t get_float() override
     {
         return rng_.uniform_float();
     }
@@ -912,17 +914,17 @@ public:
     virtual bool intersect(const ray_t& ray, isect_t* out_isect) const = 0;
 
     virtual bounds3_t world_bound() const = 0;
-    virtual Float area() const = 0;
+    virtual float_t area() const = 0;
 
 public:
     // these methods below only used for `area_light_t`
 
     // TODO: return position_sample_t
-    virtual isect_t sample_position(const float2_t& random, Float* out_pdf_position) const = 0;
+    virtual isect_t sample_position(const float2_t& random, float_t* out_pdf_position) const = 0;
 
     // TODO: return direction_sample_t
     // default compute `*_direction` by `*_position` 
-    virtual isect_t sample_direction(const isect_t& isect, const float2_t& random, Float* out_pdf_direction) const
+    virtual isect_t sample_direction(const isect_t& isect, const float2_t& random, float_t* out_pdf_direction) const
     {
         isect_t light_isect = sample_position(random, out_pdf_direction);
         vec3_t wi = light_isect.position - isect.position;
@@ -940,7 +942,7 @@ public:
 
         return std::move(light_isect);
     }
-    virtual Float pdf_direction(const isect_t& isect, const unit_vec3_t& world_wi) const
+    virtual float_t pdf_direction(const isect_t& isect, const unit_vec3_t& world_wi) const
     {
         ray_t ray = isect.spawn_ray(world_wi);
         isect_t light_isect;
@@ -969,7 +971,7 @@ public:
           or:
               (f * Li * cos_theta) / pdf = f * (Li * cos_theta * unit_solid_angle * projected_light_area)
         */
-        Float pdf = distance_squared(isect.position, light_isect.position) / (abs_dot(light_isect.normal, -world_wi) * area());
+        float_t pdf = distance_squared(isect.position, light_isect.position) / (abs_dot(light_isect.normal, -world_wi) * area());
         if (std::isinf(pdf))
             pdf = 0.f;
 
@@ -977,7 +979,7 @@ public:
     }
 
 public:
-    static constexpr Float epsilon = 1e-3;// TODO
+    static constexpr float_t epsilon = 1e-3;// TODO
 };
 
 using shape_sp = std::shared_ptr<shape_t>; 
@@ -988,7 +990,7 @@ using shape_list_t = std::vector<shape_sp>;
 class disk_t : public shape_t
 {
 public:
-    disk_t(const point3_t& position, const normal_t& normal, Float radius):
+    disk_t(const point3_t& position, const normal_t& normal, float_t radius):
         position_{ position },
         normal_{ normalize(normal) },
         radius_{ radius }
@@ -998,11 +1000,11 @@ public:
 
     bool intersect(const ray_t& ray, isect_t* out_isect) const override
     {
-        if (is_equal(dot(ray.direction(), normal_), (Float)0))
+        if (is_equal(dot(ray.direction(), normal_), (float_t)0))
             return false;
  
         const vec3_t op = position_ - ray.origin();
-        const Float distance = dot(normal_, op) / dot(normal_, ray.direction());
+        const float_t distance = dot(normal_, op) / dot(normal_, ray.direction());
 
         if ((distance > epsilon) && (distance < ray.distance()))
         {
@@ -1026,10 +1028,10 @@ public:
         return bounds3_t(position_ - offset, position_ + offset);
     }
 
-    Float area() const override { return k_pi * radius_ * radius_; }
+    float_t area() const override { return k_pi * radius_ * radius_; }
 
 public:
-    isect_t sample_position(const float2_t& random, Float* pdf) const override
+    isect_t sample_position(const float2_t& random, float_t* pdf) const override
     {
         isect_t isect;
 
@@ -1046,7 +1048,7 @@ public:
 public:
     point3_t position_;
     normal_t normal_;
-    Float radius_;
+    float_t radius_;
 };
 
 class triangle_t : public shape_t
@@ -1075,9 +1077,9 @@ public:
         const vec3_t v1 = cross(ob, oa);
         const vec3_t v2 = cross(oa, oc);
 
-        const Float v0d = dot(v0, ray.direction());
-        const Float v1d = dot(v1, ray.direction());
-        const Float v2d = dot(v2, ray.direction());
+        const float_t v0d = dot(v0, ray.direction());
+        const float_t v1d = dot(v1, ray.direction());
+        const float_t v2d = dot(v2, ray.direction());
 
         if (((v0d <  0.f) && (v1d <  0.f) && (v2d <  0.f)) ||
             ((v0d >= 0.f) && (v1d >= 0.f) && (v2d >= 0.f)))
@@ -1086,7 +1088,7 @@ public:
             //    by `dot(normal, op)` (or `bo`, `co`)
             // 2. then calculate the distance from ray.origin to the plane alone ray.direction, 
             //    by `distance * dot(normal, ray.direction()) = vertical_distance`
-            const Float distance = dot(normal_, oa) / dot(normal_, ray.direction());
+            const float_t distance = dot(normal_, oa) / dot(normal_, ray.direction());
 
             if ((distance > epsilon) && (distance < ray.distance()))
             {
@@ -1106,10 +1108,10 @@ public:
         return bounds3_t(p0_, p1_).join(p2_);
     }
 
-    Float area() const override { return 0.5 * cross(p1_ - p0_, p2_ - p0_).magnitude(); }
+    float_t area() const override { return 0.5 * cross(p1_ - p0_, p2_ - p0_).magnitude(); }
 
 public:
-    isect_t sample_position(const float2_t& random, Float* pdf) const override
+    isect_t sample_position(const float2_t& random, float_t* pdf) const override
     {
         point2_t b = sample_triangle_uniform(random);
 
@@ -1158,15 +1160,15 @@ public:
         const vec3_t v2 = cross(oa, od);
         const vec3_t v3 = cross(od, oc);
 
-        const Float v0d = dot(v0, ray.direction());
-        const Float v1d = dot(v1, ray.direction());
-        const Float v2d = dot(v2, ray.direction());
-        const Float v3d = dot(v3, ray.direction());
+        const float_t v0d = dot(v0, ray.direction());
+        const float_t v1d = dot(v1, ray.direction());
+        const float_t v2d = dot(v2, ray.direction());
+        const float_t v3d = dot(v3, ray.direction());
 
         if (((v0d <  0.f) && (v1d <  0.f) && (v2d <  0.f) && (v3d <  0.f)) ||
             ((v0d >= 0.f) && (v1d >= 0.f) && (v2d >= 0.f) && (v3d >= 0.f)))
         {
-            const Float distance = dot(normal_, oa) / dot(normal_, ray.direction());
+            const float_t distance = dot(normal_, oa) / dot(normal_, ray.direction());
 
             if ((distance > epsilon) && (distance < ray.distance()))
             {
@@ -1186,10 +1188,10 @@ public:
         return bounds3_t(p0_, p1_).join(p2_).join(p3_);
     }
 
-    Float area() const override { return cross(p0_ - p1_, p2_ - p1_).magnitude(); }
+    float_t area() const override { return cross(p0_ - p1_, p2_ - p1_).magnitude(); }
 
 public:
-    isect_t sample_position(const float2_t& random, Float* pdf) const override
+    isect_t sample_position(const float2_t& random, float_t* pdf) const override
     {
         isect_t isect;
         isect.position = p1_ + (p0_ - p1_) * random[0] + (p2_ - p1_) * random[1];
@@ -1210,7 +1212,7 @@ public:
 class sphere_t : public shape_t
 {
 public:
-    sphere_t(vec3_t center, Float radius) :
+    sphere_t(vec3_t center, float_t radius) :
         center_(center),
         radius_(radius),
         radius_sq_(radius * radius)
@@ -1247,14 +1249,14 @@ public:
         */
 
         vec3_t oc = center_ - ray.origin();
-        Float neg_b = dot(oc, ray.direction());
-        Float discr = neg_b * neg_b - dot(oc, oc) + radius_sq_;
+        float_t neg_b = dot(oc, ray.direction());
+        float_t discr = neg_b * neg_b - dot(oc, oc) + radius_sq_;
 
-        Float distance = 0;
+        float_t distance = 0;
         bool hit = false;
         if (discr >= 0)
          {
-            Float sqrt_discr = sqrt(discr);
+            float_t sqrt_discr = sqrt(discr);
 
             if (distance = neg_b - sqrt_discr; distance > epsilon && distance < ray.distance())
             {
@@ -1282,10 +1284,10 @@ public:
         return bounds3_t(center_ + half, center_ - half);
     }
 
-    Float area() const override { return 4 * k_pi * radius_sq_; }
+    float_t area() const override { return 4 * k_pi * radius_sq_; }
 
 public:
-    isect_t sample_position(const float2_t& random, Float* pdf) const override
+    isect_t sample_position(const float2_t& random, float_t* pdf) const override
     {
         unit_vec3_t direction = sample_sphere_uniform(random);
         point3_t position = center_ + radius_ * direction;
@@ -1300,7 +1302,7 @@ public:
     }
 
     // TODO
-    isect_t sample_direction(const isect_t& isect, const float2_t& random, Float* pdf) const override
+    isect_t sample_direction(const isect_t& isect, const float2_t& random, float_t* pdf) const override
     {
         if (distance_squared(isect.position, center_) <= radius_ * radius_)
         {
@@ -1335,17 +1337,17 @@ public:
 
         */
 
-        Float dist = distance(isect.position, center_);
-        Float inv_dist = 1 / dist;
+        float_t dist = distance(isect.position, center_);
+        float_t inv_dist = 1 / dist;
 
         // Compute $\theta$ and $\phi$ values for sample in cone
-        Float sin_theta_max = radius_ * inv_dist;
-        Float sin_theta_max_sq = sin_theta_max * sin_theta_max;
-        Float inv_sin_theta_max = 1 / sin_theta_max;
-        Float cos_theta_max = std::sqrt(std::max((Float)0.f, 1 - sin_theta_max_sq));
+        float_t sin_theta_max = radius_ * inv_dist;
+        float_t sin_theta_max_sq = sin_theta_max * sin_theta_max;
+        float_t inv_sin_theta_max = 1 / sin_theta_max;
+        float_t cos_theta_max = std::sqrt(std::max((float_t)0.f, 1 - sin_theta_max_sq));
 
-        Float cos_theta = (cos_theta_max - 1) * random[0] + 1;
-        Float sin_theta_sq = 1 - cos_theta * cos_theta;
+        float_t cos_theta = (cos_theta_max - 1) * random[0] + 1;
+        float_t sin_theta_sq = 1 - cos_theta * cos_theta;
 
         if (sin_theta_max_sq < 0.00068523f /* sin^2(1.5 deg) */)
         {
@@ -1356,10 +1358,10 @@ public:
         }
 
         // Compute angle $\alpha$ from center of sphere to sampled point on surface
-        Float cos_alpha = sin_theta_sq * inv_sin_theta_max +
-            cos_theta * std::sqrt(std::max((Float)0.f, 1.f - sin_theta_sq * inv_sin_theta_max * inv_sin_theta_max));
-        Float sin_alpha = std::sqrt(std::max((Float)0.f, 1.f - cos_alpha * cos_alpha));
-        Float phi = random[1] * 2 * k_pi;
+        float_t cos_alpha = sin_theta_sq * inv_sin_theta_max +
+            cos_theta * std::sqrt(std::max((float_t)0.f, 1.f - sin_theta_sq * inv_sin_theta_max * inv_sin_theta_max));
+        float_t sin_alpha = std::sqrt(std::max((float_t)0.f, 1.f - cos_alpha * cos_alpha));
+        float_t phi = random[1] * 2 * k_pi;
 
         // Compute coordinate system for sphere sampling
         vec3_t normal = (center_ - isect.position) * inv_dist;
@@ -1380,22 +1382,22 @@ public:
         return std::move(light_isect);
     }
 
-    Float pdf_direction(const isect_t& isect, const vec3_t& world_wi) const override
+    float_t pdf_direction(const isect_t& isect, const vec3_t& world_wi) const override
     {
         // Return uniform PDF if point is inside sphere
         if (distance_squared(isect.position, center_) <= radius_ * radius_)
             return shape_t::pdf_direction(isect, world_wi);
 
         // Compute general sphere PDF
-        Float sin_theta_max_sq = radius_ * radius_ / distance_squared(isect.position, center_);
-        Float cos_theta_max = std::sqrt(std::max((Float)0, 1 - sin_theta_max_sq));
+        float_t sin_theta_max_sq = radius_ * radius_ / distance_squared(isect.position, center_);
+        float_t cos_theta_max = std::sqrt(std::max((float_t)0, 1 - sin_theta_max_sq));
         return pdf_cone_uniform(cos_theta_max);
     }
 
 private:
     vec3_t center_;
-    Float radius_;
-    Float radius_sq_;
+    float_t radius_;
+    float_t radius_sq_;
 };
 
 #pragma endregion
@@ -1421,10 +1423,10 @@ struct film_desc_t
     int height;
 };
 
-constexpr Float clamp01(Float x) { return std::clamp(x, (Float)0, (Float)1); }
+constexpr float_t clamp01(float_t x) { return std::clamp(x, (float_t)0, (float_t)1); }
 inline vec3_t clamp01(vec3_t vec3) { return vec3_t(clamp01(vec3.x), clamp01(vec3.y), clamp01(vec3.z)); }
 
-inline uint8_t gamma_encoding(Float x) { return pow(clamp01(x), 1 / 2.2) * 255 + .5; }
+inline uint8_t gamma_encoding(float_t x) { return pow(clamp01(x), 1 / 2.2) * 255 + .5; }
 
 /*
   warpper of `color_t pixels[]`
@@ -1448,7 +1450,7 @@ public:
     int get_pixel_num() const { return width_ * height_; }
     int get_channels() const { return 3; }
     
-    virtual vec2_t get_resolution() const { return { (Float)width_, (Float)height_ }; }
+    virtual vec2_t get_resolution() const { return { (float_t)width_, (float_t)height_ }; }
     virtual color_t& operator()(int x, int y)
     {
         CHECK_DEBUG(x >= 0 && x < width_ && y >= 0 && y < height_, 
@@ -1483,21 +1485,21 @@ public:
     //virtual bool store_image(bool with_alpha);
     virtual bool store_image(std::string filename, bool with_alpha = false) const
     {
-        return store_bmp_impl(filename, get_width(), get_height(), get_channels(), (Float*)pixels_.get());
+        return store_bmp_impl(filename, get_width(), get_height(), get_channels(), (float_t*)pixels_.get());
         /*
         switch (image_type)
         {
         case image_enum_t::ppm:
-            return store_ppm_impl(filename, get_width(), get_height(), get_channels(), (Float*)pixels_.get());
+            return store_ppm_impl(filename, get_width(), get_height(), get_channels(), (float_t*)pixels_.get());
         case image_enum_t::bmp:
-            return store_bmp_impl(filename, get_width(), get_height(), get_channels(), (Float*)pixels_.get());
+            return store_bmp_impl(filename, get_width(), get_height(), get_channels(), (float_t*)pixels_.get());
         default:
             break;
         }
         */
     }
 
-    static bool store_ppm_impl(const std::string& filename, int width, int height, int channel, const Float* pixels)
+    static bool store_ppm_impl(const std::string& filename, int width, int height, int channel, const float_t* pixels)
     {
         std::fstream img_file(filename, std::ios::binary | std::ios::out);
         img_file << std::format("P3\n{} {}\n{}\n", width, height, 255);
@@ -1513,7 +1515,7 @@ public:
    
     // https://github.com/SmallVCM/SmallVCM/blob/master/src/framebuffer.hxx#L149-L215
     // https://github.com/skywind3000/RenderHelp/blob/master/RenderHelp.h#L937-L1018
-    static bool store_bmp_impl(const std::string& filename, int width, int height, int channel, const Float* floats)
+    static bool store_bmp_impl(const std::string& filename, int width, int height, int channel, const float_t* floats)
     {
         std::fstream img_file(filename, std::ios::binary | std::ios::out);
 
@@ -1586,7 +1588,7 @@ public:
         return true;
     }
 
-    static bool store_hdr_impl(const std::string& filename, int width, int height, int channel, const Float* floats)
+    static bool store_hdr_impl(const std::string& filename, int width, int height, int channel, const float_t* floats)
     {
 
     }
@@ -1614,7 +1616,7 @@ public:
     }
 
 public:
-    vec2_t get_resolution() const override { return { (Float)sub_width_, (Float)sub_height_ }; }
+    vec2_t get_resolution() const override { return { (float_t)sub_width_, (float_t)sub_height_ }; }
 
     color_t& operator()(int x, int y) override
     {
@@ -1674,7 +1676,7 @@ public:
         // TODO
         // https://github.com/infancy/pbrt-v3/blob/master/src/core/transform.cpp#L394-L397
  
-        Float tan_fov = std::tan(radians(fov) / 2);
+        float_t tan_fov = std::tan(radians(fov) / 2);
 
         // left hand, clockwise
         right_ = up_.cross(front_).normalize() * tan_fov * get_aspect();
@@ -1696,7 +1698,7 @@ public:
     // sample_ray(...)
 
 private:
-    Float get_aspect() { return resolution_.x / resolution_.y; }
+    float_t get_aspect() { return resolution_.x / resolution_.y; }
 
 private:
     vec3_t position_;
@@ -1717,8 +1719,8 @@ using const_camera_sptr_t = std::shared_ptr<const camera_t>;
 
 // the functions below are based on local shading coordinate
 
-inline Float cos_theta(const vec3_t& w) { return w.z; }
-inline Float abs_cos_theta(const vec3_t& w) { return std::abs(w.z); }
+inline float_t cos_theta(const vec3_t& w) { return w.z; }
+inline float_t abs_cos_theta(const vec3_t& w) { return std::abs(w.z); }
 
 inline bool same_hemisphere(const vec3_t& w, const vec3_t& wp) { return w.z * wp.z > 0; }
 
@@ -1730,21 +1732,21 @@ inline vec3_t reflect(const vec3_t& wo, const normal_t& normal)
 }
 
 // eta = eta_i/eta_t
-inline bool refract(const vec3_t& wi, const normal_t& normal, Float eta, vec3_t* out_wt)
+inline bool refract(const vec3_t& wi, const normal_t& normal, float_t eta, vec3_t* out_wt)
 {
     // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#SpecularTransmission
     // https://github.com/mmp/pbrt-v3/blob/master/src/core/reflection.h#L97-L109
 
     // compute $\cos \theta_\mathrm{t}$ using Snell's law
-    Float cos_theta_i = dot(normal, wi);
-    Float sin_theta_i_sq = std::max(Float(0), Float(1 - cos_theta_i * cos_theta_i));
-    Float sin_theta_t_sq = eta * eta * sin_theta_i_sq;
+    float_t cos_theta_i = dot(normal, wi);
+    float_t sin_theta_i_sq = std::max(float_t(0), float_t(1 - cos_theta_i * cos_theta_i));
+    float_t sin_theta_t_sq = eta * eta * sin_theta_i_sq;
 
     // handle total internal reflection for transmission
     if (sin_theta_t_sq >= 1)
         return false;
 
-    Float cos_theta_t = std::sqrt(1 - sin_theta_t_sq);
+    float_t cos_theta_t = std::sqrt(1 - sin_theta_t_sq);
     *out_wt = eta * -wi + (eta * cos_theta_i - cos_theta_t) * vec3_t(normal);
     CHECK_DEBUG(out_wt->is_valid() && !out_wt->is_zero());
 
@@ -1755,14 +1757,14 @@ inline bool refract(const vec3_t& wi, const normal_t& normal, Float eta, vec3_t*
 
 #pragma region fresnel
 
-Float fresnel_dielectric(
-    Float cos_theta_i, 
-    Float eta_i, Float eta_t)
+float_t fresnel_dielectric(
+    float_t cos_theta_i, 
+    float_t eta_i, float_t eta_t)
 {
     // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#FresnelReflectance
     // https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.cpp#L66-L90
 
-    cos_theta_i = std::clamp(cos_theta_i, (Float)-1, (Float)1);
+    cos_theta_i = std::clamp(cos_theta_i, (float_t)-1, (float_t)1);
 
     bool entering = cos_theta_i > 0.f;
     if (!entering)
@@ -1773,28 +1775,28 @@ Float fresnel_dielectric(
 
 
     // compute $\cos \theta_\mathrm{t}$ using Snell's law
-    Float sin_theta_i = std::sqrt(std::max((Float)0, 1 - cos_theta_i * cos_theta_i));
-    Float sin_theta_t = eta_i / eta_t * sin_theta_i;
+    float_t sin_theta_i = std::sqrt(std::max((float_t)0, 1 - cos_theta_i * cos_theta_i));
+    float_t sin_theta_t = eta_i / eta_t * sin_theta_i;
 
     // Handle total internal reflection
     if (sin_theta_t >= 1)
         return 1;
 
-    Float cos_theta_t = std::sqrt(std::max((Float)0, 1 - sin_theta_t * sin_theta_t));
+    float_t cos_theta_t = std::sqrt(std::max((float_t)0, 1 - sin_theta_t * sin_theta_t));
 
 
-    Float r_para = ((eta_t * cos_theta_i) - (eta_i * cos_theta_t)) /
+    float_t r_para = ((eta_t * cos_theta_i) - (eta_i * cos_theta_t)) /
                    ((eta_t * cos_theta_i) + (eta_i * cos_theta_t));
-    Float r_perp = ((eta_i * cos_theta_i) - (eta_t * cos_theta_t)) /
+    float_t r_perp = ((eta_i * cos_theta_i) - (eta_t * cos_theta_t)) /
                    ((eta_i * cos_theta_i) + (eta_t * cos_theta_t));
     return (r_para * r_para + r_perp * r_perp) / 2;
 }
 
 
 // schlick approximation 1994
-Float fresnel_dielectric_schlick(
-    Float cos_theta_i, Float cos_theta_t, 
-    Float eta_i, Float eta_t)
+float_t fresnel_dielectric_schlick(
+    float_t cos_theta_i, float_t cos_theta_t, 
+    float_t eta_i, float_t eta_t)
 {
     /*
     cos_theta_i = std::clamp(cos_theta_i, -1.0, 1.0);
@@ -1809,20 +1811,20 @@ Float fresnel_dielectric_schlick(
     }
     */
 
-    Float F0 = (eta_t - eta_i) / (eta_t + eta_i);
+    float_t F0 = (eta_t - eta_i) / (eta_t + eta_i);
     F0 *= F0;
 
-    //Float cos_i = eta_i < eta_t ? cos_theta_i : cos_theta_t;
-    Float cos_i = cos_theta_i < 0 ? -cos_theta_i : cos_theta_t;
+    //float_t cos_i = eta_i < eta_t ? cos_theta_i : cos_theta_t;
+    float_t cos_i = cos_theta_i < 0 ? -cos_theta_i : cos_theta_t;
 
     return lerp(F0, 1.0f, std::pow(1 - cos_i, 5.0f) );
 }
 
-Float fresnel_dielectric_schlick(
-    Float cos_theta_i,
-    Float eta_i, Float eta_t)
+float_t fresnel_dielectric_schlick(
+    float_t cos_theta_i,
+    float_t eta_i, float_t eta_t)
 {
-    Float F0 = (eta_t - eta_i) / (eta_t + eta_i);
+    float_t F0 = (eta_t - eta_i) / (eta_t + eta_i);
     F0 *= F0;
 
     return lerp(F0, 1.0f, std::pow(1 - cos_theta_i, 5.0f));
@@ -1834,13 +1836,13 @@ Float fresnel_dielectric_schlick(
      * the fresnel reflectance at normal incidence `F0`
    compute reflectance
 */
-Float fresnel_dielectric_schlick(Float cos_theta_i, Float F0)
+float_t fresnel_dielectric_schlick(float_t cos_theta_i, float_t F0)
 {
     return lerp(F0, 1.0f, std::pow((1.0f - cos_theta_i), 5.0f));
 }
 
 /*
-color_t fresnel_dielectric_schlick(Float cos_theta_i, color_t F0)
+color_t fresnel_dielectric_schlick(float_t cos_theta_i, color_t F0)
 {
     return lerp(F0, vec3_t(1.0f), std::pow((1.0f - cos_theta_i), 5.0f));
 }
@@ -1853,7 +1855,7 @@ class fresnel_t
 public:
     virtual ~fresnel_t() = default;
 
-    virtual Float evaluate(Float cosI) const = 0;
+    virtual float_t evaluate(float_t cosI) const = 0;
 };
 
 class fresnel_dielectric_t : public fresnel_t
@@ -1863,7 +1865,7 @@ public:
     {
     }
 
-    Float evaluate(Float cosI) const override
+    float_t evaluate(float_t cosI) const override
     {
         return 0;
     }
@@ -1932,7 +1934,7 @@ struct bsdf_sample_t
 {
     color_t f{}; // scattering rate 
     vec3_t wi{}; // world wi
-    Float pdf{};
+    float_t pdf{};
     bsdf_enum_t bsdf_type{}; // flags
 };
 
@@ -1955,7 +1957,7 @@ public:
         return f_(to_local(world_wo), to_local(world_wi));
     }
 
-    Float pdf(const vec3_t& world_wo, const vec3_t& world_wi) const
+    float_t pdf(const vec3_t& world_wo, const vec3_t& world_wi) const
     {
         return pdf_(to_local(world_wo), to_local(world_wi));
     }
@@ -1969,7 +1971,7 @@ public:
         return sample;
     }
 
-    color_t evaluate_pdf(const vec3_t& world_wo, const vec3_t& world_wi, Float* out_pdf) const
+    color_t evaluate_pdf(const vec3_t& world_wo, const vec3_t& world_wi, float_t* out_pdf) const
     {
         vec3_t wo = to_local(world_wo), wi = to_local(world_wi);
 
@@ -1979,7 +1981,7 @@ public:
 
 protected: 
     virtual color_t f_(const vec3_t& wo, const vec3_t& wi) const = 0;
-    virtual Float pdf_(const vec3_t& wo, const vec3_t& wi) const = 0;
+    virtual float_t pdf_(const vec3_t& wo, const vec3_t& wi) const = 0;
 
     virtual bsdf_sample_t sample_f_(const vec3_t& wo, const float2_t& random) const = 0;
 
@@ -2019,7 +2021,7 @@ public:
         return albedo_ * k_inv_pi;
     }
 
-    Float pdf_(const vec3_t& wo, const vec3_t& wi) const override
+    float_t pdf_(const vec3_t& wo, const vec3_t& wi) const override
     {
         return same_hemisphere(wo, wi) ? pdf_hemisphere_cosine(abs_cos_theta(wi)) : 0;
     }
@@ -2069,7 +2071,7 @@ public:
     bool is_delta() const override { return true; }
 
     color_t f_(const vec3_t& wo, const vec3_t& wi) const override { return color_t(); }
-    Float pdf_(const vec3_t& wo, const vec3_t& wi) const override { return 0; }
+    float_t pdf_(const vec3_t& wo, const vec3_t& wi) const override { return 0; }
 
     bsdf_sample_t sample_f_(const vec3_t& wo, const float2_t& random) const override
     {
@@ -2115,7 +2117,7 @@ private:
 class fresnel_specular_t : public bsdf_t
 {
 public:
-    fresnel_specular_t(const frame_t& shading_frame, Float eta_i, Float eta_t, const color_t& reflectance, const color_t& transmittance) :
+    fresnel_specular_t(const frame_t& shading_frame, float_t eta_i, float_t eta_t, const color_t& reflectance, const color_t& transmittance) :
         bsdf_t(shading_frame), eta_i_{ eta_i }, eta_t_{ eta_t }, reflectance_{ reflectance }, transmittance_{ transmittance }
     {
     }
@@ -2123,7 +2125,7 @@ public:
     bool is_delta() const override { return true; }
 
     color_t f_(const vec3_t& wo, const vec3_t& wi) const override { return color_t(); }
-    Float pdf_(const vec3_t& wo, const vec3_t& wi) const override { return 0; }
+    float_t pdf_(const vec3_t& wo, const vec3_t& wi) const override { return 0; }
 
     bsdf_sample_t sample_f_(const vec3_t& wo, const float2_t& random) const override
     {
@@ -2137,11 +2139,11 @@ public:
         bsdf_sample_t sample;
 
         // percentage of light's reflect and refract
-        Float reflect_percent = fresnel_dielectric(cos_theta(wo), eta_i_, eta_t_);
-        Float refract_percent = 1 - reflect_percent;
+        float_t reflect_percent = fresnel_dielectric(cos_theta(wo), eta_i_, eta_t_);
+        float_t refract_percent = 1 - reflect_percent;
 
         // and probability of single ray is reflect or refract
-        Float Pr_reflect = reflect_percent, Pr_refract = refract_percent;
+        float_t Pr_reflect = reflect_percent, Pr_refract = refract_percent;
 
         // Russian roulette
         if (random[0] < Pr_reflect)
@@ -2164,7 +2166,7 @@ public:
             bool into = normal.dot(wo) > 0; // ray from outside going in?
 
             normal_t wo_normal = into ? normal : normal * -1;
-            Float eta = into ? eta_i_ / eta_t_ : eta_t_ / eta_i_;
+            float_t eta = into ? eta_i_ / eta_t_ : eta_t_ / eta_i_;
 
             if (refract(wo, wo_normal, eta, &sample.wi))
             {
@@ -2186,25 +2188,25 @@ public:
     /*
     // smallpt version
     color_t sample_f_(const vec3_t& wo, const float2_t& random,
-        vec3_t* out_wi, Float* out_pdf_direction, bsdf_enum_t* out_bsdf_type) const override
+        vec3_t* out_wi, float_t* out_pdf_direction, bsdf_enum_t* out_bsdf_type) const override
     {
         normal_t normal(0, 0, 1);
         bool into = normal.dot(wo) > 0; // ray from outside going in?
 
         normal_t wo_normal = into ? normal : normal * -1;
-        Float eta = into ? etaI_ / etaT_ : etaT_ / etaI_;
+        float_t eta = into ? etaI_ / etaT_ : etaT_ / etaI_;
 
         if (!refract(wo, wo_normal, eta, out_wi))
         {
             return color_t(); // total internal reflection
         }
 
-        Float cos_theta_a = wo.dot(wo_normal);
-        Float cos_theta_b = (*out_wi).dot(normal);
-        Float cos_theta_i = into ? cos_theta_a : cos_theta_b;
+        float_t cos_theta_a = wo.dot(wo_normal);
+        float_t cos_theta_b = (*out_wi).dot(normal);
+        float_t cos_theta_i = into ? cos_theta_a : cos_theta_b;
 
-        Float Re = fresnel_dielectric_schlick(cos_theta_a, etaI_, etaT_);
-        Float Tr = 1 - Re;
+        float_t Re = fresnel_dielectric_schlick(cos_theta_a, etaI_, etaT_);
+        float_t Tr = 1 - Re;
 
         if (random[0] < Re)
         {
@@ -2227,8 +2229,8 @@ public:
 
 private:
     // outside and inside ior of interface
-    Float eta_i_; // ior_i_
-    Float eta_t_; // ior_t_
+    float_t eta_i_; // ior_i_
+    float_t eta_t_; // ior_t_
 
     // https://wiki.luxcorerender.org/LuxCoreRender_Materials_Glass
     // https://mitsuba.readthedocs.io/en/latest/src/generated/plugins_bsdfs.html#smooth-dielectric-material-dielectric
@@ -2244,7 +2246,7 @@ private:
 class phong_specular_reflection_t : public bsdf_t
 {
 public:
-    phong_specular_reflection_t(const frame_t& shading_frame, /*const color_t& Kd,*/ const color_t& Ks, Float exponent) :
+    phong_specular_reflection_t(const frame_t& shading_frame, /*const color_t& Kd,*/ const color_t& Ks, float_t exponent) :
         bsdf_t(shading_frame), /*Kd_{Kd},*/ Ks_{Ks}, exponent_{exponent}
     {
     }
@@ -2260,7 +2262,7 @@ public:
         return rho * std::pow(cos_alpha, exponent_);
     }
 
-    Float pdf_(const vec3_t& wo, const vec3_t& wi) const override
+    float_t pdf_(const vec3_t& wo, const vec3_t& wi) const override
     {
         const vec3_t wr = reflect(wo, vec3_t(0, 0, 1));
         //const float cos_alpha = dot(wr, wi);
@@ -2311,7 +2313,7 @@ private:
 
 private:
     color_t Ks_;
-    Float exponent_;
+    float_t exponent_;
 };
 
 #pragma endregion
@@ -2373,7 +2375,7 @@ private:
 class glass_material_t : public material_t
 {
 public:
-    glass_material_t(Float eta, const color_t& reflection_color = color_t(1, 1, 1), const color_t& transmission_color = color_t(1, 1, 1)) :
+    glass_material_t(float_t eta, const color_t& reflection_color = color_t(1, 1, 1), const color_t& transmission_color = color_t(1, 1, 1)) :
         eta_{ eta }, reflection_color_{ reflection_color }, transmission_color_{ transmission_color }
     {
     }
@@ -2384,7 +2386,7 @@ public:
     }
 
 private:
-    Float eta_;
+    float_t eta_;
     color_t reflection_color_; // or named `Kr`
     color_t transmission_color_; // or named `Kt`
 };
@@ -2392,14 +2394,14 @@ private:
 class plastic_material_t : public material_t
 {
 public:
-    plastic_material_t(const color_t& diffuse_color, const color_t& specular_color, Float shininess) :
+    plastic_material_t(const color_t& diffuse_color, const color_t& specular_color, float_t shininess) :
         diffuse_color_{ diffuse_color }, specular_color_{ specular_color }, exponent_{ shininess } // TODO
     {
         //CHECK_DEBUG((Kd_ + Ks_).small_than({ 1, 1, 1 }));
 
-        Float diffuse = diffuse_color.luminance();
-        Float specular = specular_color.luminance();
-        Float luminance = diffuse + specular;
+        float_t diffuse = diffuse_color.luminance();
+        float_t specular = specular_color.luminance();
+        float_t luminance = diffuse + specular;
         
         diffuse_probility_ = diffuse / luminance;
         specular_probility_ = specular / luminance;
@@ -2421,10 +2423,10 @@ public:
 private:
     color_t diffuse_color_;
     color_t specular_color_; 
-    Float exponent_;
+    float_t exponent_;
 
-    Float diffuse_probility_;
-    Float specular_probility_;
+    float_t diffuse_probility_;
+    float_t specular_probility_;
     mutable rng_t rng_;
 };
 
@@ -2462,14 +2464,14 @@ struct position_sample_t
     point3_t position; // maybe zero
     normal_t normal; // maybe zero
     ray_t ray;
-    Float pdf_position = 0;
-    Float pdf_direction = 0;
+    float_t pdf_position = 0;
+    float_t pdf_direction = 0;
     color_t Le; // for light
 
     position_sample_t() = default;
     position_sample_t(
         const point3_t& position, const normal_t& normal, const ray_t& ray,
-        Float pdf_position, Float pdf_direction,
+        float_t pdf_position, float_t pdf_direction,
         const color_t& emission) :
         position{ position },
         normal{ normal },
@@ -2480,7 +2482,7 @@ struct position_sample_t
     {
     }
 
-    Float abs_cos_theta(vec3_t w) const { return is_delta ? 1 : abs_dot(w, normal); }
+    float_t abs_cos_theta(vec3_t w) const { return is_delta ? 1 : abs_dot(w, normal); }
 };
 
 /*
@@ -2491,11 +2493,11 @@ struct direction_sample_t // : public position_sample_t
 {
     point3_t position;
     vec3_t wi; // isect -> light, alone ray's direction
-    Float pdf{}; // pdf of direction
+    float_t pdf{}; // pdf of direction
     color_t Li; // for light
 
     direction_sample_t() = default;
-    direction_sample_t(const isect_t& isect, const vec3_t& wi, Float pdf, const color_t& Li) :
+    direction_sample_t(const isect_t& isect, const vec3_t& wi, float_t pdf, const color_t& Li) :
         position{ isect.position },
         wi{ wi },
         pdf{ pdf },
@@ -2536,7 +2538,7 @@ public:
     // sample_light/samle_direction
     virtual direction_sample_t sample_Li(const isect_t& isect, const float2_t& random) const = 0;
 
-    virtual Float pdf_Li(const isect_t& isect, const vec3_t& world_wi) const = 0;
+    virtual float_t pdf_Li(const isect_t& isect, const vec3_t& world_wi) const = 0;
 
 protected:
     point3_t world_position_;
@@ -2591,7 +2593,7 @@ public:
         return sample;
     }
 
-    Float pdf_Li(
+    float_t pdf_Li(
         const isect_t& isect, const vec3_t& world_wi) const override
     {
         return 0;
@@ -2637,7 +2639,7 @@ public:
         return sample;
     }
 
-    Float pdf_Li(
+    float_t pdf_Li(
         const isect_t& isect, const vec3_t& world_wi) const override
     {
         return 0;
@@ -2647,8 +2649,8 @@ private:
     color_t irradiance_;
 
     point3_t world_center_;
-    Float world_radius_;
-    Float area_;
+    float_t world_radius_;
+    float_t area_;
     color_t power_;
 
     unit_vec3_t world_direction_;
@@ -2713,7 +2715,7 @@ public:
         return sample;
     }
 
-    Float pdf_Li(
+    float_t pdf_Li(
         const isect_t& isect, const vec3_t& world_wi) const override
     {
         return shape_->pdf_direction(isect, world_wi);
@@ -2759,8 +2761,8 @@ public:
         sample.wi = sample_sphere_uniform(random);
         sample.position = isect.position + sample.wi * 2 * world_radius_;
 
-        Float theta = spherical_theta(sample.wi);
-        Float sin_theta = std::sin(theta);
+        float_t theta = spherical_theta(sample.wi);
+        float_t sin_theta = std::sin(theta);
         sample.pdf = 1 / (2 * k_pi * k_pi * sin_theta);
         if (sin_theta == 0)
             sample.pdf = 0;
@@ -2770,11 +2772,11 @@ public:
         return sample;
     }
 
-    Float pdf_Li(
+    float_t pdf_Li(
         const isect_t& isect, const vec3_t& world_wi) const override
     {
-        Float theta = spherical_theta(world_wi);
-        Float sin_theta = std::sin(theta);
+        float_t theta = spherical_theta(world_wi);
+        float_t sin_theta = std::sin(theta);
 
         if (sin_theta == 0)
             return 0;
@@ -2786,8 +2788,8 @@ private:
     color_t radiance_;
 
     point3_t world_center_;
-    Float world_radius_;
-    Float area_;
+    float_t world_radius_;
+    float_t area_;
     color_t power_;
 };
 
@@ -3033,15 +3035,15 @@ public:
 
 
         // large ball
-        Float large_radius = 0.8f;
+        float_t large_radius = 0.8f;
         vec3_t large_center = (cb[0] + cb[4] + cb[5] + cb[1]) * (1.f / 4.f) + vec3_t(0, 0, large_radius);
 
         // small ball
-        Float small_radius = 0.5f;
+        float_t small_radius = 0.5f;
         vec3_t left_wall_center  = (cb[0] + cb[4]) * (1.f / 2.f) + vec3_t(0, 0, small_radius);
         vec3_t right_wall_center = (cb[1] + cb[5]) * (1.f / 2.f) + vec3_t(0, 0, small_radius);
 
-        Float length_x = right_wall_center.x - left_wall_center.x;
+        float_t length_x = right_wall_center.x - left_wall_center.x;
         vec3_t left_center  = left_wall_center  + vec3_t(2.f * length_x / 7.f, 0, 0);
         vec3_t right_center = right_wall_center - vec3_t(2.f * length_x / 7.f, 0, 0);
 
@@ -3095,7 +3097,7 @@ public:
 
         if (enum_have(scene_enum, light_point))
         {
-            Float I = 70 * k_inv_4pi;
+            float_t I = 70 * k_inv_4pi;
             light_list.push_back(
                 std::make_shared<point_light_t>(point3_t(0.0, 0.5, 1.0), 1, color_t(I, I, I)));
         }
@@ -3350,7 +3352,7 @@ enum class integrator_enum_t
 struct light_sample_t
 {
     light_t* light{};
-    Float pdf_light{};
+    float_t pdf_light{};
 };
 
 // TODO: rename path_sample_t
@@ -3400,7 +3402,7 @@ public:
 
                 do
                 {
-                    auto sample = sampler->get_camera_sample({ (Float)x, (Float)y });
+                    auto sample = sampler->get_camera_sample({ (float_t)x, (float_t)y });
                     auto ray = camera->generate_ray(sample);
 
                     auto dL = Li(ray, scene, sampler.get()) * (1. / sampler->ge_samples_per_pixel());
@@ -3432,7 +3434,7 @@ public:
 
                 do
                 {
-                    auto sample = sampler->get_camera_sample({ (Float)x, (Float)y });
+                    auto sample = sampler->get_camera_sample({ (float_t)x, (float_t)y });
                     auto ray = camera->generate_ray(sample);
 
                     auto dL = Li(ray, scene, sampler.get()) * (1. / sampler->ge_samples_per_pixel());
@@ -3470,7 +3472,7 @@ protected:
         // TODO: power based, spatial based
         int light_index = std::min((int)(sampler.get_float() * light_count), light_count - 1);
         auto light = scene->light_list()[light_index].get();
-        Float pdf_light = Float(1) / light_count;
+        float_t pdf_light = float_t(1) / light_count;
 
         return { light, pdf_light };
     }
@@ -3485,7 +3487,7 @@ protected:
 
         // TODO: power based, spatial based
         int light_index = std::min((int)(sampler.get_float() * light_count), light_count - 1);
-        Float pdf_light = Float(1) / light_count;
+        float_t pdf_light = float_t(1) / light_count;
 
         auto light = scene->light_list()[light_index].get();
         point2_t uLight = sampler.get_float2();
@@ -3668,10 +3670,10 @@ protected:
                     Ld += bs.f * Li / bs.pdf; // don't need MIS
                 else
                 {
-                    Float light_pdf = light.pdf_Li(isect, bs.wi);
+                    float_t light_pdf = light.pdf_Li(isect, bs.wi);
                     if (light_pdf > 0) // visible
                     {
-                        Float weight = power_heuristic(1, bs.pdf, 1, light_pdf);
+                        float_t weight = power_heuristic(1, bs.pdf, 1, light_pdf);
 
                         // sample BSDF with multiple importance sampling
                         Ld += bs.f * Li * weight / bs.pdf;
@@ -3706,8 +3708,8 @@ protected:
                         Ld += f * ls.Li / ls.pdf; // don't need MIS
                     else
                     {
-                        Float bsdf_pdf = isect.bsdf()->pdf(isect.wo, ls.wi);
-                        Float weight = power_heuristic(1, ls.pdf, 1, bsdf_pdf);
+                        float_t bsdf_pdf = isect.bsdf()->pdf(isect.wo, ls.wi);
+                        float_t weight = power_heuristic(1, ls.pdf, 1, bsdf_pdf);
 
                         // sample light source with multiple importance sampling
                         Ld += f * ls.Li * weight / ls.pdf;
@@ -3864,7 +3866,7 @@ public:
         //russian roulette
         if (++depth > 3)
         {
-            Float bsdf_max_comp = bs.f.max_component_value();
+            float_t bsdf_max_comp = bs.f.max_component_value();
             if (sampler->get_float() < bsdf_max_comp) // continue
                 bs.f *= (1 / bsdf_max_comp);
             else
@@ -4034,7 +4036,7 @@ private:
         //russian roulette
         if (++depth > 3)
         {
-            Float bsdf_max_comp = bs.f.max_component_value();
+            float_t bsdf_max_comp = bs.f.max_component_value();
 
             if (sampler->get_float() < bsdf_max_comp) // continue
                 bs.f *= 1 / bsdf_max_comp;
@@ -4146,7 +4148,7 @@ private:
         //russian roulette
         if (++depth > 3)
         {
-            Float bsdf_max_comp = bs.f.max_component_value();
+            float_t bsdf_max_comp = bs.f.max_component_value();
 
             if (sampler->get_float() < bsdf_max_comp) // continue
                 bs.f *= 1 / bsdf_max_comp;
@@ -4242,8 +4244,8 @@ public:
             // possibly terminate the path with Russian roulette.
             if (bounces > 3)
             {
-                Float beta_max_comp = beta.max_component_value();
-                Float q = std::max((Float).05, 1 - beta_max_comp);
+                float_t beta_max_comp = beta.max_component_value();
+                float_t q = std::max((float_t).05, 1 - beta_max_comp);
 
                 if (sampler->get_float() < q)
                     break;
@@ -4602,7 +4604,7 @@ int main(int argc, char* argv[])
     //render_multiple_scene(argc, argv);
     //render_mis_scene(argc, argv);
 
-    LOG("\n{} sec\n", (Float)(clock() - start) / CLOCKS_PER_SEC); // MILO
+    LOG("\n{} sec\n", (float_t)(clock() - start) / CLOCKS_PER_SEC); // MILO
     return 0;
 }
 
