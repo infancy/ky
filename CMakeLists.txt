@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.15)
 project(ky)
 
 set(CMAKE_CXX_STANDARD 23)
+
 add_executable(ky ky.cpp)
 target_compile_options(ky PUBLIC -fopenmp)
 

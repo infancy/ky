@@ -123,6 +123,7 @@ inline void _LOG_ERROR(const std::source_location& location, const std::string& 
 #define LOG(...) _LOG(std::source_location::current(), __VA_ARGS__)
 #define LOG_ERROR(...) _LOG_ERROR(std::source_location::current(), __VA_ARGS__)
 
+
 #define _EXPAND( x ) x
 #define _CHECK1(condition)      if(!(condition)) LOG_ERROR("{}", #condition)
 #define _CHECK2(condition, msg) if(!(condition)) LOG_ERROR("{}", msg)
@@ -130,6 +131,7 @@ inline void _LOG_ERROR(const std::source_location& location, const std::string& 
 #define _GET_MACRO_(_1, _2, _3, _4, _5, NAME, ...) NAME
 
 #define CHECK(...) _EXPAND( _GET_MACRO_(__VA_ARGS__, _CHECK3, _CHECK3, _CHECK3, _CHECK2, _CHECK1, UNUSED)(__VA_ARGS__) )
+
 
 #ifdef KY_DEBUG
     #ifndef LOG_DEBUG
@@ -161,9 +163,11 @@ constexpr bool enum_have(const enum_t group, const enum_t value) { return (group
 
 #pragma endregion
 
-
+// TODO: math
 
 #pragma region geometry
+
+// TODO: move to `math`
 
 // https://stackoverflow.com/questions/17333/what-is-the-most-effective-way-for-float-and-double-comparison
 // http://realtimecollisiondetection.net/blog/?p=89
@@ -210,8 +214,8 @@ struct vec2_t
     friend vec2_t operator*(Float scalar, vec2_t v) { return vec2_t(v.x * scalar, v.y * scalar); }
 };
 
-using float2_t = vec2_t;
 using point2_t = vec2_t;
+using float2_t = vec2_t;
 
 
 
@@ -328,10 +332,10 @@ using direction_t = unit_vector_t;
 using normal_t = unit_vector_t
 */
 
-using float3_t = vec3_t;
-using point3_t = vec3_t; // object_point, world_point... we need a frame
-using normal_t = vec3_t;
+using point3_t    = vec3_t; // object_point, world_point... we need a frame
+using normal_t    = vec3_t;
 using unit_vec3_t = vec3_t;
+using float3_t    = vec3_t;
 
 // TODO
 using color_t  = vec3_t;
@@ -380,7 +384,7 @@ inline vec3_t spherical_to_direction(
 
 
 
-/*
+/* TODO
               y         z
               |       /
               |     /
@@ -884,9 +888,27 @@ public:
 
 #pragma region shape
 
+/*
+     z(0, 0, 1)
+          |
+          | theta/
+          |    /
+          |  /
+          |/_ _ _ _ _ _ x(1, 0, 0)
+         / \
+        / phi\
+       /       \
+      /          \
+ y(0, 1, 0)
+
+   https://www.pbr-book.org/3ed-2018/Shapes/Spheres
+*/
+
 class shape_t
 {
 public:
+    virtual ~shape_t() = default;
+
     virtual bool intersect(const ray_t& ray, isect_t* out_isect) const = 0;
 
     virtual bounds3_t world_bound() const = 0;
@@ -962,22 +984,6 @@ using shape_sp = std::shared_ptr<shape_t>;
 using shape_list_t = std::vector<shape_sp>;
 
 
-
-/*
-       z(0, 0, 1)
-       |
-       | theta/
-       |    /
-       |  /
-       |/_ _ _ _ _ _ x(1, 0, 0)
-      / \
-     / phi\
-    /       \
-   /          \
-y(0, 1, 0)
-
-   https://www.pbr-book.org/3ed-2018/Shapes/Spheres
-*/
 
 class disk_t : public shape_t
 {
@@ -2503,6 +2509,7 @@ class scene_t;
 class light_t
 {
 public:
+    virtual ~light_t() = default;
     light_t(/*int flags,*/ const point3_t& world_position, int samples_num = 1):
         world_position_{ world_position },
         samples_num_{ samples_num }
@@ -2826,6 +2833,7 @@ enum class accel_enum_t
 class accel_t
 {
 public:
+    virtual ~accel_t() = default;
     accel_t(surface_list_t surface_list) :
         surface_list_{ surface_list }
     {
