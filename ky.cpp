@@ -3694,7 +3694,7 @@ protected:
                 float_t weight = balance_heuristic(1, bs.pdf, 1, light_pdf);
 
                 // sample BSDF with one-sample MIS
-                Ld = bs.f * Li * weight / bs.pdf;
+                Ld = (bs.f * Li * weight) / (0.5 * bs.pdf);
             }
         }
 
@@ -3729,7 +3729,7 @@ protected:
             float_t weight = balance_heuristic(1, ls.pdf, 1, bsdf_pdf);
 
             // sample light source with one-sample MIS
-            Ld = f * ls.Li * weight / ls.pdf;
+            Ld = (f * ls.Li * weight) / (0.5 * ls.pdf);
         }
 
         return Ld;
@@ -3740,9 +3740,10 @@ protected:
         const float2_t& random_light, const float2_t& random_bsdf,
         scene_t* scene, sampler_t& sampler, bool skip_specular)
     {
-        auto Lb = estimate_direct_lighting_by_direction_mis(isect, light, random_light, random_bsdf, scene, sampler, skip_specular);
-        auto Ll = estimate_direct_lighting_by_position_mis(isect, light, random_light, random_bsdf, scene, sampler, skip_specular);
-        auto Ld = Lb + Ll;
+        color_t Lb = estimate_direct_lighting_by_direction_mis(isect, light, random_light, random_bsdf, scene, sampler, skip_specular);
+        color_t Ll = estimate_direct_lighting_by_position_mis(isect, light, random_light, random_bsdf, scene, sampler, skip_specular);
+        color_t Ld = 0.5 * Lb + 0.5 * Ll;
+
         LOG_DEBUG("{}, {}, {}\n", Ld.to_string(), Lb.to_string(), Ll.to_string());
 
         return Ld;
@@ -4550,11 +4551,11 @@ void render_mis_scene(int argc, char* argv[])
 
     auto sample_enums = std::vector<direct_sample_enum_t>
     {
-        direct_sample_enum_t::bsdf,
+        //direct_sample_enum_t::bsdf,
         direct_sample_enum_t::light,
-        direct_sample_enum_t::bsdf_mis,
-        direct_sample_enum_t::light_mis,
-        //direct_sample_enum_t::both_mis,
+        //direct_sample_enum_t::bsdf_mis,
+        //direct_sample_enum_t::light_mis,
+        direct_sample_enum_t::both_mis,
     };
 
     for (auto sample_enum : sample_enums)
