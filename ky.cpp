@@ -50,16 +50,16 @@ using namespace std::literals::string_literals;
 template <typename... Ts>
 inline void _LOG(const std::source_location& location, const std::string& fmt, Ts&&... args)
 {
-    auto msg = std::format("{}(...) line{}: " + fmt,
-        location.function_name(), location.line(), std::forward<Ts>(args)...);
+    std::string msg = std::vformat("{}(...) line{}: " + fmt,
+        std::make_format_args(location.function_name(), location.line(), std::forward<Ts>(args)...));
     std::printf("%s", msg.c_str());
 }
 
 template <typename... Ts>
 inline void _LOG_ERROR(const std::source_location& location, const std::string& fmt, Ts&&... args)
 {
-    auto msg = std::format("{}(...) line{}: " + fmt,
-        location.function_name(), location.line(), std::forward<Ts>(args)...);
+    std::string msg = std::vformat("{}(...) line{}: " + fmt,
+        std::make_format_args(location.function_name(), location.line(), std::forward<Ts>(args)...));
     std::printf("%s", msg.c_str());
 
     throw std::exception(msg.c_str());
@@ -218,6 +218,17 @@ struct color_t
     }
 
     bool is_black() const { return (r <= 0) && (g <= 0) && (b <= 0); }
+
+// for debug:
+
+    bool is_valid() const { return ::is_valid(r) && ::is_valid(g) && ::is_valid(b); }
+
+    std::string to_string() const { return std::format("[{}, {}, {}]", r, g, b); }
+    friend std::ostream& operator<<(std::ostream& console, const color_t& color)
+    {
+        console << color.to_string();
+        return console;
+    }
 };
 
 
