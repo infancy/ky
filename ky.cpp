@@ -1968,8 +1968,8 @@ public:
 public:
     virtual bool is_delta() const = 0;
 
-    // or called `eval`, `evaluate`
-    color_t f(const vec3_t& world_wo, const vec3_t& world_wi) const
+    // or called `f()`, `evaluate`
+    color_t eval(const vec3_t& world_wo, const vec3_t& world_wi) const
     {
         return f_(to_local(world_wo), to_local(world_wi));
     }
@@ -1979,21 +1979,20 @@ public:
         return pdf_(to_local(world_wo), to_local(world_wi));
     }
 
-    // or called `sample`, `sample_direction`, `sample_solid_angle`
-    bsdf_sample_t sample_f(const vec3_t& world_wo, const float2_t& random) const
+    // or called `sample_f`, `sample_direction`, `sample_solid_angle`
+    bsdf_sample_t sample(const vec3_t& world_wo, const float2_t& random) const
     {
         auto sample = sample_f_(to_local(world_wo), random);
-        sample.wi = to_world(sample.wi);
+        sample.wi = to_world(sample.wi); // <--- ATTENTION!!!
 
         return sample;
     }
 
-    color_t evaluate_pdf(const vec3_t& world_wo, const vec3_t& world_wi, float_t* out_pdf) const
+    std::tuple<color_t, float_t> eval_and_pdf(const vec3_t& world_wo, const vec3_t& world_wi) const
     {
         vec3_t wo = to_local(world_wo), wi = to_local(world_wi);
 
-        *out_pdf = pdf_(wo, wi);
-        return f_(wo, wi);
+        return { f_(wo, wi), pdf_(wo, wi) };
     }
 
 protected: 
@@ -2074,7 +2073,7 @@ private:
   ideal specular reflection, ignore fresnel effect,
   only suitable for some metal materials
 
-  as a delta bsdf, it's `f(...), pdf(...) sample_f(...)` functions requires special processing,
+  as a delta bsdf, it's `eval(...), pdf(...) sample(...)` functions requires special processing,
   same to `fresnel_specular_t`
 */
 class perfect_specular_reflection_t : public bsdf_t
@@ -3571,7 +3570,7 @@ protected:
         if (skip_specular && isect.bsdf()->is_delta())
             return Ld;
 
-        auto bs = isect.bsdf()->sample_f(isect.wo, sampler.get_float2());
+        auto bs = isect.bsdf()->sample(isect.wo, sampler.get_float2());
         if (bs.f.is_black() || bs.pdf == 0)
             return Ld;
 
@@ -3625,7 +3624,7 @@ protected:
         if (scene->occluded(isect, ls.position))
             return Ld;
 
-        color_t f = isect.bsdf()->f(isect.wo, ls.wi);
+        color_t f = isect.bsdf()->eval(isect.wo, ls.wi);
         if (!f.is_black())
         {
             auto cos_theta = abs_dot(ls.wi, isect.normal);
@@ -3659,7 +3658,7 @@ protected:
             return Ld;
 
         // sample scattered direction for surface isect_t
-        auto bs = isect.bsdf()->sample_f(isect.wo, random_bsdf);
+        auto bs = isect.bsdf()->sample(isect.wo, random_bsdf);
         bs.f *= abs_dot(bs.wi, isect.normal);
 
         if (!bs.f.is_black() && bs.pdf > 0)
@@ -3718,7 +3717,7 @@ protected:
         {
             if (!scene->occluded(isect, ls.position))
             {
-                color_t f = isect.bsdf()->f(isect.wo, ls.wi) * abs_dot(ls.wi, isect.normal);
+                color_t f = isect.bsdf()->eval(isect.wo, ls.wi) * abs_dot(ls.wi, isect.normal);
                 if (!f.is_black())
                 {
                     if (light.is_delta())
@@ -3778,7 +3777,7 @@ public:
             case integrator_enum_t::normal:
                 return isect.normal.normalize();
             case integrator_enum_t::albedo:
-                return isect.bsdf()->f(isect.wo, isect.normal); // TODO
+                return isect.bsdf()->eval(isect.wo, isect.normal); // TODO
             }
         }
 
@@ -3875,7 +3874,7 @@ public:
             return isect.Le();
 
 
-        auto bs = isect.bsdf()->sample_f(isect.wo, sampler->get_float2());
+        auto bs = isect.bsdf()->sample(isect.wo, sampler->get_float2());
 
         if (bs.f.is_black() || bs.pdf == 0.f) // pdf == 0 => NaN
             return isect.Le();
@@ -4003,7 +4002,7 @@ private:
             }
             else // specular vertex' direct lighting
             { 
-                bsdf_sample_t bs = isect.bsdf()->sample_f(isect.wo, sampler->get_float2());
+                bsdf_sample_t bs = isect.bsdf()->sample(isect.wo, sampler->get_float2());
 
                 ray_t wi_ray{ isect.position, bs.wi };
                 isect_t next_isect;
@@ -4045,7 +4044,7 @@ private:
 
     color_t indirect_lighting(scene_t* scene, sampler_t* sampler, const isect_t& isect, int depth)
     {
-        bsdf_sample_t bs = isect.bsdf()->sample_f(isect.wo, sampler->get_float2());
+        bsdf_sample_t bs = isect.bsdf()->sample(isect.wo, sampler->get_float2());
 
         if (bs.f.is_black() || bs.pdf == 0.f)
             return color_t{};
@@ -4157,7 +4156,7 @@ private:
     // for specular BSDF, compute reflect/refract direciotn's lighting, so skip _Ld_ on direct_lighting()
     color_t indirect_lighting(scene_t* scene, sampler_t* sampler, const isect_t& isect, int depth)
     {
-        auto bs = isect.bsdf()->sample_f(isect.wo, sampler->get_float2());
+        auto bs = isect.bsdf()->sample(isect.wo, sampler->get_float2());
 
         if (bs.f.is_black() || bs.pdf == 0.f)
             return color_t{};
@@ -4243,7 +4242,7 @@ public:
             // Li: indirect lighting (compute by next iteration)
 
             // sample BSDF to get new path direction
-            auto bs = isect.bsdf()->sample_f(isect.wo, sampler->get_float2());
+            auto bs = isect.bsdf()->sample(isect.wo, sampler->get_float2());
 
             if (bs.f.is_black() || bs.pdf == 0.f)
                 break;
