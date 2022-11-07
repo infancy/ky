@@ -759,6 +759,11 @@ point2_t sample_triangle_uniform(const float2_t& random)
 }
 
 
+inline float_t balance_heuristic(int nf, float_t fPdf, int ng, float_t gPdf)
+{
+    return (nf * fPdf) / (nf * fPdf + ng * gPdf);
+}
+
 inline float_t power_heuristic(int nf, float_t fPdf, int ng, float_t gPdf)
 {
     float_t f = nf * fPdf, g = ng * gPdf;
@@ -2471,9 +2476,8 @@ inline bool is_delta_light(int flags)
 
 
 /*
-  called `LightLeSample` in pbrt - v4, `PositionSample` in mitsuba2
-  mainly for light.sample_Le()
-*/
+// called `LightLeSample` in pbrt - v4, `PositionSample` in mitsuba2
+// mainly for light.sample_Le()
 struct position_sample_t
 {
     bool is_delta;
@@ -2500,20 +2504,21 @@ struct position_sample_t
 
     float_t abs_cos_theta(vec3_t w) const { return is_delta ? 1 : abs_dot(w, normal); }
 };
+*/
 
 /*
   called `LightLiSample` in pbrt-v4, `DirectionSample` in mitsuba2
   mainly for light.sample_Li()
 */
-struct direction_sample_t // : public position_sample_t
+struct light_sample_t // : public position_sample_t
 {
     point3_t position;
     vec3_t wi; // isect -> light, alone ray's direction
     float_t pdf{}; // pdf of direction
     color_t Li; // for light
 
-    direction_sample_t() = default;
-    direction_sample_t(const isect_t& isect, const vec3_t& wi, float_t pdf, const color_t& Li) :
+    light_sample_t() = default;
+    light_sample_t(const isect_t& isect, const vec3_t& wi, float_t pdf, const color_t& Li) :
         position{ isect.position },
         wi{ wi },
         pdf{ pdf },
@@ -2545,14 +2550,14 @@ public:
 
     virtual color_t power() const = 0;
 
-    // only for environment light
+    // only work for environment light
     virtual color_t Le(const ray_t& r) const { return color_t(); }
 
 public:
     // Li: camera <-wo isect wi-> light
 
     // sample_light/samle_direction
-    virtual direction_sample_t sample_Li(const isect_t& isect, const float2_t& random) const = 0;
+    virtual light_sample_t sample_Li(const isect_t& isect, const float2_t& random) const = 0;
 
     virtual float_t pdf_Li(const isect_t& isect, const vec3_t& world_wi) const = 0;
 
@@ -2579,9 +2584,9 @@ public:
     color_t power() const override { return 4 * k_pi * intensity_; }
 
 public:
-    direction_sample_t sample_Li(const isect_t& isect, const float2_t& random) const override
+    light_sample_t sample_Li(const isect_t& isect, const float2_t& random) const override
     {
-        direction_sample_t sample;
+        light_sample_t sample;
         sample.position = world_position_;
         sample.wi = normalize(world_position_ - isect.position);
         sample.pdf = 1.f;
@@ -2643,9 +2648,9 @@ public:
     }
 
 public:
-    direction_sample_t sample_Li(const isect_t& isect, const float2_t& random) const override
+    light_sample_t sample_Li(const isect_t& isect, const float2_t& random) const override
     {
-        direction_sample_t sample;
+        light_sample_t sample;
         sample.wi = -world_direction_;
         sample.position = isect.position + sample.wi * 2 * world_radius_;
         sample.pdf = 1;
@@ -2712,9 +2717,9 @@ public:
 
 public:
     // sample direction by sample potision
-    direction_sample_t sample_Li(const isect_t& isect, const float2_t& random) const override
+    light_sample_t sample_Li(const isect_t& isect, const float2_t& random) const override
     {
-        direction_sample_t sample;
+        light_sample_t sample;
         isect_t light_isect = shape_->sample_direction(isect, random, &sample.pdf);
         sample.position = light_isect.position;
 
@@ -2771,9 +2776,9 @@ public:
     }
 
 public:
-    direction_sample_t sample_Li(const isect_t& isect, const float2_t& random) const override
+    light_sample_t sample_Li(const isect_t& isect, const float2_t& random) const override
     {
-        direction_sample_t sample;
+        light_sample_t sample;
         sample.wi = sample_sphere_uniform(random);
         sample.position = isect.position + sample.wi * 2 * world_radius_;
 
@@ -3364,12 +3369,14 @@ enum class integrator_enum_t
     //path_tracing_split,
 };
 
+
 // TODO: remove
-struct light_sample_t
+struct light_list_sample_t
 {
     light_t* light{};
     float_t pdf_light{};
 };
+
 
 // TODO: rename path_sample_t
 struct scene_sample_t
@@ -3478,7 +3485,7 @@ protected:
 
 #pragma region sampling_light
 
-    light_sample_t pick_single_light(
+    light_list_sample_t pick_single_light(
         const isect_t& isect, scene_t* scene, sampler_t& sampler)
     {
         int light_count = int(scene->light_count());
@@ -3523,16 +3530,16 @@ protected:
         switch (sample_enum)
         {
         case direct_sample_enum_t::bsdf:
-            estimate_direct_lighting = estimate_direct_lighting_direction;
+            estimate_direct_lighting = estimate_direct_lighting_by_direction;
             break;
         case direct_sample_enum_t::light:
-            estimate_direct_lighting = estimate_direct_lighting_position;
+            estimate_direct_lighting = estimate_direct_lighting_by_position;
             break;
         case direct_sample_enum_t::bsdf_mis:
-            estimate_direct_lighting = estimate_direct_lighting_direction_mis;
+            estimate_direct_lighting = estimate_direct_lighting_by_direction_mis;
             break;
         case direct_sample_enum_t::light_mis:
-            estimate_direct_lighting = estimate_direct_lighting_position_mis;
+            estimate_direct_lighting = estimate_direct_lighting_by_position_mis;
             break;
         case direct_sample_enum_t::both_mis:
             estimate_direct_lighting = estimate_direct_lighting_both_mis;
@@ -3557,22 +3564,21 @@ protected:
 
 #pragma region estimate_direct_lighting
 
-    // sample from bsdf/direction
-    static color_t estimate_direct_lighting_direction(
+    // estimate single light source's direct contirbution by sampling bsdf's direction
+    static color_t estimate_direct_lighting_by_direction(
         const isect_t& isect, const light_t& light,
         const float2_t& random_light, const float2_t& random_bsdf,
         scene_t* scene, sampler_t& sampler, bool skip_specular)
     {
-        color_t Ld{};
-
         if (light.is_delta())
-            return Ld;
-        if (skip_specular && isect.bsdf()->is_delta())
-            return Ld;
+            return {};
 
-        auto bs = isect.bsdf()->sample(isect.wo, sampler.get_float2());
+        if (skip_specular && isect.bsdf()->is_delta())
+            return {};
+
+        bsdf_sample_t bs = isect.bsdf()->sample(isect.wo, sampler.get_float2());
         if (bs.f.is_black() || bs.pdf == 0)
-            return Ld;
+            return {};
 
         ray_t ray = isect.spawn_ray(bs.wi);
         isect_t light_isect;
@@ -3586,54 +3592,51 @@ protected:
         }
         else
         {
-            // for environment light
+            // only work for environment light
             Li = light.Le(ray);
         }
 
-        if (!Li.is_black())
-        {
-            auto cos_theta = abs_dot(bs.wi, isect.normal);
-            Ld = bs.f * Li * cos_theta / bs.pdf;
+        if (Li.is_black())
+            return {};
 
-            //LOG_DEBUG("{}, {}\n", bs.wi.to_string(), isect.normal.to_string());
-            //LOG_DEBUG("{}, {}, {}, {}\n", bs.f.to_string(), Li.to_string(), cos_theta, bs.pdf);
-        }
+        float_t cos_theta = abs_dot(bs.wi, isect.normal);
+        color_t Ld = bs.f * Li * cos_theta / bs.pdf;
+
+        //LOG_DEBUG("{}, {}\n", bs.wi.to_string(), isect.normal.to_string());
+        //LOG_DEBUG("{}, {}, {}, {}\n", bs.f.to_string(), Li.to_string(), cos_theta, bs.pdf);
 
         return Ld;
     }
 
-    // sample from light/position
-    static color_t estimate_direct_lighting_position(
+    // estimate single light source's direct contirbution by sampling light's position
+    static color_t estimate_direct_lighting_by_position(
         const isect_t& isect, const light_t& light,
         const float2_t& random_light, const float2_t& random_bsdf,
         scene_t* scene, sampler_t& sampler, bool skip_specular)
     {
-        color_t Ld{};
-
         if (skip_specular && isect.bsdf()->is_delta())
-            return Ld;
+            return {};
 
-        auto ls = light.sample_Li(isect, random_light);
+        light_sample_t ls = light.sample_Li(isect, random_light);
         if (ls.Li.is_black() || ls.pdf == 0)
-            return Ld;
+            return {};
 
         // TODO
         //if (dot(ls.wi, isect.normal) < 0)
-        //    return Ld;
+        //    return {};
 
         if (scene->occluded(isect, ls.position))
-            return Ld;
+            return {};
 
         color_t f = isect.bsdf()->eval(isect.wo, ls.wi);
-        if (!f.is_black())
-        {
-            auto cos_theta = abs_dot(ls.wi, isect.normal);
-            auto dL = f * ls.Li * cos_theta / ls.pdf;
-            Ld += dL;
+        if (f.is_black())
+            return {};
 
-            //LOG_DEBUG("{}, {}\n", ls.wi.to_string(), isect.normal.to_string());
-            LOG_DEBUG("{}, {}, {}, {}, {}\n", dL.to_string(), f.to_string(), ls.Li.to_string(), cos_theta, ls.pdf);
-        }
+        float_t cos_theta = abs_dot(ls.wi, isect.normal);
+        color_t Ld = f * ls.Li * cos_theta / ls.pdf;
+
+        //LOG_DEBUG("{}, {}\n", ls.wi.to_string(), isect.normal.to_string());
+        LOG_DEBUG("{}, {}, {}, {}, {}\n", Ld.to_string(), f.to_string(), ls.Li.to_string(), cos_theta, ls.pdf);
 
         return Ld;
     }
@@ -3642,96 +3645,91 @@ protected:
 
 #pragma region estimate_direct_lighting_with_MIS
 
-    // sample from bsdf/direction
-    static color_t estimate_direct_lighting_direction_mis(
+    static color_t estimate_direct_lighting_by_direction_mis(
         const isect_t& isect, const light_t& light,
         const float2_t& random_light, const float2_t& random_bsdf,
         scene_t* scene, sampler_t& sampler, bool skip_specular)
     {
-        color_t Ld{};
-
         bool is_specular = isect.bsdf()->is_delta();
         if (skip_specular && is_specular)
-            return Ld;
+            return {};
 
         if (light.is_delta())
-            return Ld;
+            return {};
 
         // sample scattered direction for surface isect_t
-        auto bs = isect.bsdf()->sample(isect.wo, random_bsdf);
+        bsdf_sample_t bs = isect.bsdf()->sample(isect.wo, random_bsdf);
         bs.f *= abs_dot(bs.wi, isect.normal);
+        if (bs.f.is_black() || bs.pdf <= 0)
+            return {};
 
-        if (!bs.f.is_black() && bs.pdf > 0)
+        // TODO: move to scene_t
+        ray_t ray = isect.spawn_ray(bs.wi);
+        isect_t light_isect;
+        bool is_hit_light = scene->intersect(ray, &light_isect);
+
+        color_t Li{};
+        if (is_hit_light)
         {
-            // TODO: move to scene_t
-            ray_t ray = isect.spawn_ray(bs.wi);
-            isect_t light_isect;
-            bool is_hit_light = scene->intersect(ray, &light_isect);
+            if (light_isect.surface()->area_light == &light)
+                Li = light_isect.Le();
+        }
+        else
+        {
+            // only work for environment light
+            Li = light.Le(ray);
+        }
 
-            color_t Li{};
-            if (is_hit_light)
-            {
-                if (light_isect.surface()->area_light == &light)
-                    Li = light_isect.Le();
-            }
-            else
-            {
-                // for environment light
-                Li = light.Le(ray);
-            }
+        if (Li.is_black())
+            return {};
 
-            if (!Li.is_black())
+        color_t Ld{};
+        if (is_specular)
+            Ld = bs.f * Li / bs.pdf; // don't need MIS
+        else
+        {
+            float_t light_pdf = light.pdf_Li(isect, bs.wi);
+            if (light_pdf > 0) // visible
             {
-                if(is_specular)
-                    Ld += bs.f * Li / bs.pdf; // don't need MIS
-                else
-                {
-                    float_t light_pdf = light.pdf_Li(isect, bs.wi);
-                    if (light_pdf > 0) // visible
-                    {
-                        float_t weight = power_heuristic(1, bs.pdf, 1, light_pdf);
+                float_t weight = balance_heuristic(1, bs.pdf, 1, light_pdf);
 
-                        // sample BSDF with multiple importance sampling
-                        Ld += bs.f * Li * weight / bs.pdf;
-                    }
-                }
+                // sample BSDF with one-sample MIS
+                Ld = bs.f * Li * weight / bs.pdf;
             }
         }
 
         return Ld;
     }
 
-    // sample from light/position
-    static color_t estimate_direct_lighting_position_mis(
+    static color_t estimate_direct_lighting_by_position_mis(
         const isect_t& isect, const light_t& light,
         const float2_t& random_light, const float2_t& random_bsdf,
         scene_t* scene, sampler_t& sampler, bool skip_specular)
     {
-        color_t Ld{};
-
         if (skip_specular && isect.bsdf()->is_delta())
-            return Ld;
+            return {};
 
-        auto ls = light.sample_Li(isect, random_light);
-        if (!ls.Li.is_black() && ls.pdf > 0)
+        light_sample_t ls = light.sample_Li(isect, random_light);
+        if (ls.Li.is_black() || ls.pdf <= 0)
+            return {};
+
+        if (scene->occluded(isect, ls.position))
+            return {};
+
+        color_t f = isect.bsdf()->eval(isect.wo, ls.wi) * abs_dot(ls.wi, isect.normal);
+        if (f.is_black())
+            return {};
+
+        color_t Ld{};
+        if (light.is_delta())
+            Ld = f * ls.Li / ls.pdf; // don't need MIS
+        else
         {
-            if (!scene->occluded(isect, ls.position))
-            {
-                color_t f = isect.bsdf()->eval(isect.wo, ls.wi) * abs_dot(ls.wi, isect.normal);
-                if (!f.is_black())
-                {
-                    if (light.is_delta())
-                        Ld += f * ls.Li / ls.pdf; // don't need MIS
-                    else
-                    {
-                        float_t bsdf_pdf = isect.bsdf()->pdf(isect.wo, ls.wi);
-                        float_t weight = power_heuristic(1, ls.pdf, 1, bsdf_pdf);
+            float_t bsdf_pdf = isect.bsdf()->pdf(isect.wo, ls.wi);
+            float_t weight = balance_heuristic(1, ls.pdf, 1, bsdf_pdf);
 
-                        // sample light source with multiple importance sampling
-                        Ld += f * ls.Li * weight / ls.pdf;
-                    }
-                }
-            }
+            // sample light source with one-sample MIS
+            Ld = f * ls.Li * weight / ls.pdf;
         }
 
         return Ld;
@@ -3742,8 +3740,8 @@ protected:
         const float2_t& random_light, const float2_t& random_bsdf,
         scene_t* scene, sampler_t& sampler, bool skip_specular)
     {
-        auto Lb = estimate_direct_lighting_direction_mis(isect, light, random_light, random_bsdf, scene, sampler, skip_specular);
-        auto Ll = estimate_direct_lighting_position_mis(isect, light, random_light, random_bsdf, scene, sampler, skip_specular);
+        auto Lb = estimate_direct_lighting_by_direction_mis(isect, light, random_light, random_bsdf, scene, sampler, skip_specular);
+        auto Ll = estimate_direct_lighting_by_position_mis(isect, light, random_light, random_bsdf, scene, sampler, skip_specular);
         auto Ld = Lb + Ll;
         LOG_DEBUG("{}, {}, {}\n", Ld.to_string(), Lb.to_string(), Ll.to_string());
 
@@ -4545,7 +4543,7 @@ void render_multiple_scene(int argc, char* argv[])
 
 void render_mis_scene(int argc, char* argv[])
 {
-    film_grid_t film(1, 3, 512, 308); //film.clear(color_t(1., 0., 0.));
+    film_grid_t film(1, 5, 512, 308); //film.clear(color_t(1., 0., 0.));
     std::unique_ptr<sampler_t> sampler =
         std::make_unique<random_sampler_t>(10);
     scene_t scene = scene_t::create_mis_scene(film.get_resolution());
@@ -4554,9 +4552,9 @@ void render_mis_scene(int argc, char* argv[])
     {
         direct_sample_enum_t::bsdf,
         direct_sample_enum_t::light,
-        //direct_sample_enum_t::bsdf_mis,
-        //direct_sample_enum_t::light_mis,
-        direct_sample_enum_t::both_mis,
+        direct_sample_enum_t::bsdf_mis,
+        direct_sample_enum_t::light_mis,
+        //direct_sample_enum_t::both_mis,
     };
 
     for (auto sample_enum : sample_enums)
@@ -4613,12 +4611,12 @@ int main(int argc, char* argv[])
 
     clock_t start = clock(); // MILO
 
-    render_single_scene(argc, argv);
+    //render_single_scene(argc, argv);
     //render_debug(argc, argv);
     //render_multiple_integrator();
     //render_direct_sample_enum(argc, argv);
     //render_multiple_scene(argc, argv);
-    //render_mis_scene(argc, argv);
+    render_mis_scene(argc, argv);
 
     LOG("\n{} sec\n", (float_t)(clock() - start) / CLOCKS_PER_SEC); // MILO
     return 0;
