@@ -1542,13 +1542,14 @@ public:
         std::fstream img_file(filename, std::ios::binary | std::ios::out);
 
 
+        // 1.write file header & 2.write info header
+
         uint32_t padding_line_bytes = (width * channel + 3) & (~3);
         uint32_t padding_image_bytes = padding_line_bytes * height;
 
         const uint32_t FILE_HEADER_SIZE = 14;
-        const uint32_t INFO_HEADER_SIZE = 40; 
+        const uint32_t INFO_HEADER_SIZE = 40;
 
-        // write file header
         struct BITMAP_FILE_HEADER_INFO_HEADER
         {
             // file header
@@ -1584,10 +1585,12 @@ public:
         img_file
             .write("BM", 2)
             .write((char*)&bmp_header, sizeof(bmp_header));
-        
 
-        // without color table
 
+        // 3.without color table
+
+
+        // 4.write data body 
 
         // gamma encoding
         int byte_num = width * height * channel;
@@ -1600,11 +1603,10 @@ public:
             bytes[i + 2] = gamma_encoding(floats[i]);
         }
 
-        // write data body 
         int line_num = width * channel;
         // bmp is stored from bottom to up
         for (int y = height - 1; y >= 0; --y)
-            img_file.write((char*)(bytes.get() + y * line_num), line_num);
+            img_file.write((const char*)(bytes.get() + y * line_num), line_num);
 
 
         return true;
@@ -1764,14 +1766,12 @@ inline bool refract(const vec3_t& wi, const normal_t& normal, float_t eta, vec3_
     float_t sin_theta_i_sq = std::max(float_t(0), float_t(1 - cos_theta_i * cos_theta_i));
     float_t sin_theta_t_sq = eta * eta * sin_theta_i_sq;
 
-    // handle total internal reflection for transmission
-    if (sin_theta_t_sq >= 1)
-        return false;
+    if (sin_theta_t_sq >= 1) return false; // handle total internal reflection for transmission
 
     float_t cos_theta_t = std::sqrt(1 - sin_theta_t_sq);
     *out_wt = eta * -wi + (eta * cos_theta_i - cos_theta_t) * vec3_t(normal);
-    CHECK_DEBUG(out_wt->is_valid() && !out_wt->is_zero());
 
+    CHECK_DEBUG(out_wt->is_valid() && !out_wt->is_zero());
     return true;
 }
 
@@ -3325,14 +3325,16 @@ KY_ENUM_OPERATORS(lighting_enum_t)
 // direct_lighting_sample
 enum class direct_sample_enum_t
 {
+    idle,
+
     sample_single_light = 1,
     sample_all_light = 2,
 
     bsdf = 4, // direction
     light = 8, // position
 
-    bsdf_mis = 16, // for debug
-    light_mis = 32, // for debug
+    bsdf_mis = 16,
+    light_mis = 32,
     both_mis = bsdf_mis | light_mis,
 
     default_stragtgy = sample_all_light | both_mis
@@ -3529,6 +3531,9 @@ protected:
         std::function<decltype(estimate_direct_lighting_both_mis)> estimate_direct_lighting;
         switch (sample_enum)
         {
+        case direct_sample_enum_t::idle:
+            estimate_direct_lighting = estimate_direct_lighting_idle;
+            break;
         case direct_sample_enum_t::bsdf:
             estimate_direct_lighting = estimate_direct_lighting_by_direction;
             break;
@@ -3563,6 +3568,14 @@ protected:
 protected:
 
 #pragma region estimate_direct_lighting
+
+    static color_t estimate_direct_lighting_idle(
+        const isect_t& isect, const light_t& light,
+        const float2_t& random_light, const float2_t& random_bsdf,
+        scene_t* scene, sampler_t& sampler, bool skip_specular)
+    {
+        return {};
+    }
 
     // estimate single light source's direct contirbution by sampling bsdf's direction
     static color_t estimate_direct_lighting_by_direction(
@@ -4544,18 +4557,19 @@ void render_multiple_scene(int argc, char* argv[])
 
 void render_mis_scene(int argc, char* argv[])
 {
-    film_grid_t film(1, 5, 512, 308); //film.clear(color_t(1., 0., 0.));
+    film_grid_t film(2, 3, 512, 308); //film.clear(color_t(1., 0., 0.));
     std::unique_ptr<sampler_t> sampler =
         std::make_unique<random_sampler_t>(10);
     scene_t scene = scene_t::create_mis_scene(film.get_resolution());
 
     auto sample_enums = std::vector<direct_sample_enum_t>
     {
-        //direct_sample_enum_t::bsdf,
+        direct_sample_enum_t::bsdf,
         direct_sample_enum_t::light,
-        //direct_sample_enum_t::bsdf_mis,
-        //direct_sample_enum_t::light_mis,
+        direct_sample_enum_t::idle,
         direct_sample_enum_t::both_mis,
+        direct_sample_enum_t::bsdf_mis,
+        direct_sample_enum_t::light_mis,
     };
 
     for (auto sample_enum : sample_enums)
