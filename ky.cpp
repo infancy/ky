@@ -1,3 +1,5 @@
+#define KY_OUTPUT_HDR
+
 #include <cmath>
 #include <cstdlib>
 #include <cstdio>
@@ -1504,10 +1506,34 @@ public:
 #pragma region store
 
     // TODO
-    //virtual bool store_image(bool with_alpha);
-    virtual bool store_image(std::string filename, bool with_alpha = false) const
+    //add another virtual bool store_image();
+    virtual bool store_image(std::string filename /*bool with_alpha = false*/) const
     {
-        return store_bmp_impl(filename, get_width(), get_height(), get_channels(), (float_t*)pixels_.get());
+        CHECK_DEBUG(get_channels() == 3, "Now only support RGB format");
+
+        std::string command{};
+#ifdef KY_OUTPUT_HDR
+        store_hdr_impl(filename += ".hdr", get_width(), get_height(), get_channels(), (float_t*)pixels_.get());
+        // https://github.com/Tom94/tev
+        command = "tev " + filename;
+#else
+        store_bmp_impl(filename += ".bmp", get_width(), get_height(), get_channels(), (float_t*)pixels_.get());
+        command = "mspaint " + filename;
+#endif
+
+#ifdef KY_WINDOWS
+        system(command.c_str());
+        /*
+        std::thread([]()
+        {
+            system("mspaint single.bmp");
+        })
+        .detach();
+        */
+#endif
+
+        return true;
+
         /*
         switch (image_type)
         {
@@ -1521,24 +1547,26 @@ public:
         */
     }
 
-    static bool store_ppm_impl(const std::string& filename, int width, int height, int channel, const float_t* pixels)
+    static bool store_ppm_impl(const std::string& filename, int width, int height, int channel, const float_t* floats)
     {
         std::fstream img_file(filename, std::ios::binary | std::ios::out);
+
         img_file << std::format("P3\n{} {}\n{}\n", width, height, 255);
 
-        int pixel_num = width * height * channel;
-        for (int i = 0; i < pixel_num; ++i)
+        int float_num = width * height * channel;
+        for (int index = 0; index < float_num; ++index)
         {
-            img_file << std::format("{} ", gamma_encoding(pixels[i]));
+            img_file << std::format("{} ", gamma_encoding(floats[index]));
         }
 
         return true;
     }
    
-    // https://github.com/SmallVCM/SmallVCM/blob/master/src/framebuffer.hxx#L149-L215
-    // https://github.com/skywind3000/RenderHelp/blob/master/RenderHelp.h#L937-L1018
     static bool store_bmp_impl(const std::string& filename, int width, int height, int channel, const float_t* floats)
     {
+        // https://github.com/SmallVCM/SmallVCM/blob/master/src/framebuffer.hxx#L149-L215
+        // https://github.com/skywind3000/RenderHelp/blob/master/RenderHelp.h#L937-L1018
+
         std::fstream img_file(filename, std::ios::binary | std::ios::out);
 
 
@@ -1614,7 +1642,47 @@ public:
 
     static bool store_hdr_impl(const std::string& filename, int width, int height, int channel, const float_t* floats)
     {
+        // https://github.com/SmallVCM/SmallVCM/blob/master/src/framebuffer.hxx#L218-L251
 
+        std::ofstream img_file(filename, std::ios::binary | std::ios::out);
+
+        img_file << std::format(
+            "#?RADIANCE\n"
+            "FORMAT=32-bit_rle_rgbe\n\n"
+            "-Y {} +X {}\n", height, width);
+
+        color_t* pixels = (color_t*)floats;
+        int pixel_num = width * height;
+        for (int index = 0; index < pixel_num; index++)
+        {
+            uint8_t rgbe[4]{};
+
+            const color_t& color = pixels[index];
+            float v = std::max({ color.r, color.g, color.b });
+
+            if (v >= 1e-32f)
+            {
+                /*
+                   write:
+                        v = m * 2 ^ e ( 0 < m < 1)
+                        r = R * m * 256.0/v
+                   read:
+                        R = r * 2^(e – 128 - 8);
+                */
+
+                int e;
+                float m = float_t(frexp(v, &e) * 256.f / v);
+
+                rgbe[0] = uint8_t(color.r * m);
+                rgbe[1] = uint8_t(color.g * m);
+                rgbe[2] = uint8_t(color.b * m);
+                rgbe[3] = uint8_t(e + 128);
+            }
+
+            img_file.write((const char*)&rgbe[0], 4);
+        }
+
+        return true;
     }
 
 #pragma endregion
@@ -4367,17 +4435,7 @@ void render_single_scene(int argc, char* argv[])
     integrator->debug(&scene, sampler.get(), &film, { 85, 180 }, { 256, 256 });
 #endif
 
-    film.store_image("single.bmp"s);
-#ifdef KY_WINDOWS
-    system("mspaint single.bmp");
-    /*
-    std::thread([]()
-    {
-        system("mspaint single.bmp");
-    })
-    .detach();
-    */
-#endif
+    film.store_image("single");
 }
 
 void render_debug(int argc, char* argv[])
@@ -4402,10 +4460,7 @@ void render_debug(int argc, char* argv[])
         film.next_cell();
     }
 
-    film.store_image("render_debug.bmp"s);
-#ifdef KY_WINDOWS
-    system("mspaint render_debug.bmp");
-#endif
+    film.store_image("render_debug");
 }
 
 void render_multiple_integrator()
@@ -4444,10 +4499,7 @@ void render_multiple_integrator()
         }
     }
 
-    film.store_image("direct_sample.bmp"s);
-#ifdef KY_WINDOWS
-    system("mspaint direct_sample.bmp");
-#endif
+    film.store_image("direct_sample");
 }
 
 void render_direct_sample_enum(int argc, char* argv[])
@@ -4487,10 +4539,7 @@ void render_direct_sample_enum(int argc, char* argv[])
         }
     }
 
-    film.store_image("direct_sample.bmp"s);
-#ifdef KY_WINDOWS
-    system("mspaint direct_sample.bmp");
-#endif
+    film.store_image("direct_sample");
 }
 
 void render_multiple_scene(int argc, char* argv[])
@@ -4549,10 +4598,7 @@ void render_multiple_scene(int argc, char* argv[])
     }
     */
 
-    film.store_image("light_mis.bmp"s);
-#ifdef KY_WINDOWS
-    system("mspaint light_mis.bmp");
-#endif
+    film.store_image("light_mis");
 }
 
 void render_mis_scene(int argc, char* argv[])
@@ -4567,9 +4613,9 @@ void render_mis_scene(int argc, char* argv[])
         direct_sample_enum_t::bsdf,
         direct_sample_enum_t::light,
         direct_sample_enum_t::idle,
-        direct_sample_enum_t::both_mis,
         direct_sample_enum_t::bsdf_mis,
-        direct_sample_enum_t::light_mis,
+        direct_sample_enum_t::light_mis,    
+        direct_sample_enum_t::both_mis,
     };
 
     for (auto sample_enum : sample_enums)
@@ -4581,10 +4627,7 @@ void render_mis_scene(int argc, char* argv[])
         film.next_cell();
     }
 
-    film.store_image("veach_mis.bmp"s);
-#ifdef KY_WINDOWS
-    system("mspaint veach_mis.bmp");
-#endif
+    film.store_image("veach_mis");
 }
 
 /*
@@ -4613,10 +4656,7 @@ void render_lighting_enum()
         film.next_cell();
     }
 
-    film.store_image("lighting.bmp"s);
-#ifdef KY_WINDOWS
-    system("mspaint lighting.bmp");
-#endif
+    film.store_image("lighting");
 }
 */
 
