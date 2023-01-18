@@ -1,4 +1,4 @@
-#define KY_OUTPUT_HDR
+//#define KY_OUTPUT_HDR
 
 #include <cmath>
 #include <cstdlib>
@@ -979,7 +979,7 @@ public:
 
               $$\mathrm{d} \omega = \fact{\mathrm{d} A^{\perp} }{l^{2}} $$
 
-          first:
+          because:
               unit_solid_angle = 1 / distance_squared(...)
               projected_light_area = abs_dot(...) * area()
               projected_solid_angle = projected_light_area / distance_squared
@@ -1452,12 +1452,7 @@ inline color_t clamp01(color_t c) { return color_t(clamp01(c.r), clamp01(c.g), c
 
 inline uint8_t gamma_encoding(float_t x) { return pow(clamp01(x), 1 / 2.2) * 255 + .5; }
 
-/*
-  warpper of `color_t pixels[]`
-  features:
-    * get/set color
-    * save image
-*/
+// warpper of `color_t pixels[]`
 class film_t : public nocopyable_t
 {
 public:
@@ -1688,22 +1683,30 @@ public:
 #pragma endregion
 
 private:
-    int32_t width_;
-    int32_t height_;
+    int32_t width_{};
+    int32_t height_{};
 
-    std::unique_ptr<color_t[]> pixels_;
+    std::unique_ptr<color_t[]> pixels_{};
 };
 
-// multi film
+/*
+   put multi sub-film together in one film, for export multi images at once
+   A_mn = 
+       a_11, a_12 ... a_1n
+       a_21, a_22 ... a_2n
+       ...     ...     ...
+       a_m1, a_m2 ... a_mn
+   where a_ij is a sub-film, m/n is specified by row/column
+*/
 class film_grid_t : public film_t
 {
 public:
-    film_grid_t(int row, int column, int width, int height) :
-        film_t(width * column, height * row),
+    film_grid_t(int row, int column, int sub_width, int sub_height) :
+        film_t(column * sub_width, row * sub_height),
         row_{ row },
         column_{ column },
-        sub_width_{ width },
-        sub_height_{ height }
+        sub_width_{ sub_width },
+        sub_height_{ sub_height }
     {
     }
 
@@ -1712,23 +1715,23 @@ public:
 
     color_t& operator()(int x, int y) override
     {
-        int col_index = currrent_index_ % column_;
-        int row_index = currrent_index_ / column_;
+        int col_index = subfilm_index % column_;
+        int row_index = subfilm_index / column_;
         return film_t::operator()(x + col_index * sub_width_ , y + row_index * sub_height_);
     }
 
-    void next_cell()
+    void next_subfilm()
     {
-        ++currrent_index_;
+        ++subfilm_index;
     }
 
 private:
-    int row_;
-    int column_;
-    int currrent_index_{};
+    int row_{};
+    int column_{};
+    int subfilm_index{};
 
-    int sub_width_;
-    int sub_height_;
+    int sub_width_{};
+    int sub_height_{};
 };
 
 #pragma endregion
@@ -4457,7 +4460,7 @@ void render_debug(int argc, char* argv[])
             std::make_unique<debug_integrator_t>(debug_integrator_enum);
         integrator->render(&scene, sampler.get(), &film);
 
-        film.next_cell();
+        film.next_subfilm();
     }
 
     film.store_image("render_debug");
@@ -4495,7 +4498,7 @@ void render_multiple_integrator()
             auto integrator = create_integrator(integrator_enum, 5, direct_sample_enum_t::both_mis);
             integrator->render(&scene, sampler.get(), &film);
 
-            film.next_cell();
+            film.next_subfilm();
         }
     }
 
@@ -4535,7 +4538,7 @@ void render_direct_sample_enum(int argc, char* argv[])
                 std::make_unique<path_tracing_iteration_t>(5, sample_enum);
             integrator->render(&scene, sampler.get(), &film);
 
-            film.next_cell();
+            film.next_subfilm();
         }
     }
 
@@ -4575,7 +4578,7 @@ void render_multiple_scene(int argc, char* argv[])
                 cornell_box_enum_t::both_small_spheres | scene_enum, film.get_resolution());
 
             integrator->render(&scene, sampler.get(), &film);
-            film.next_cell();
+            film.next_subfilm();
         }
     }
 
@@ -4624,7 +4627,7 @@ void render_mis_scene(int argc, char* argv[])
             std::make_unique<path_tracing_iteration_t>(5, sample_enum);
         integrator->render(&scene, sampler.get(), &film);
 
-        film.next_cell();
+        film.next_subfilm();
     }
 
     film.store_image("veach_mis");
@@ -4666,12 +4669,12 @@ int main(int argc, char* argv[])
 
     clock_t start = clock(); // MILO
 
-    //render_single_scene(argc, argv);
+    render_single_scene(argc, argv);
     //render_debug(argc, argv);
     //render_multiple_integrator();
     //render_direct_sample_enum(argc, argv);
     //render_multiple_scene(argc, argv);
-    render_mis_scene(argc, argv);
+    //render_mis_scene(argc, argv);
 
     LOG("\n{} sec\n", (float_t)(clock() - start) / CLOCKS_PER_SEC); // MILO
     return 0;
