@@ -1851,7 +1851,8 @@ inline bool refract(const vec3_t& wi, const normal_t& normal, float_t eta, vec3_
     float_t sin_theta_i_sq = std::max(float_t(0), float_t(1 - cos_theta_i * cos_theta_i));
     float_t sin_theta_t_sq = eta * eta * sin_theta_i_sq;
 
-    if (sin_theta_t_sq >= 1) return false; // handle total internal reflection for transmission
+    if (sin_theta_t_sq >= 1)
+        return false; // handle total internal reflection for transmission
 
     float_t cos_theta_t = std::sqrt(1 - sin_theta_t_sq);
     *out_wt = eta * -wi + (eta * cos_theta_i - cos_theta_t) * vec3_t(normal);
@@ -1899,8 +1900,8 @@ float_t fresnel_dielectric(
     return (r_para * r_para + r_perp * r_perp) / 2;
 }
 
+#pragma region schlick approximation 1994
 
-// schlick approximation 1994
 float_t fresnel_dielectric_schlick(
     float_t cos_theta_i, float_t cos_theta_t, 
     float_t eta_i, float_t eta_t)
@@ -1955,6 +1956,7 @@ color_t fresnel_dielectric_schlick(float_t cos_theta_i, color_t F0)
 }
 */
 
+#pragma endregion
 
 /*
 class fresnel_t
@@ -2007,7 +2009,7 @@ KY_ENUM_OPERATORS(bsdf_enum_t)
 
 inline bool is_delta_bsdf(bsdf_enum_t bsdf_type)
 {
-    return ((int)bsdf_type & (int)bsdf_enum_t::specluar) > 0;
+    return enum_have(bsdf_type, bsdf_enum_t::specluar);
 }
 
 /* 
@@ -2028,7 +2030,7 @@ inline bool is_delta_bsdf(bsdf_enum_t bsdf_type)
   ----   ^   -----
     ^    |    ^
      \   | θ /
-   wo \  |  / wi is unknown, sampling for bsdf or light
+   wo \  |  / wi is unknown, sampling from bsdf or light
        \ | /
         \|/
       -------
@@ -2058,10 +2060,10 @@ public:
 public:
     virtual bool is_delta() const = 0;
 
-    // or called `f()`, `evaluate`
+    // or called `f()`, `evaluate()`
     color_t eval(const vec3_t& world_wo, const vec3_t& world_wi) const
     {
-        return f_(to_local(world_wo), to_local(world_wi));
+        return eval_(to_local(world_wo), to_local(world_wi));
     }
 
     float_t pdf(const vec3_t& world_wo, const vec3_t& world_wi) const
@@ -2069,10 +2071,10 @@ public:
         return pdf_(to_local(world_wo), to_local(world_wi));
     }
 
-    // or called `sample_f`, `sample_direction`, `sample_solid_angle`
+    // or called `sample_f()`, `sample_direction()`, `sample_solid_angle()`
     bsdf_sample_t sample(const vec3_t& world_wo, const float2_t& random) const
     {
-        auto sample = sample_f_(to_local(world_wo), random);
+        auto sample = sample_(to_local(world_wo), random);
         sample.wi = to_world(sample.wi); // <--- ATTENTION!!!
 
         return sample;
@@ -2082,14 +2084,14 @@ public:
     {
         vec3_t wo = to_local(world_wo), wi = to_local(world_wi);
 
-        return { f_(wo, wi), pdf_(wo, wi) };
+        return { eval_(wo, wi), pdf_(wo, wi) };
     }
 
 protected: 
-    virtual color_t f_(const vec3_t& wo, const vec3_t& wi) const = 0;
+    virtual color_t eval_(const vec3_t& wo, const vec3_t& wi) const = 0;
     virtual float_t pdf_(const vec3_t& wo, const vec3_t& wi) const = 0;
 
-    virtual bsdf_sample_t sample_f_(const vec3_t& wo, const float2_t& random) const = 0;
+    virtual bsdf_sample_t sample_(const vec3_t& wo, const float2_t& random) const = 0;
 
 private:
     vec3_t to_local(const vec3_t& world_vec3) const
@@ -2121,7 +2123,7 @@ public:
 
     bool is_delta() const override { return false; }
 
-    color_t f_(const vec3_t& wo, const vec3_t& wi) const override
+    color_t eval_(const vec3_t& wo, const vec3_t& wi) const override
     {
         // lambertion surface's albedo divided by $\pi$ is surface bidirectional reflectance
         return albedo_ * k_inv_pi;
@@ -2132,7 +2134,7 @@ public:
         return same_hemisphere(wo, wi) ? cosine_hemisphere_pdf(abs_cos_theta(wi)) : 0;
     }
 
-    bsdf_sample_t sample_f_(const vec3_t& wo, const float2_t& random) const override
+    bsdf_sample_t sample_(const vec3_t& wo, const float2_t& random) const override
     {
         bsdf_sample_t sample;
 
@@ -2141,7 +2143,7 @@ public:
         if (wo.z < 0) 
             sample.wi.z *= -1;
 
-        sample.f = f_(wo, sample.wi);
+        sample.f = eval_(wo, sample.wi);
         sample.pdf = pdf_(wo, sample.wi);
         sample.bsdf_type = bsdf_enum_t::reflection | bsdf_enum_t::diffuse;
 
@@ -2154,7 +2156,7 @@ private:
     // https://mitsuba.readthedocs.io/en/latest/src/generated/plugins_bsdfs.html#smooth-diffuse-material-diffuse
     // surface directional-hemispherical reflectance, usually called `albedo`
     // symbol: $\rho_{\mathrm{hd}}$
-    color_t albedo_; 
+    color_t albedo_{};
 };
 
 
@@ -2176,10 +2178,10 @@ public:
 
     bool is_delta() const override { return true; }
 
-    color_t f_(const vec3_t& wo, const vec3_t& wi) const override { return color_t(); }
+    color_t eval_(const vec3_t& wo, const vec3_t& wi) const override { return color_t(); }
     float_t pdf_(const vec3_t& wo, const vec3_t& wi) const override { return 0; }
 
-    bsdf_sample_t sample_f_(const vec3_t& wo, const float2_t& random) const override
+    bsdf_sample_t sample_(const vec3_t& wo, const float2_t& random) const override
     {
         // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#SpecularReflection
         // https://github.com/infancy/pbrt-v3/blob/master/src/materials/mirror.cpp#L45-L57  mirror material use `FresnelNoOp`
@@ -2198,7 +2200,7 @@ public:
 
 private:
     // https://wiki.luxcorerender.org/LuxCoreRender_Materials_Mirror
-    color_t reflectance_;
+    color_t reflectance_{};
 };
 
 
@@ -2223,17 +2225,22 @@ private:
 class fresnel_specular_t : public bsdf_t
 {
 public:
-    fresnel_specular_t(const frame_t& shading_frame, float_t eta_i, float_t eta_t, const color_t& reflectance, const color_t& transmittance) :
-        bsdf_t(shading_frame), eta_i_{ eta_i }, eta_t_{ eta_t }, reflectance_{ reflectance }, transmittance_{ transmittance }
+    fresnel_specular_t(
+    const frame_t& shading_frame, float_t eta_i, float_t eta_t, const color_t& reflectance, const color_t& transmittance) :
+        bsdf_t(shading_frame),
+        eta_i_{ eta_i },
+        eta_t_{ eta_t },
+        reflectance_{ reflectance },
+        transmittance_{ transmittance }
     {
     }
 
     bool is_delta() const override { return true; }
 
-    color_t f_(const vec3_t& wo, const vec3_t& wi) const override { return color_t(); }
+    color_t eval_(const vec3_t& wo, const vec3_t& wi) const override { return color_t(); }
     float_t pdf_(const vec3_t& wo, const vec3_t& wi) const override { return 0; }
 
-    bsdf_sample_t sample_f_(const vec3_t& wo, const float2_t& random) const override
+    bsdf_sample_t sample_(const vec3_t& wo, const float2_t& random) const override
     {
         // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#FresnelReflectance
         // 
@@ -2293,7 +2300,7 @@ public:
 
     /*
     // smallpt version
-    color_t sample_f_(const vec3_t& wo, const float2_t& random,
+    color_t sample_(const vec3_t& wo, const float2_t& random,
         vec3_t* out_wi, float_t* out_pdf_direction, bsdf_enum_t* out_bsdf_type) const override
     {
         normal_t normal(0, 0, 1);
@@ -2335,14 +2342,14 @@ public:
 
 private:
     // outside and inside ior of interface
-    float_t eta_i_; // ior_i_
-    float_t eta_t_; // ior_t_
+    float_t eta_i_{}; // ior_i_
+    float_t eta_t_{}; // ior_t_
 
     // https://wiki.luxcorerender.org/LuxCoreRender_Materials_Glass
     // https://mitsuba.readthedocs.io/en/latest/src/generated/plugins_bsdfs.html#smooth-dielectric-material-dielectric
-    // Optional factor that can be used to modulate the specular reflection/transmission component. 
-    color_t reflectance_;
-    color_t transmittance_;
+    // optional factor that can be used to modulate the specular reflection/transmission component. 
+    color_t reflectance_{};
+    color_t transmittance_{};
 };
 
 
@@ -2353,13 +2360,15 @@ class phong_specular_reflection_t : public bsdf_t
 {
 public:
     phong_specular_reflection_t(const frame_t& shading_frame, /*const color_t& Kd,*/ const color_t& Ks, float_t exponent) :
-        bsdf_t(shading_frame), /*Kd_{Kd},*/ Ks_{Ks}, exponent_{exponent}
+        bsdf_t(shading_frame),
+        Ks_{ Ks },
+        exponent_{ exponent }
     {
     }
 
     bool is_delta() const override { return false; }
 
-    color_t f_(const vec3_t& wo, const vec3_t& wi) const override
+    color_t eval_(const vec3_t& wo, const vec3_t& wi) const override
     {
         const vec3_t wr = reflect(wo, vec3_t(0, 0, 1));
         const float_t cos_alpha = dot(wr, wi);
@@ -2376,7 +2385,7 @@ public:
         return cosine_hemisphere_pdf_phong(wr, wi);
     }
 
-    bsdf_sample_t sample_f_(const vec3_t& wo, const float2_t& random) const override
+    bsdf_sample_t sample_(const vec3_t& wo, const float2_t& random) const override
     {
         bsdf_sample_t sample;
 
@@ -2389,7 +2398,7 @@ public:
         if (wo.z < 0)
             sample.wi.z *= -1;
 
-        sample.f = f_(wo, sample.wi);
+        sample.f = eval_(wo, sample.wi);
         sample.pdf = pdf_(wo, sample.wi);
         sample.bsdf_type = bsdf_enum_t::reflection | bsdf_enum_t::glossy;
         
@@ -2397,7 +2406,7 @@ public:
     }
 
 private:
-    // Cosine lobe hemisphere sampling
+    // cosine lobe hemisphere sampling
     vec3_t cosine_hemisphere_sample_phong(const vec2_t& random) const
     {
         const float_t phi = 2.f * k_pi * random[0];
@@ -2418,8 +2427,8 @@ private:
     }
 
 private:
-    color_t Ks_;
-    float_t exponent_;
+    color_t Ks_{};
+    float_t exponent_{};
 };
 
 #pragma endregion
@@ -2458,7 +2467,7 @@ public:
     }
 
 private:
-    color_t diffuse_color_; // or named `Kd`, `C_diff`
+    color_t diffuse_color_{}; // or named `Kd`, `C_diff`
 };
 
 class mirror_material_t : public material_t
@@ -2475,14 +2484,17 @@ public:
     }
 
 private:
-    color_t specular_color_; // or named `Ks`, `C_spec`
+    color_t specular_color_{}; // or named `Ks`, `C_spec`
 };
 
 class glass_material_t : public material_t
 {
 public:
-    glass_material_t(float_t eta, const color_t& reflection_color = color_t(1, 1, 1), const color_t& transmission_color = color_t(1, 1, 1)) :
-        eta_{ eta }, reflection_color_{ reflection_color }, transmission_color_{ transmission_color }
+    glass_material_t(
+    float_t eta, const color_t& reflection_color = color_t{ 1, 1, 1 }, const color_t& transmission_color = color_t{ 1, 1, 1 }) :
+        eta_{ eta },
+        reflection_color_{ reflection_color },
+        transmission_color_{ transmission_color }
     {
     }
 
@@ -2492,16 +2504,18 @@ public:
     }
 
 private:
-    float_t eta_;
-    color_t reflection_color_; // or named `Kr`
-    color_t transmission_color_; // or named `Kt`
+    float_t eta_{};
+    color_t reflection_color_{}; // or named `Kr`
+    color_t transmission_color_{}; // or named `Kt`
 };
 
 class plastic_material_t : public material_t
 {
 public:
     plastic_material_t(const color_t& diffuse_color, const color_t& specular_color, float_t shininess) :
-        diffuse_color_{ diffuse_color }, specular_color_{ specular_color }, exponent_{ shininess } // TODO
+        diffuse_color_{ diffuse_color },
+        specular_color_{ specular_color },
+        exponent_{ shininess } // TODO
     {
         //CHECK_DEBUG((Kd_ + Ks_).small_than({ 1, 1, 1 }));
 
