@@ -3081,7 +3081,7 @@ public:
     }
 
 public:
-    const camera_t* camera() const { return camera_.get(); }
+    const camera_t* get_camera() const { return camera_.get(); }
 
     int light_count() const { return light_list_.size(); }
     const light_list_t& light_list() const
@@ -3412,6 +3412,7 @@ void environment_light_t::preprocess(const scene_t& scene)
           = Le + ∫Le  + ∫∫Le  + ∫∫∫(Le + ∫Li)
           = Le + ∫Le  + ∫∫Le  + ∫∫∫Le  + ∫∫∫∫Le + ...
 */
+
 enum class lighting_enum_t
 {
     emit = 1, // Le = Le
@@ -3427,6 +3428,7 @@ enum class lighting_enum_t
 };
 KY_ENUM_OPERATORS(lighting_enum_t)
 
+// TODO: rename
 // direct_lighting_sample
 enum class direct_sample_enum_t
 {
@@ -3450,7 +3452,7 @@ enum class integrator_enum_t
     // debug
     position,
     normal,
-    albedo,
+    basecolor,
 
     // discrete
     delta_bsdf, // + area light
@@ -3485,8 +3487,7 @@ struct light_list_sample_t
 };
 
 
-// TODO: rename path_sample_t
-struct scene_sample_t
+struct path_vertex_t
 {
     scene_t* scene{};
     sampler_t* sampler{};
@@ -3498,7 +3499,7 @@ struct scene_sample_t
 
 /*
   rendering scene by Rendering Equation(Li = Lo = Le + ∫Li)
-  solving Rendering Equation(a integral equation) by numerical integration(monte carlo integration)
+  solving Rendering Equation(a integral equation) by numerical integration(Monte Carlo Integration)
 */
 class integrator_t
 {
@@ -3509,9 +3510,10 @@ public:
     }
 
 public:
+    // TODO: why can't const?
     void render(/*const*/ scene_t* scene, sampler_t* original_sampler, film_t* film)
     {
-        auto camera = scene->camera();
+        auto camera = scene->get_camera();
         vec2_t resolution = film->get_resolution();
         int width = (int)resolution.x;
         int height = (int)resolution.y;
@@ -3533,9 +3535,9 @@ public:
                 do
                 {
                     auto sample = sampler->get_camera_sample({ (float_t)x, (float_t)y });
-                    auto ray = camera->generate_ray(sample);
+                    ray_t ray = camera->generate_ray(sample);
 
-                    auto dL = Li(ray, scene, sampler.get()) * (1. / sampler->ge_samples_per_pixel());
+                    color_t dL = Li(ray, scene, sampler.get()) * (1. / sampler->ge_samples_per_pixel());
                     //LOG_DEBUG("dL: {}", dL.to_string());
                     CHECK_DEBUG(dL.is_valid(), "{}", dL.to_string());
 
@@ -3549,13 +3551,13 @@ public:
         }
     }
 
-    // render_phase
+    // TODO rename: render_phase()
     void debug(/*const*/ scene_t* scene, sampler_t* original_sampler, film_t* film, vec2_t begin, vec2_t end)
     {
         for (int y = begin.y; y < end.y; y += 1)
         {
             auto sampler = original_sampler->clone(); // multi thread
-            auto camera = scene->camera();
+            auto camera = scene->get_camera();
 
             for (int x = begin.x; x < end.x; x += 1)
             {
@@ -3565,9 +3567,9 @@ public:
                 do
                 {
                     auto sample = sampler->get_camera_sample({ (float_t)x, (float_t)y });
-                    auto ray = camera->generate_ray(sample);
+                    ray_t ray = camera->generate_ray(sample);
 
-                    auto dL = Li(ray, scene, sampler.get()) * (1. / sampler->ge_samples_per_pixel());
+                    color_t dL = Li(ray, scene, sampler.get()) * (1. / sampler->ge_samples_per_pixel());
                     //LOG("dL:{}\n", dL.to_string());
                     L = L + dL;
                 }
@@ -3601,7 +3603,7 @@ protected:
 
         // TODO: power based, spatial based
         int light_index = std::min((int)(sampler.get_float() * light_count), light_count - 1);
-        auto light = scene->light_list()[light_index].get();
+        light_t* light = scene->light_list()[light_index].get();
         float_t pdf_light = float_t(1) / light_count;
 
         return { light, pdf_light };
@@ -3619,7 +3621,7 @@ protected:
         int light_index = std::min((int)(sampler.get_float() * light_count), light_count - 1);
         float_t pdf_light = float_t(1) / light_count;
 
-        auto light = scene->light_list()[light_index].get();
+        light_t* light = scene->light_list()[light_index].get();
         point2_t uLight = sampler.get_float2();
         point2_t uScattering = sampler.get_float2();
 
@@ -3893,8 +3895,8 @@ public:
                 return isect.position.normalize();
             case integrator_enum_t::normal:
                 return isect.normal.normalize();
-            case integrator_enum_t::albedo:
-                return isect.bsdf()->eval(isect.wo, isect.normal); // TODO
+            case integrator_enum_t::basecolor:
+                return isect.bsdf()->eval(isect.wo, isect.normal);
             }
         }
 
@@ -3966,8 +3968,8 @@ protected:
 
 
 /*
-  simple path tracing implementation, only sample BRDF
-  Li = Le + T*(Le + T*(le + ...))
+   simple path tracing implementation, only sample BRDF
+   Li = Le + T*(Le + T*(le + ...))
 */
 class simple_path_tracing_recursion_t : public path_integrator_t
 {
@@ -3991,7 +3993,7 @@ public:
             return isect.Le();
 
 
-        auto bs = isect.bsdf()->sample(isect.wo, sampler->get_float2());
+        bsdf_sample_t bs = isect.bsdf()->sample(isect.wo, sampler->get_float2());
 
         if (bs.f.is_black() || bs.pdf == 0.f) // pdf == 0 => NaN
             return isect.Le();
@@ -4216,7 +4218,7 @@ private:
           -------
            isect
 
-      is_prev_specular: whether previous vertex is specular<
+      is_prev_specular: whether previous vertex is specular
     */
     color_t Li(scene_t* scene, sampler_t* sampler, ray_t ray, int depth, bool is_prev_specular)
     {
@@ -4273,7 +4275,7 @@ private:
     // for specular BSDF, compute reflect/refract direciotn's lighting, so skip _Ld_ on direct_lighting()
     color_t indirect_lighting(scene_t* scene, sampler_t* sampler, const isect_t& isect, int depth)
     {
-        auto bs = isect.bsdf()->sample(isect.wo, sampler->get_float2());
+        bsdf_sample_t bs = isect.bsdf()->sample(isect.wo, sampler->get_float2());
 
         if (bs.f.is_black() || bs.pdf == 0.f)
             return color_t{};
@@ -4313,7 +4315,7 @@ public:
         color_t Lo{};
 
         color_t beta{ 1, 1, 1 }; // beta holds path throughput weight
-        bool is_prev_specular = false; // if pervious vertex's material has perfect specular property
+        bool is_prev_specular = false; // whether pervious vertex's material has perfect specular property
 
         for (int bounces = 0; ; ++bounces)
         {
@@ -4359,7 +4361,7 @@ public:
             // Li: indirect lighting (compute by next iteration)
 
             // sample BSDF to get new path direction
-            auto bs = isect.bsdf()->sample(isect.wo, sampler->get_float2());
+            bsdf_sample_t bs = isect.bsdf()->sample(isect.wo, sampler->get_float2());
 
             if (bs.f.is_black() || bs.pdf == 0.f)
                 break;
@@ -4485,7 +4487,7 @@ void render_debug(int argc, char* argv[])
     {
         integrator_enum_t::position,
         integrator_enum_t::normal,
-        integrator_enum_t::albedo
+        integrator_enum_t::basecolor
     };
 
     for (auto debug_integrator_enum : debug_integrator_enums)
