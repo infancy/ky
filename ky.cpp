@@ -1,4 +1,4 @@
-//#define KY_OUTPUT_HDR
+//#define KY_OUTPUT_HDR // default output .bmp image, whether need to output .hdr image
 
 #include <cmath>
 #include <cstdlib>
@@ -72,13 +72,14 @@ inline void _LOG_ERROR(const std::source_location& location, const std::string& 
 
 
 
-#define _EXPAND( x ) x
 #define _CHECK1(condition)      if(!(condition)) LOG_ERROR("{}", #condition)
 #define _CHECK2(condition, msg) if(!(condition)) LOG_ERROR("{}", msg)
 #define _CHECK3(condition, ...) _EXPAND( if(!(condition)) LOG_ERROR(__VA_ARGS__) )
-#define _GET_MACRO_(_1, _2, _3, _4, _5, NAME, ...) NAME
 
-#define CHECK(...) _EXPAND( _GET_MACRO_(__VA_ARGS__, _CHECK3, _CHECK3, _CHECK3, _CHECK2, _CHECK1, UNUSED)(__VA_ARGS__) )
+#define _GET_MACRO(_1, _2, _3, _4, _5, NAME, ...) NAME
+#define _EXPAND( x ) x
+
+#define CHECK(...) _EXPAND( _GET_MACRO(__VA_ARGS__, _CHECK3, _CHECK3, _CHECK3, _CHECK2, _CHECK1, UNUSED) (__VA_ARGS__) )
 
 
 
@@ -134,34 +135,35 @@ private:
 
 #pragma region math
 
-//using float_t = float_t; // already defined in math.h
+//using float_t = float; // already defined in math.h
 static_assert(sizeof(float_t) == 4);
 
-using unit_float_t = float_t; // 'normalized float_t', from 0 to 1
+using float01_t    = float_t; // from 0 to 1
+using unit_float_t = float_t; // 'normalized float_t', from -1 to 1
 
 using radian_t = float_t;
 using degree_t = float_t;
 
-constexpr float_t k_epsilon = std::numeric_limits<float_t>::epsilon();
+constexpr float_t k_epsilon  = std::numeric_limits<float_t>::epsilon();
 constexpr float_t k_infinity = std::numeric_limits<float_t>::infinity();
-constexpr float_t k_pi = std::numbers::pi;
-constexpr float_t k_2pi = 2 * k_pi;
-constexpr float_t k_pi_over2 = k_pi / 2;
-constexpr float_t k_pi_over4 = k_pi / 4;
-constexpr float_t k_inv_pi = std::numbers::inv_pi;
-constexpr float_t k_inv_2pi = k_inv_pi / 2;
-constexpr float_t k_inv_4pi = k_inv_pi / 4;
+constexpr float_t k_pi  = std::numbers::pi;
+constexpr float_t k_2pi = 2.f * k_pi;
+constexpr float_t k_pi_over2 = k_pi / 2.f;
+constexpr float_t k_pi_over4 = k_pi / 4.f;
+constexpr float_t k_inv_pi  = std::numbers::inv_pi;
+constexpr float_t k_inv_2pi = k_inv_pi / 2.f;
+constexpr float_t k_inv_4pi = k_inv_pi / 4.f;
 
-constexpr radian_t radians(degree_t deg) { return (k_pi / 180) * deg; }
-constexpr degree_t degrees(radian_t rad) { return (180 / k_pi) * rad; }
+constexpr radian_t radians(degree_t degree) { return (k_pi / 180.f) * degree; }
+constexpr degree_t degrees(radian_t radian) { return (180.f / k_pi) * radian; }
 
 constexpr float_t lerp(float_t a, float_t b, float_t t) { return a + t * (b - a); }
 
-inline bool is_infinity(const std::floating_point auto x) { return std::isinf(x); }
-inline bool is_nan(const std::floating_point auto x) { return std::isnan(x); }
+inline bool is_infinity(std::floating_point auto x) { return std::isinf(x); }
+inline bool is_nan(std::floating_point auto x) { return std::isnan(x); }
 
-inline bool is_invalid(const std::floating_point auto x) { return is_infinity(x) || is_nan(x); }
-inline bool is_valid(const std::floating_point auto x) { return !is_invalid(x); }
+inline bool is_invalid(std::floating_point auto x) { return is_infinity(x) || is_nan(x); }
+inline bool is_valid(std::floating_point auto x) { return !is_invalid(x); }
 
 
 // https://stackoverflow.com/questions/17333/what-is-the-most-effective-way-for-float_t-and-double-comparison
@@ -219,6 +221,7 @@ struct color_t
             0.072169f * b;
     }
 
+    // TODO: why allow nagetive value?
     bool is_black() const { return (r <= 0) && (g <= 0) && (b <= 0); }
 
 // for debug:
@@ -237,25 +240,14 @@ struct color_t
 
 struct vec2_t
 {
-    union
-    {
-        struct { float_t x, y; };
-    };
+    float_t x{}, y{};
 
-    vec2_t(float_t x = 0, float_t y = 0) { this->x = x; this->y = y; }
-
-    float_t operator[](int index) const
-    {
-        CHECK_DEBUG((index >= 0) && (index <= 1));
-
-        if (index == 0) return x;
-        else return y;
-    }
+    float_t operator[](int i) const { CHECK_DEBUG(i >= 0 && i < 2); return (&x)[i]; }
 
     vec2_t operator+(const vec2_t& vec2) const { return vec2_t(x + vec2.x, y + vec2.y); }
     vec2_t operator-(const vec2_t& vec2) const { return vec2_t(x - vec2.x, y - vec2.y); }
 
-    friend vec2_t operator*(float_t scalar, vec2_t v) { return vec2_t(v.x * scalar, v.y * scalar); }
+    friend vec2_t operator*(float_t s, vec2_t v) { return vec2_t(v.x * s, v.y * s); }
 };
 
 using point2_t = vec2_t;
@@ -265,14 +257,7 @@ using float2_t = vec2_t;
 
 struct vec3_t
 {
-    union
-    {
-        struct { float_t x, y, z; };
-        //std::array<float_t, 3> a_{};
-    };
-
-    vec3_t() : x{ 0 }, y{ 0 }, z{ 0 } {}
-    vec3_t(float_t x, float_t y, float_t z) { this->x = x; this->y = y; this->z = z; }
+    float_t x{}, y{}, z{};
 
     float_t operator[](int i) const { CHECK_DEBUG(i >= 0 && i < 3); return (&x)[i]; }
     vec3_t operator-() const { return vec3_t(-x, -y, -z); }
@@ -284,8 +269,8 @@ struct vec3_t
 
     vec3_t operator+(const vec3_t& v) const { return vec3_t(x + v.x, y + v.y, z + v.z); }
     vec3_t operator-(const vec3_t& v) const { return vec3_t(x - v.x, y - v.y, z - v.z); }
-    vec3_t operator*(float_t scalar)    const { return vec3_t(x * scalar, y * scalar, z * scalar); }
-    vec3_t operator/(float_t scalar)    const { return vec3_t(x / scalar, y / scalar, z / scalar); }
+    vec3_t operator*(float_t s)    const { return vec3_t(x * s, y * s, z * s); }
+    vec3_t operator/(float_t s)    const { return vec3_t(x / s, y / s, z / s); }
 
     // or length(), abs(), absolute_value()
     float_t magnitude()    const { return sqrt(magnitude_squared()); }
@@ -312,7 +297,7 @@ struct vec3_t
     operator color_t() { return { x, y, z }; }
 
 public:
-    friend vec3_t operator*(float_t scalar, vec3_t v) { return vec3_t(v.x * scalar, v.y * scalar, v.z * scalar); }
+    friend vec3_t operator*(float_t s, vec3_t v) { return vec3_t(v.x * s, v.y * s, v.z * s); }
 
     friend float_t     dot(const vec3_t& u, const vec3_t& v) { return u.dot(v); }
     friend float_t abs_dot(const vec3_t& u, const vec3_t& v) { return std::abs(u.dot(v)); }
@@ -371,6 +356,24 @@ inline float_t distance_squared(const point3_t& p1, const point3_t& p2)
 }
 
 
+
+// TODO: confirm
+/*
+     z(0, 0, 1)
+          |
+          | theta/
+          |    /
+          |  /
+          |/_ _ _ _ _ _ x(1, 0, 0)
+         / \
+        / phi\
+       /       \
+      /          \
+ y(0, 1, 0)
+
+   https://www.pbr-book.org/3ed-2018/Shapes/Spheres
+*/
+
 // unit direction vector -> spherical coordinate
 inline radian_t spherical_theta(const unit_vec3_t& v)
 {
@@ -379,7 +382,7 @@ inline radian_t spherical_theta(const unit_vec3_t& v)
 inline radian_t spherical_phi(const unit_vec3_t& v)
 {
     float_t phi = std::atan2(v.y, v.x);
-    return (phi < 0) ? (phi + 2 * k_pi) : phi;
+    return (phi < 0) ? (phi + k_2pi) : phi;
 }
 
 
@@ -391,7 +394,7 @@ inline vec3_t spherical_to_direction(float_t sin_theta, float_t cos_theta, float
         sin_theta * std::sin(phi),
         cos_theta);
 }
-// takes three basis vectors representing the x, y, and z axes and
+// takes three basis vectors representing the x, y, and z axis and
 // returns the appropriate direction vector with respect to the coordinate frame defined by them
 inline vec3_t spherical_to_direction(
     float_t sin_theta, float_t cos_theta, float_t phi,
@@ -428,8 +431,8 @@ class bounds3_t
 public:
     bounds3_t() 
     {
-        float_t min = std::numeric_limits<float_t>::lowest();
-        float_t max = std::numeric_limits<float_t>::max();
+        constexpr float_t min = std::numeric_limits<float_t>::lowest();
+        constexpr float_t max = std::numeric_limits<float_t>::max();
 
         min_ = point3_t(max, max, max);
         max_ = point3_t(min, min, min);
@@ -576,7 +579,6 @@ private:
 
 
 
-// TODO
 class bsdf_t;
 using bsdf_uptr_t = std::unique_ptr<bsdf_t>;
 class material_t;
@@ -588,7 +590,7 @@ class surface_t;
   ----   ^   -----
     ^    |    ^
      \   | θ /
-   wo \  |  / wi is unknown, sampling for bsdf or light
+   wo \  |  / wi is unknown, sampling from bsdf or light
        \ | / 
         \|/
       -------
@@ -654,75 +656,78 @@ private:
 
 #pragma region sampling
 
-inline point2_t sample_disk_uniform(const float2_t& random)
+// https://www.pbr-book.org/3ed-2018/Monte_Carlo_Integration/2D_Sampling_with_Multidimensional_Transformations
+// https://github.com/mmp/pbrt-v3/blob/master/src/core/sampling.cpp
+
+inline point2_t uniform_disk_sample(const float2_t& random)
 {
-    float_t r = std::sqrt(random[0]);
+    float_t radius = std::sqrt(random[0]);
     float_t theta = 2 * k_pi * random[1];
-    return point2_t(r * std::cos(theta), r * std::sin(theta));
+    return radius * point2_t(std::cos(theta), std::sin(theta));
 }
 
-inline point2_t sample_disk_concentric(const float2_t& random)
+inline point2_t concentric_disk_sample(float2_t random)
 {
-    // Map uniform random numbers to $[-1,1]^2$
-    point2_t uOffset = 2.f * random - vec2_t(1, 1);
+    // map uniform random numbers to $[-1,1]^2$
+    random = 2.f * random - vec2_t(1, 1);
 
-    // Handle degeneracy at the origin
-    if (uOffset.x == 0 && uOffset.y == 0)
+    // handle degeneracy at the origin
+    if (random.x == 0 && random.y == 0)
         return point2_t(0, 0);
 
-    // Apply concentric mapping to point
-    float_t theta, r;
-    if (std::abs(uOffset.x) > std::abs(uOffset.y))
+    // apply concentric mapping to point
+    float_t radius{}, theta{};
+    if (std::abs(random.x) > std::abs(random.y))
     {
-        r = uOffset.x;
-        theta = k_pi_over4 * (uOffset.y / uOffset.x);
+        radius = random.x;
+        theta = k_pi_over4 * (random.y / random.x);
     }
     else
     {
-        r = uOffset.y;
-        theta = k_pi_over2 - k_pi_over4 * (uOffset.x / uOffset.y);
+        radius = random.y;
+        theta = k_pi_over2 - k_pi_over4 * (random.x / random.y);
     }
 
-    return r * point2_t(std::cos(theta), std::sin(theta));
+    return radius * point2_t(std::cos(theta), std::sin(theta));
 }
 
 
-// cosine-weighted sampling
-inline vec3_t sample_hemisphere_cosine(const float2_t& random)
+// cosine-weighted hemisphere sampling
+inline vec3_t cosine_hemisphere_sample(const float2_t& random)
 {
-    point2_t d = sample_disk_concentric(random);
-    float_t z = std::sqrt(std::max((float_t)0, 1 - d.x * d.x - d.y * d.y));
-    return vec3_t(d.x, d.y, z);
+    point2_t p = concentric_disk_sample(random);
+    float_t z = std::sqrt(std::max((float_t)0, 1 - p.x * p.x - p.y * p.y));
+
+    return vec3_t(p.x, p.y, z);
 }
 
-// TODO: rename
-inline float_t pdf_hemisphere_cosine(float_t cos_theta) { return cos_theta * k_inv_pi; }
+inline float_t cosine_hemisphere_pdf(float_t cos_theta) { return cos_theta * k_inv_pi; }
 
 
-inline vec3_t sample_hemisphere_uniform(const float2_t& random)
+inline vec3_t uniform_hemisphere_sample(const float2_t& random)
 {
     float_t z = random[0]; // [0, 1)
+    float_t radius = std::sqrt(std::max((float_t)0, (float_t)1. - z * z));
 
-    float_t r = std::sqrt(std::max((float_t)0, (float_t)1. - z * z));
     float_t phi = 2 * k_pi * random[1];
 
-    return vec3_t(r * std::cos(phi), r * std::sin(phi), z);
+    return vec3_t(radius * std::cos(phi), radius * std::sin(phi), z);
 }
 
-inline float_t pdf_hemisphere_uniform() { return k_inv_2pi; }
+inline float_t uniform_hemisphere_pdf() { return k_inv_2pi; }
 
 
-inline vec3_t sample_sphere_uniform(const float2_t& random)
+inline vec3_t uniform_sphere_sample(const float2_t& random)
 {
     float_t z = 1 - 2 * random[0]; // (-1, 1)
+    float_t radius = std::sqrt(std::max((float_t)0, (float_t)1 - z * z));
 
-    float_t r = std::sqrt(std::max((float_t)0, (float_t)1 - z * z));
     float_t phi = 2 * k_pi * random[1];
 
-    return vec3_t(r * std::cos(phi), r * std::sin(phi), z);
+    return vec3_t(radius * std::cos(phi), radius * std::sin(phi), z);
 }
 
-inline float_t pdf_sphere_uniform() { return k_inv_4pi; }
+inline float_t uniform_sphere_pdf() { return k_inv_4pi; }
 
 
 /*
@@ -736,10 +741,11 @@ inline float_t pdf_sphere_uniform() { return k_inv_4pi; }
   . _ _ _ _ _ _ _ _
 
 */
-vec3_t sample_cone_uniform(const float2_t& random, float_t cos_theta_max)
+vec3_t uniform_cone_sample(const float2_t& random, float_t cos_theta_max)
 {
-    float_t cos_theta = ((float_t)1 - random[0]) + random[0] * cos_theta_max;
+    float_t cos_theta = (1 - random[0]) + random[0] * cos_theta_max;
     float_t sin_theta = std::sqrt((float_t)1 - cos_theta * cos_theta);
+
     float_t phi = random[1] * 2 * k_pi;
 
     return vec3_t(
@@ -748,27 +754,27 @@ vec3_t sample_cone_uniform(const float2_t& random, float_t cos_theta_max)
         cos_theta);
 }
 
-float_t pdf_cone_uniform(float_t cos_theta_max)
+float_t uniform_cone_pdf(float_t cos_theta_max)
 {
     return 1 / (2 * k_pi * (1 - cos_theta_max));
 }
 
 
-point2_t sample_triangle_uniform(const float2_t& random)
+point2_t uniform_triangle_sample(const float2_t& random)
 {
     float_t su0 = std::sqrt(random[0]);
     return point2_t(1 - su0, random[1] * su0);
 }
 
 
-inline float_t balance_heuristic(int nf, float_t fPdf, int ng, float_t gPdf)
+inline float_t balance_heuristic(int f_num, float_t f_pdf, int g_num, float_t g_pdf)
 {
-    return (nf * fPdf) / (nf * fPdf + ng * gPdf);
+    return (f_num * f_pdf) / (f_num * f_pdf + g_num * g_pdf);
 }
 
-inline float_t power_heuristic(int nf, float_t fPdf, int ng, float_t gPdf)
+inline float_t power_heuristic(int f_num, float_t f_pdf, int g_num, float_t g_pdf)
 {
-    float_t f = nf * fPdf, g = ng * gPdf;
+    float_t f = f_num * f_pdf, g = g_num * g_pdf;
     return (f * f) / (f * f + g * g);
 }
 
@@ -821,7 +827,7 @@ private:
 
 struct camera_sample_t
 {
-    point2_t p_film{}; // film_sample_point
+    point2_t p_film{}; // sample point on film
     // point2_t p_lens{};
 };
 
@@ -830,11 +836,15 @@ class sampler_t
 {
 public:
     virtual ~sampler_t() {}
+
     sampler_t(int samples_per_pixel) :
         samples_per_pixel_{ samples_per_pixel }
     {
     }
 
+    virtual std::unique_ptr<sampler_t> clone() = 0;
+
+public:
     virtual int ge_samples_per_pixel()
     {
         return samples_per_pixel_;
@@ -844,14 +854,11 @@ public:
         samples_per_pixel_ = samples_per_pixel;
     }
 
-    virtual std::unique_ptr<sampler_t> clone() = 0;
-
 public:
     virtual void start_pixel()
     {
         current_sample_index_ = 0;
     }
-
     virtual bool next_sample()
     {
         current_sample_index_ += 1;
@@ -1060,7 +1067,7 @@ public:
         isect_t isect;
 
         frame_t frame{ normal_ };
-        point2_t sample_point = sample_disk_concentric(random);
+        point2_t sample_point = concentric_disk_sample(random);
         isect.position = position_ + radius_ * (frame.binormal() * sample_point.x + frame.tangent() * sample_point.y);
 
         isect.normal = normalize(normal_);
@@ -1137,7 +1144,7 @@ public:
 public:
     isect_t sample_position(const float2_t& random, float_t* pdf) const override
     {
-        point2_t b = sample_triangle_uniform(random);
+        point2_t b = uniform_triangle_sample(random);
 
         isect_t isect;
         isect.position = b.x * p0_ + b.y * p1_ + (1 - b.x - b.y) * p2_;
@@ -1313,7 +1320,7 @@ public:
 public:
     isect_t sample_position(const float2_t& random, float_t* pdf) const override
     {
-        unit_vec3_t direction = sample_sphere_uniform(random);
+        unit_vec3_t direction = uniform_sphere_sample(random);
         point3_t position = center_ + radius_ * direction;
 
         isect_t isect;
@@ -1415,7 +1422,7 @@ public:
         // Compute general sphere PDF
         float_t sin_theta_max_sq = radius_ * radius_ / distance_squared(isect.position, center_);
         float_t cos_theta_max = std::sqrt(std::max((float_t)0, 1 - sin_theta_max_sq));
-        return pdf_cone_uniform(cos_theta_max);
+        return uniform_cone_pdf(cos_theta_max);
     }
 
 private:
@@ -2115,7 +2122,7 @@ public:
 
     float_t pdf_(const vec3_t& wo, const vec3_t& wi) const override
     {
-        return same_hemisphere(wo, wi) ? pdf_hemisphere_cosine(abs_cos_theta(wi)) : 0;
+        return same_hemisphere(wo, wi) ? cosine_hemisphere_pdf(abs_cos_theta(wi)) : 0;
     }
 
     bsdf_sample_t sample_f_(const vec3_t& wo, const float2_t& random) const override
@@ -2123,7 +2130,7 @@ public:
         bsdf_sample_t sample;
 
         // cosine-sample the hemisphere, flipping the direction if necessary
-        sample.wi = sample_hemisphere_cosine(random);
+        sample.wi = cosine_hemisphere_sample(random);
         if (wo.z < 0) 
             sample.wi.z *= -1;
 
@@ -2359,14 +2366,14 @@ public:
         const vec3_t wr = reflect(wo, vec3_t(0, 0, 1));
         //const float_t cos_alpha = dot(wr, wi);
 
-        return pdf_hemisphere_cosine_phong(wr, wi);
+        return cosine_hemisphere_pdf_phong(wr, wi);
     }
 
     bsdf_sample_t sample_f_(const vec3_t& wo, const float2_t& random) const override
     {
         bsdf_sample_t sample;
 
-        sample.wi = sample_hemisphere_cosine_phong(random);
+        sample.wi = cosine_hemisphere_sample_phong(random);
 
         const vec3_t wr = reflect(wo, vec3_t(0, 0, 1));
         frame_t frame{ wr };
@@ -2384,7 +2391,7 @@ public:
 
 private:
     // Cosine lobe hemisphere sampling
-    vec3_t sample_hemisphere_cosine_phong(const vec2_t& random) const
+    vec3_t cosine_hemisphere_sample_phong(const vec2_t& random) const
     {
         const float_t phi = 2.f * k_pi * random[0];
         const float_t cos_theta = std::pow(random[1], 1.f / (exponent_ + 1.f));
@@ -2396,7 +2403,7 @@ private:
             cos_theta);
     }
 
-    float_t pdf_hemisphere_cosine_phong(
+    float_t cosine_hemisphere_pdf_phong(
         const vec3_t& aNormal, const vec3_t& aDirection) const
     {
         const float_t cosTheta = std::max(0.f, dot(aNormal, aDirection));
@@ -2513,13 +2520,13 @@ public:
     }
 
 private:
-    color_t diffuse_color_;
-    color_t specular_color_; 
-    float_t exponent_;
+    color_t diffuse_color_{};
+    color_t specular_color_{};
+    float_t exponent_{};
 
-    float_t diffuse_probility_;
-    float_t specular_probility_;
-    mutable rng_t rng_;
+    float_t diffuse_probility_{};
+    float_t specular_probility_{};
+    mutable rng_t rng_{};
 };
 
 // TODO: Normalizing Bling-Phong BRDF
@@ -2850,7 +2857,7 @@ public:
     light_sample_t sample_Li(const isect_t& isect, const float2_t& random) const override
     {
         light_sample_t sample;
-        sample.wi = sample_sphere_uniform(random);
+        sample.wi = uniform_sphere_sample(random);
         sample.position = isect.position + sample.wi * 2 * world_radius_;
 
         float_t theta = spherical_theta(sample.wi);
