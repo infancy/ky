@@ -494,6 +494,7 @@ struct mat4_t
 class frame_t
 {
 public:
+    frame_t() = default;
     frame_t(const vec3_t& s, const vec3_t& t, const normal_t& n) :
         s_{ s.normalize() },
         t_{ t.normalize() },
@@ -1019,8 +1020,8 @@ public:
     static constexpr float_t epsilon = 1e-3;// TODO
 };
 
-using shape_sp = std::shared_ptr<shape_t>; 
-using shape_list_t = std::vector<shape_sp>;
+using shape_sptr_t = std::shared_ptr<shape_t>; 
+using shape_list_t = std::vector<shape_sptr_t>;
 
 
 
@@ -1061,7 +1062,7 @@ public:
     bounds3_t world_bound() const override
     {
         frame_t frame{ normal_ };
-        auto offset = frame.binormal() * radius_ + frame.tangent() * radius_;
+        vec3_t offset = frame.binormal() * radius_ + frame.tangent() * radius_;
         return bounds3_t(position_ - offset, position_ + offset);
     }
 
@@ -1498,7 +1499,7 @@ public:
 
     void add_color(int x, int y, const color_t& delta)
     {
-        auto& color = operator()(x, y);
+        color_t& color = operator()(x, y);
         color = color + delta;
     }
 
@@ -2074,7 +2075,7 @@ public:
     // or called `sample_f()`, `sample_direction()`, `sample_solid_angle()`
     bsdf_sample_t sample(const vec3_t& world_wo, const float2_t& random) const
     {
-        auto sample = sample_(to_local(world_wo), random);
+        bsdf_sample_t sample = sample_(to_local(world_wo), random);
         sample.wi = to_world(sample.wi); // <--- ATTENTION!!!
 
         return sample;
@@ -2450,8 +2451,8 @@ public:
     virtual bsdf_uptr_t scattering(const isect_t& isect) const = 0;
 };
 
-using material_sp = std::shared_ptr<material_t>;
-using material_list_t = std::vector<material_sp>;
+using material_sptr_t = std::shared_ptr<material_t>;
+using material_list_t = std::vector<material_sptr_t>;
 
 class matte_material_t : public material_t
 {
@@ -2529,7 +2530,7 @@ public:
 
     bsdf_uptr_t scattering(const isect_t& isect) const override
     {
-        auto random = rng_.uniform_float();
+        float_t random = rng_.uniform_float();
         if (random < specular_probility_)
         {
             return std::make_unique<phong_specular_reflection_t>(frame_t(isect.normal), specular_color_ / specular_probility_, exponent_);
@@ -2558,7 +2559,7 @@ private:
 
 #pragma region light
 
-enum class light_flag
+enum class light_flag_t
 {
     delta_position = 1,
     delta_direction = 2,
@@ -2566,17 +2567,18 @@ enum class light_flag
     area = 4,
     infinite = 8
 };
+KY_ENUM_OPERATORS(light_flag_t)
 
-inline bool is_delta_light(int flags)
+inline bool is_delta_light(light_flag_t flags)
 {
-    return flags & (int)light_flag::delta_position ||
-           flags & (int)light_flag::delta_direction;
+    return enum_have(flags, light_flag_t::delta_position) ||
+           enum_have(flags, light_flag_t::delta_direction);
 }
 
 
 /*
-// called `LightLeSample` in pbrt - v4, `PositionSample` in mitsuba2
-// mainly for light.sample_Le()
+// called `LightLeSample` in pbrt-v4, `PositionSample` in mitsuba3
+// mainly used for light.sample_Le()
 struct position_sample_t
 {
     bool is_delta;
@@ -2589,9 +2591,9 @@ struct position_sample_t
 
     position_sample_t() = default;
     position_sample_t(
-        const point3_t& position, const normal_t& normal, const ray_t& ray,
-        float_t pdf_position, float_t pdf_direction,
-        const color_t& emission) :
+    const point3_t& position, const normal_t& normal, const ray_t& ray,
+    float_t pdf_position, float_t pdf_direction,
+    const color_t& emission) :
         position{ position },
         normal{ normal },
         ray(ray),
@@ -2606,15 +2608,15 @@ struct position_sample_t
 */
 
 /*
-  called `LightLiSample` in pbrt-v4, `DirectionSample` in mitsuba2
-  mainly for light.sample_Li()
+   called `LightLiSample` in pbrt-v4, `DirectionSample` in mitsuba3
+   mainly used for light.sample_Li()
 */
 struct light_sample_t // : public position_sample_t
 {
-    point3_t position;
-    vec3_t wi; // isect -> light, alone ray's direction
+    point3_t position{};
+    vec3_t wi{}; // isect -> light, alone ray's direction
     float_t pdf{}; // pdf of direction
-    color_t Li; // for light
+    color_t Li{}; // for light
 
     light_sample_t() = default;
     light_sample_t(const isect_t& isect, const vec3_t& wi, float_t pdf, const color_t& Li) :
@@ -2632,7 +2634,7 @@ class light_t
 {
 public:
     virtual ~light_t() = default;
-    light_t(/*int flags,*/ const point3_t& world_position, int samples_num = 1):
+    light_t(/*light_flag_t flags,*/ const point3_t& world_position, int samples_num = 1):
         world_position_{ world_position },
         samples_num_{ samples_num }
     {
@@ -2650,10 +2652,10 @@ public:
     virtual color_t power() const = 0;
 
     // only work for environment light
-    virtual color_t Le(const ray_t& r) const { return color_t(); }
+    virtual color_t Le(const ray_t& r) const { return color_t{}; }
 
 public:
-    // Li: camera <-wo isect wi-> light
+    // Li means : camera <-wo- isect -wi-> light
 
     // sample_light/samle_direction
     virtual light_sample_t sample_Li(const isect_t& isect, const float2_t& random) const = 0;
@@ -2665,8 +2667,8 @@ protected:
     int samples_num_;
 };
 
-using light_sp = std::shared_ptr<light_t>;
-using light_list_t = std::vector<light_sp>;
+using light_sptr_t = std::shared_ptr<light_t>;
+using light_list_t = std::vector<light_sptr_t>;
 
 class point_light_t : public light_t
 {
@@ -2720,10 +2722,10 @@ public:
     }
 
 private:
-    color_t intensity_;
+    color_t intensity_{};
 };
 
-// a disk
+// use a disk to simulate
 class direction_light_t : public light_t
 {
 public:
@@ -2766,15 +2768,15 @@ public:
     }
 
 private:
-    color_t irradiance_;
+    color_t irradiance_{};
 
-    point3_t world_center_;
-    float_t world_radius_;
-    float_t area_;
-    color_t power_;
+    point3_t world_center_{};
+    float_t world_radius_{};
+    float_t area_{};
+    color_t power_{};
 
-    unit_vec3_t world_direction_;
-    frame_t frame_;
+    unit_vec3_t world_direction_{};
+    frame_t frame_{};
 };
 
 class area_light_t : public light_t
@@ -2797,8 +2799,9 @@ public:
         return power_;
     }
 
+public:
     /*
-       prev
+       isect
        ----
          ^    ^
           \   |
@@ -2815,7 +2818,7 @@ public:
     }
 
 public:
-    // sample direction by sample potision
+    // sample direction by sample potision on shape
     light_sample_t sample_Li(const isect_t& isect, const float2_t& random) const override
     {
         light_sample_t sample;
@@ -2824,7 +2827,7 @@ public:
 
         if (sample.pdf == 0 || (light_isect.position - isect.position).magnitude_squared() == 0)
         {
-            sample.Li = color_t();
+            sample.Li = color_t{};
         }
         else
         {
@@ -2842,13 +2845,13 @@ public:
     }
 
 private:
-    color_t radiance_;
-    color_t power_;
-    const shape_t* shape_;
+    color_t radiance_{};
+    color_t power_{};
+    const shape_t* shape_{};
 };
 
 // constant_environment_light_t
-// a sphere hold all the scene
+// use a sphere hold all the scene to simulate
 class environment_light_t : public light_t
 {
 public:
@@ -2869,6 +2872,7 @@ public:
         return power_;
     }
 
+public:
     color_t Le(const ray_t& ray) const
     {
         return radiance_;
@@ -2905,12 +2909,12 @@ public:
     }
 
 private:
-    color_t radiance_;
+    color_t radiance_{};
 
-    point3_t world_center_;
-    float_t world_radius_;
-    float_t area_;
-    color_t power_;
+    point3_t world_center_{};
+    float_t world_radius_{};
+    float_t area_{};
+    color_t power_{};
 };
 
 #pragma endregion
@@ -2921,9 +2925,9 @@ private:
 
 struct surface_t
 {
-    const shape_t* shape;
-    const material_t* material;
-    const area_light_t* area_light;
+    const shape_t* shape{};
+    const material_t* material{};
+    const area_light_t* area_light{};
 
     bool intersect(const ray_t& ray, isect_t* isect)
     {
@@ -3000,9 +3004,9 @@ class scene_t : public nocopyable_t
 public:
     scene_t() = default;
     scene_t(
-        const_camera_sptr_t camera,
-        shape_list_t shape_list, material_list_t material_list, light_list_t light_list, 
-        surface_list_t surface_list, environment_light_t* env_light = nullptr) :
+    const_camera_sptr_t camera,
+    shape_list_t shape_list, material_list_t material_list, light_list_t light_list, 
+    surface_list_t surface_list, environment_light_t* env_light = nullptr) :
         camera_{ camera },
         shape_list_{ shape_list },
         material_list_{ material_list },
@@ -3048,7 +3052,7 @@ public:
     }
     bool occluded(const isect_t& isect1, const point3_t& isect2) //const
     {
-        auto ray = isect1.spawn_ray_to(isect2);
+        ray_t ray = isect1.spawn_ray_to(isect2);
         ray.set_distance(
             distance(isect1.position, isect2) - 2 * 0.1); // TODO
         isect_t unused;
@@ -3056,7 +3060,7 @@ public:
     }
     bool occluded(const isect_t& isect1, const isect_t& isect2) //const
     {
-        auto ray = isect1.spawn_ray_to(isect2);
+        ray_t ray = isect1.spawn_ray_to(isect2);
         ray.set_distance(
             distance(isect1.position, isect2.position) - 2 * 0.1);
         isect_t unused;
@@ -3068,7 +3072,7 @@ public:
     {
         bounds3_t bounds3;
         
-        for (const auto& surface : surface_list_)
+        for (const surface_t& surface : surface_list_)
         {
             bounds3 = bounds3.join(surface.shape->world_bound());
         }
@@ -3086,17 +3090,19 @@ public:
     }
 
     const environment_light_t* environment_light() const { return environment_light_; }
-    color_t environment_light(ray_t ray) const
+    color_t environment_lighting(ray_t ray) const
     {
         if (environment_light_ != nullptr)
             return environment_light_->Le(ray);
 
-        return color_t();
+        return color_t{};
     }
 
 public:
     static scene_t create_cornell_box_scene(cornell_box_enum_t scene_enum, point2_t film_resolution)
     {
+        // https://github.com/SmallVCM/SmallVCM/blob/master/src/scene.hxx#L132
+
         using enum cornell_box_enum_t;
 
         if (enum_have(scene_enum, large_mirror_sphere) && enum_have(scene_enum, large_glass_sphere))
@@ -3104,15 +3110,15 @@ public:
             LOG_ERROR("cannot set both large balls\n");
         }
 
-        material_sp black = std::make_shared<matte_material_t>(color_t());
-        material_sp white = std::make_shared<matte_material_t>(color_t(.8, .8, .8));
-        material_sp red   = std::make_shared<matte_material_t>(color_t(0.803922f, 0.152941f, 0.152941f));
-        material_sp green = std::make_shared<matte_material_t>(color_t(0.156863f, 0.803922f, 0.172549f));
-        material_sp blue  = std::make_shared<matte_material_t>(color_t(0.156863f, 0.172549f, 0.803922f));
+        material_sptr_t black = std::make_shared<matte_material_t>(color_t());
+        material_sptr_t white = std::make_shared<matte_material_t>(color_t(.8, .8, .8));
+        material_sptr_t red   = std::make_shared<matte_material_t>(color_t(0.803922f, 0.152941f, 0.152941f));
+        material_sptr_t green = std::make_shared<matte_material_t>(color_t(0.156863f, 0.803922f, 0.172549f));
+        material_sptr_t blue  = std::make_shared<matte_material_t>(color_t(0.156863f, 0.172549f, 0.803922f));
 
-        material_sp glossy = std::make_shared<plastic_material_t>(color_t(.1, .1, .1), color_t(.7, .7, .7), 90.);
-        material_sp mirror_mat = std::make_shared<mirror_material_t>(color_t(1, 1, 1));
-        material_sp glass_mat = std::make_shared<glass_material_t>(1.6);
+        material_sptr_t glossy = std::make_shared<plastic_material_t>(color_t(.1, .1, .1), color_t(.7, .7, .7), 90.);
+        material_sptr_t mirror_mat = std::make_shared<mirror_material_t>(color_t(1, 1, 1));
+        material_sptr_t glass_mat = std::make_shared<glass_material_t>(1.6);
         material_list_t material_list{ black, white, red, green, blue, glossy, mirror_mat, glass_mat };
 
         #pragma region shape
@@ -3147,11 +3153,11 @@ public:
             vec3_t( 1.28975f,  1.25549f,  1.28002f), // 6
             vec3_t(-1.27029f,  1.25549f,  1.28002f)  // 7
         };
-        shape_sp left   = std::make_shared<rectangle_t>(cb[3], cb[0], cb[4], cb[7]);
-        shape_sp right  = std::make_shared<rectangle_t>(cb[1], cb[2], cb[6], cb[5]);
-        shape_sp back   = std::make_shared<rectangle_t>(cb[0], cb[3], cb[2], cb[1]);
-        shape_sp bottom = std::make_shared<rectangle_t>(cb[0], cb[1], cb[5], cb[4]);
-        shape_sp top    = std::make_shared<rectangle_t>(cb[2], cb[3], cb[7], cb[6]);
+        shape_sptr_t left   = std::make_shared<rectangle_t>(cb[3], cb[0], cb[4], cb[7]);
+        shape_sptr_t right  = std::make_shared<rectangle_t>(cb[1], cb[2], cb[6], cb[5]);
+        shape_sptr_t back   = std::make_shared<rectangle_t>(cb[0], cb[3], cb[2], cb[1]);
+        shape_sptr_t bottom = std::make_shared<rectangle_t>(cb[0], cb[1], cb[5], cb[4]);
+        shape_sptr_t top    = std::make_shared<rectangle_t>(cb[2], cb[3], cb[7], cb[6]);
 
 
         // large ball
@@ -3167,9 +3173,9 @@ public:
         vec3_t left_center  = left_wall_center  + vec3_t(2.f * length_x / 7.f, 0, 0);
         vec3_t right_center = right_wall_center - vec3_t(2.f * length_x / 7.f, 0, 0);
 
-        shape_sp large_ball  = std::make_shared<sphere_t>(large_center, large_radius);
-        shape_sp left_ball   = std::make_shared<sphere_t>(left_center, small_radius);
-        shape_sp right_ball  = std::make_shared<sphere_t>(right_center, small_radius);
+        shape_sptr_t large_ball  = std::make_shared<sphere_t>(large_center, large_radius);
+        shape_sptr_t left_ball   = std::make_shared<sphere_t>(left_center, small_radius);
+        shape_sptr_t right_ball  = std::make_shared<sphere_t>(right_center, small_radius);
 
 
         // small light box at the ceiling
@@ -3184,11 +3190,11 @@ public:
             vec3_t( 0.25f,  0.25f, 1.28002f),
             vec3_t(-0.25f,  0.25f, 1.28002f)
         };
-        shape_sp left2   = std::make_shared<rectangle_t>(lb[3], lb[7], lb[4], lb[0]);
-        shape_sp right2  = std::make_shared<rectangle_t>(lb[1], lb[5], lb[6], lb[2]);
-        shape_sp front2  = std::make_shared<rectangle_t>(lb[4], lb[7], lb[6], lb[5]);
-        shape_sp back2   = std::make_shared<rectangle_t>(lb[0], lb[1], lb[2], lb[3]);
-        shape_sp bottom2 = std::make_shared<rectangle_t>(lb[0], lb[4], lb[5], lb[1]);
+        shape_sptr_t left2   = std::make_shared<rectangle_t>(lb[3], lb[7], lb[4], lb[0]);
+        shape_sptr_t right2  = std::make_shared<rectangle_t>(lb[1], lb[5], lb[6], lb[2]);
+        shape_sptr_t front2  = std::make_shared<rectangle_t>(lb[4], lb[7], lb[6], lb[5]);
+        shape_sptr_t back2   = std::make_shared<rectangle_t>(lb[0], lb[1], lb[2], lb[3]);
+        shape_sptr_t bottom2 = std::make_shared<rectangle_t>(lb[0], lb[4], lb[5], lb[1]);
 
         shape_list_t shape_list
         { 
@@ -3283,32 +3289,32 @@ public:
             vec3_t{ 0, -2, -2.5 } - vec3_t{ 0, 2, -15 }, vec3_t{ 0, 1, 0 },
             50, film_resolution);
 
-        material_sp black = std::make_shared<matte_material_t>(color_t());
-        material_sp gray = std::make_shared<matte_material_t>(color_t(.4, .4, .4));
-        material_sp silver = std::make_shared<plastic_material_t>(color_t(0.07, 0.09, 0.13), color_t(1, 1, 1), 5000);
+        material_sptr_t black = std::make_shared<matte_material_t>(color_t());
+        material_sptr_t gray = std::make_shared<matte_material_t>(color_t(.4, .4, .4));
+        material_sptr_t silver = std::make_shared<plastic_material_t>(color_t(0.07, 0.09, 0.13), color_t(1, 1, 1), 5000);
         material_list_t material_list{ black, gray, silver };
 
 #pragma region shape
 
-        shape_sp bottom = std::make_shared<rectangle_t>(
+        shape_sptr_t bottom = std::make_shared<rectangle_t>(
             point3_t(-10, -4.14615, 10), point3_t(-10, -4.14615, -10), point3_t(10, -4.14615, -10), point3_t(10, -4.14615, 10), true);
-        shape_sp back = std::make_shared<rectangle_t>(
+        shape_sptr_t back = std::make_shared<rectangle_t>(
             point3_t(-10, -10, 2), point3_t(-10, 10, 2), point3_t(10, 10, 2), point3_t(10, -10, 2), true);
 
-        shape_sp plank0 = std::make_shared<rectangle_t>(
+        shape_sptr_t plank0 = std::make_shared<rectangle_t>(
             point3_t(4, -2.70651, -0.25609), point3_t(4, -2.08375, 0.526323), point3_t(-4, -2.08375, 0.526323), point3_t(-4, -2.70651, -0.25609), true);
-        shape_sp plank1 = std::make_shared<rectangle_t>(
+        shape_sptr_t plank1 = std::make_shared<rectangle_t>(
             point3_t(4, -3.28825, -1.36972), point3_t(4, -2.83856, -0.476536), point3_t(-4, -2.83856, -0.476536), point3_t(-4, -3.28825, -1.36972), true);
-        shape_sp plank2 = std::make_shared<rectangle_t>(
+        shape_sptr_t plank2 = std::make_shared<rectangle_t>(
             point3_t(4, -3.73096, -2.70046), point3_t(4, -3.43378, -1.74564), point3_t(-4, -3.43378, -1.74564), point3_t(-4, -3.73096, -2.70046), true);
-        shape_sp plank3 = std::make_shared<rectangle_t>(
+        shape_sptr_t plank3 = std::make_shared<rectangle_t>(
             point3_t(4, -3.99615, -4.0667), point3_t(4, -3.82069, -3.08221), point3_t(-4, -3.82069, -3.08221), point3_t(-4, -3.99615, -4.0667), true);
 
-        shape_sp ball0 = std::make_shared<sphere_t>(point3_t(10, 10, -4), 0.5);
-        shape_sp ball1 = std::make_shared<sphere_t>(point3_t(-1.25, 0, 0), 0.1);
-        shape_sp ball2 = std::make_shared<sphere_t>(point3_t(-3.75, 0, 0), 0.03333);
-        shape_sp ball3 = std::make_shared<sphere_t>(point3_t(1.25, 0, 0), 0.3);
-        shape_sp ball4 = std::make_shared<sphere_t>(point3_t(3.75, 0, 0), 0.9);
+        shape_sptr_t ball0 = std::make_shared<sphere_t>(point3_t(10, 10, -4), 0.5);
+        shape_sptr_t ball1 = std::make_shared<sphere_t>(point3_t(-1.25, 0, 0), 0.1);
+        shape_sptr_t ball2 = std::make_shared<sphere_t>(point3_t(-3.75, 0, 0), 0.03333);
+        shape_sptr_t ball3 = std::make_shared<sphere_t>(point3_t(1.25, 0, 0), 0.3);
+        shape_sptr_t ball4 = std::make_shared<sphere_t>(point3_t(3.75, 0, 0), 0.9);
 
         shape_list_t shape_list
         {
@@ -3373,7 +3379,7 @@ void light_t::preprocess(const scene_t& scene)
 
 void direction_light_t::preprocess(const scene_t& scene)
 {
-    auto world_bound = scene.world_bound();
+    bounds3_t world_bound = scene.world_bound();
 
     world_bound.bounding_sphere(&world_center_, &world_radius_);
 
@@ -3383,7 +3389,7 @@ void direction_light_t::preprocess(const scene_t& scene)
 
 void environment_light_t::preprocess(const scene_t& scene)
 {
-    auto world_bound = scene.world_bound();
+    bounds3_t world_bound = scene.world_bound();
 
     world_bound.bounding_sphere(&world_center_, &world_radius_);
 
@@ -3506,7 +3512,7 @@ public:
     void render(/*const*/ scene_t* scene, sampler_t* original_sampler, film_t* film)
     {
         auto camera = scene->camera();
-        auto resolution = film->get_resolution();
+        vec2_t resolution = film->get_resolution();
         int width = (int)resolution.x;
         int height = (int)resolution.y;
 
@@ -3913,7 +3919,7 @@ public:
         bool hit = scene->intersect(ray, &isect);
 
         if (!hit)
-            return scene->environment_light(ray);
+            return scene->environment_lighting(ray);
 
         // emission lighting
         color_t Lo = isect.Le();
@@ -3978,7 +3984,7 @@ public:
         isect_t isect;
         if (!scene->intersect(ray, &isect))
         {
-            return scene->environment_light(ray);
+            return scene->environment_lighting(ray);
         }
 
         if (depth >= max_path_depth_)
@@ -4140,7 +4146,7 @@ private:
         }
         else
         {
-            Le = scene->environment_light(ray);
+            Le = scene->environment_lighting(ray);
         }
 
         return Le;
@@ -4250,7 +4256,7 @@ private:
         }
         else
         {
-            Le = scene->environment_light(ray);
+            Le = scene->environment_lighting(ray);
         }
 
         return Le;
@@ -4329,7 +4335,7 @@ public:
                 }
                 else
                 {
-                    Lo += beta * scene->environment_light(ray);
+                    Lo += beta * scene->environment_lighting(ray);
                 }
             }
 
