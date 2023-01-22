@@ -650,6 +650,8 @@ private:
     friend surface_t;
 };
 
+using light_isect_t = isect_t;
+
 #pragma endregion
 
 
@@ -951,27 +953,31 @@ public:
     // these methods below only used for `area_light_t`
 
     // TODO: return position_sample_t
-    virtual isect_t sample_position(const float2_t& random, float_t* out_pdf_position) const = 0;
+    virtual light_isect_t sample_position(const float2_t& random, float_t* out_pdf_position) const = 0;
+
 
     // TODO: return direction_sample_t
     // default compute `*_direction` by `*_position` 
-    virtual isect_t sample_direction(const isect_t& isect, const float2_t& random, float_t* out_pdf_direction) const
+    virtual light_isect_t sample_direction(const isect_t& isect, const float2_t& random, float_t* out_pdf_direction) const
     {
         isect_t light_isect = sample_position(random, out_pdf_direction);
         vec3_t wi = light_isect.position - isect.position;
 
         if (wi.magnitude_squared() == 0)
+        {
             *out_pdf_direction = 0;
+        }
         else
         {
             wi = normalize(wi);
             // look comments in `pdf_direction()` below
             *out_pdf_direction *= distance_squared(light_isect.position, isect.position) / abs_dot(light_isect.normal, -wi);
+
             if (std::isinf(*out_pdf_direction))
                 *out_pdf_direction = 0.f;
         }
 
-        return std::move(light_isect);
+        return light_isect;
     }
     virtual float_t pdf_direction(const isect_t& isect, const unit_vec3_t& world_wi) const
     {
@@ -1062,18 +1068,18 @@ public:
     float_t area() const override { return k_pi * radius_ * radius_; }
 
 public:
-    isect_t sample_position(const float2_t& random, float_t* pdf) const override
+    light_isect_t sample_position(const float2_t& random, float_t* pdf) const override
     {
-        isect_t isect;
+        isect_t light_isect;
 
         frame_t frame{ normal_ };
         point2_t sample_point = concentric_disk_sample(random);
-        isect.position = position_ + radius_ * (frame.binormal() * sample_point.x + frame.tangent() * sample_point.y);
+        light_isect.position = position_ + radius_ * (frame.binormal() * sample_point.x + frame.tangent() * sample_point.y);
 
-        isect.normal = normalize(normal_);
+        light_isect.normal = normalize(normal_);
 
         *pdf = 1 / area();
-        return std::move(isect);
+        return light_isect;
     }
 
 public:
@@ -1142,16 +1148,16 @@ public:
     float_t area() const override { return 0.5 * cross(p1_ - p0_, p2_ - p0_).magnitude(); }
 
 public:
-    isect_t sample_position(const float2_t& random, float_t* pdf) const override
+    light_isect_t sample_position(const float2_t& random, float_t* pdf) const override
     {
         point2_t b = uniform_triangle_sample(random);
 
-        isect_t isect;
-        isect.position = b.x * p0_ + b.y * p1_ + (1 - b.x - b.y) * p2_;
-        isect.normal = normal_;
+        isect_t light_isect;
+        light_isect.position = b.x * p0_ + b.y * p1_ + (1 - b.x - b.y) * p2_;
+        light_isect.normal = normal_;
 
         *pdf = 1 / area();
-        return std::move(isect);
+        return light_isect;
     }
 
 public:
@@ -1222,14 +1228,14 @@ public:
     float_t area() const override { return cross(p0_ - p1_, p2_ - p1_).magnitude(); }
 
 public:
-    isect_t sample_position(const float2_t& random, float_t* pdf) const override
+    light_isect_t sample_position(const float2_t& random, float_t* pdf) const override
     {
-        isect_t isect;
-        isect.position = p1_ + (p0_ - p1_) * random[0] + (p2_ - p1_) * random[1];
-        isect.normal = normalize(normal_);
+        isect_t light_isect;
+        light_isect.position = p1_ + (p0_ - p1_) * random[0] + (p2_ - p1_) * random[1];
+        light_isect.normal = normalize(normal_);
 
         *pdf = 1 / area();
-        return std::move(isect);
+        return light_isect;
     }
 
 public:
@@ -1318,22 +1324,22 @@ public:
     float_t area() const override { return 4 * k_pi * radius_sq_; }
 
 public:
-    isect_t sample_position(const float2_t& random, float_t* pdf) const override
+    light_isect_t sample_position(const float2_t& random, float_t* pdf) const override
     {
         unit_vec3_t direction = uniform_sphere_sample(random);
         point3_t position = center_ + radius_ * direction;
 
-        isect_t isect;
-        isect.position = position;
-        isect.normal = normalize(direction);
+        isect_t light_isect;
+        light_isect.position = position;
+        light_isect.normal = normalize(direction);
 
         *pdf = 1 / area();
 
-        return std::move(isect);
+        return light_isect;
     }
 
-    // TODO
-    isect_t sample_direction(const isect_t& isect, const float2_t& random, float_t* pdf) const override
+    // TODO: confirm
+    light_isect_t sample_direction(const isect_t& isect, const float2_t& random, float_t* pdf) const override
     {
         if (distance_squared(isect.position, center_) <= radius_ * radius_)
         {
@@ -1344,7 +1350,7 @@ public:
                 *pdf = 0;
             else
             {
-                // Convert from area measure returned by Sample() call above to solid angle measure.
+                // convert from area measure returned by Sample() call above to solid angle measure.
                 wi = normalize(wi);
                 *pdf *= distance_squared(light_isect.position, isect.position) / abs_dot(isect.normal, -wi);
             }
@@ -1352,10 +1358,10 @@ public:
             if (std::isinf(*pdf))
                 *pdf = 0.f;
 
-            return std::move(light_isect);
+            return light_isect;
         }
 
-        // Sample sphere uniformly inside subtended cone
+        // sample sphere uniformly inside subtended cone
 
         /*
                 /         _
@@ -1371,7 +1377,7 @@ public:
         float_t dist = distance(isect.position, center_);
         float_t inv_dist = 1 / dist;
 
-        // Compute $\theta$ and $\phi$ values for sample in cone
+        // compute $\theta$ and $\phi$ values for sample in cone
         float_t sin_theta_max = radius_ * inv_dist;
         float_t sin_theta_max_sq = sin_theta_max * sin_theta_max;
         float_t inv_sin_theta_max = 1 / sin_theta_max;
@@ -1382,23 +1388,23 @@ public:
 
         if (sin_theta_max_sq < 0.00068523f /* sin^2(1.5 deg) */)
         {
-            /* Fall back to a Taylor series expansion for small angles, where
+            /* fall back to a Taylor series expansion for small angles, where
                the standard approach suffers from severe cancellation errors */
             sin_theta_sq = sin_theta_max_sq * random[0];
             cos_theta = std::sqrt(1 - sin_theta_sq);
         }
 
-        // Compute angle $\alpha$ from center of sphere to sampled point on surface
+        // compute angle $\alpha$ from center of sphere to sampled point on surface
         float_t cos_alpha = sin_theta_sq * inv_sin_theta_max +
             cos_theta * std::sqrt(std::max((float_t)0.f, 1.f - sin_theta_sq * inv_sin_theta_max * inv_sin_theta_max));
         float_t sin_alpha = std::sqrt(std::max((float_t)0.f, 1.f - cos_alpha * cos_alpha));
         float_t phi = random[1] * 2 * k_pi;
 
-        // Compute coordinate system for sphere sampling
+        // compute coordinate system for sphere sampling
         vec3_t normal = (center_ - isect.position) * inv_dist;
         frame_t frame{ normal };
 
-        // Compute surface normal and sampled point on sphere
+        // compute surface normal and sampled point on sphere
         vec3_t world_normal =
             spherical_to_direction(sin_alpha, cos_alpha, phi, -frame.binormal(), -frame.tangent(), -frame.normal());
         point3_t world_position = center_ + radius_ * point3_t(world_normal.x, world_normal.y, world_normal.z);
@@ -1407,19 +1413,19 @@ public:
         light_isect.position = world_position;
         light_isect.normal = world_normal;
 
-        // Uniform cone PDF.
+        // uniform cone PDF.
         *pdf = 1 / (2 * k_pi * (1 - cos_theta_max));
 
-        return std::move(light_isect);
+        return light_isect;
     }
 
     float_t pdf_direction(const isect_t& isect, const vec3_t& world_wi) const override
     {
-        // Return uniform PDF if point is inside sphere
+        // return uniform PDF if point is inside sphere
         if (distance_squared(isect.position, center_) <= radius_ * radius_)
             return shape_t::pdf_direction(isect, world_wi);
 
-        // Compute general sphere PDF
+        // compute general sphere PDF
         float_t sin_theta_max_sq = radius_ * radius_ / distance_squared(isect.position, center_);
         float_t cos_theta_max = std::sqrt(std::max((float_t)0, 1 - sin_theta_max_sq));
         return uniform_cone_pdf(cos_theta_max);
@@ -1444,7 +1450,8 @@ private:
 enum class image_enum_t
 {
     ppm,
-    bmp
+    bmp,
+    hdr
 };
 
 // film_option_t
