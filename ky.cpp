@@ -3552,7 +3552,7 @@ public:
     }
 
     // TODO rename: render_phase()
-    void debug(/*const*/ scene_t* scene, sampler_t* original_sampler, film_t* film, vec2_t begin, vec2_t end)
+    void debug_area(/*const*/ scene_t* scene, sampler_t* original_sampler, film_t* film, vec2_t begin, vec2_t end)
     {
         for (int y = begin.y; y < end.y; y += 1)
         {
@@ -3581,9 +3581,9 @@ public:
         }
     }
 
-    void debug(scene_t* scene, sampler_t* original_sampler, film_t* film, const point2_t& film_position)
+    void debug_pixel(scene_t* scene, sampler_t* original_sampler, film_t* film, point2_t pixel_position)
     {
-        debug(scene, original_sampler, film, film_position, film_position + vec2_t(1, 1));
+        debug_area(scene, original_sampler, film, pixel_position, pixel_position + vec2_t(1, 1));
     }
 
     // estimate input radiance
@@ -4453,16 +4453,19 @@ class build_t_
 // TODO: remove params
 void render_single_scene(int argc, char* argv[])
 {
-    //int width = 512, height = 308;
+#define KY_MIS_SCENE
+#ifndef KY_MIS_SCENE
     int width = 256, height = 256;
-    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 100; // # samples per pixel
-
     film_t film(width, height); //film.clear(color_t(1., 0., 0.));
-
-    //scene_t scene = scene_t::create_mis_scene(film.get_resolution());
     scene_t scene = scene_t::create_cornell_box_scene(
         cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_environment, film.get_resolution());
+#else
+    int width = 512, height = 308;
+    film_t film(width, height); //film.clear(color_t(1., 0., 0.));
+    scene_t scene = scene_t::create_mis_scene(film.get_resolution());
+#endif // !KY_MIS_SCENE
 
+    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 100; // # samples per pixel
     std::unique_ptr<sampler_t> sampler =
         std::make_unique<random_sampler_t>(samples_per_pixel);
 
@@ -4471,7 +4474,7 @@ void render_single_scene(int argc, char* argv[])
 #ifndef KY_DEBUG
     integrator->render(&scene, sampler.get(), &film);
 #else
-    integrator->debug(&scene, sampler.get(), &film, { 85, 180 }, { 256, 256 });
+    integrator->debug_area(&scene, sampler.get(), &film, { 85, 180 }, { 256, 256 });
 #endif
 
     film.store_image("single");
