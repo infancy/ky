@@ -621,21 +621,21 @@ public:
     color_t Le() const { return emission_; }
 
 public:
-    ray_t spawn_ray(const unit_vec3_t& direction) const
+    ray_t spawn_ray(unit_vec3_t direction) const
     {
-        //auto offset = normal * 1e-3; // TODO
-        return ray_t(position + direction * k_epsilon, direction);
+        vec3_t offset = normal * 1e-3; // TODO: 1e-2
+        return ray_t(
+            position + offset, // avoid self intersection
+            direction);
     }
 
-    ray_t spawn_ray_to(const point3_t& target) const
+    ray_t spawn_ray_to(point3_t target) const
     {
-        auto offset = normal * 1e-3; // TODO
-        return ray_t(position + offset, normalize(target - position));
+        return spawn_ray(normalize(target - position));
     }
     ray_t spawn_ray_to(const isect_t& isect) const
     {
-        auto offset = normal * 1e-3; // TODO
-        return ray_t(position + offset, normalize(isect.position - position));
+        return spawn_ray(normalize(isect.position - position));
     }
 
 public:
@@ -644,7 +644,7 @@ public:
     unit_vec3_t wo{};
 
 private:
-    surface_t* surface_{};
+    const surface_t* surface_{};
     bsdf_uptr_t bsdf_{};
     color_t emission_{};
 
@@ -2929,7 +2929,7 @@ struct surface_t
     const material_t* material{};
     const area_light_t* area_light{};
 
-    bool intersect(const ray_t& ray, isect_t* isect)
+    bool intersect(const ray_t& ray, isect_t* isect) const
     {
         bool hit = shape->intersect(ray, isect);
         if (hit)
@@ -3025,8 +3025,7 @@ public:
     }
 
 public:
-    // TODO
-    bool intersect(const ray_t& ray, isect_t* isect)
+    bool intersect(const ray_t& ray, isect_t* isect) const
     {
         bool is_hit = false;
 
@@ -3040,31 +3039,27 @@ public:
         return is_hit;
     }
 
-    // TODO
+
     bool occluded(
-        const vec3_t& point,
-        const vec3_t& dir,
-        float_t distance) //const
+        point3_t position,
+        normal_t normal,
+        vec3_t direction,
+        float_t distance) const
     {
-        ray_t ray(point + dir * k_epsilon, dir, distance - 2 * k_epsilon);
+        vec3_t offset = normal * 1e-3; // TODO: 1e-2
+        ray_t ray(position + offset, direction, distance - 2e-3);
         isect_t unused;
         return intersect(ray, &unused);
     }
-    bool occluded(const isect_t& isect1, const point3_t& isect2) //const
+    bool occluded(const isect_t& isect1, point3_t isect2) const
     {
-        ray_t ray = isect1.spawn_ray_to(isect2);
-        ray.set_distance(
-            distance(isect1.position, isect2) - 2 * 0.1); // TODO
-        isect_t unused;
-        return intersect(ray, &unused);
+        return occluded(isect1.position, isect1.normal, 
+            normalize(isect2 - isect1.position), distance(isect1.position, isect2));
     }
-    bool occluded(const isect_t& isect1, const isect_t& isect2) //const
+    bool occluded(const isect_t& isect1, const isect_t& isect2) const
     {
-        ray_t ray = isect1.spawn_ray_to(isect2);
-        ray.set_distance(
-            distance(isect1.position, isect2.position) - 2 * 0.1);
-        isect_t unused;
-        return intersect(ray, &unused);
+        return occluded(isect1.position, isect1.normal,
+            normalize(isect2.position - isect1.position), distance(isect1.position, isect2.position));
     }
 
 
@@ -3554,10 +3549,12 @@ public:
     // TODO rename: render_phase()
     void debug_area(/*const*/ scene_t* scene, sampler_t* original_sampler, film_t* film, vec2_t begin, vec2_t end)
     {
+        auto camera = scene->get_camera();
+
         for (int y = begin.y; y < end.y; y += 1)
         {
             auto sampler = original_sampler->clone(); // multi thread
-            auto camera = scene->get_camera();
+            LOG("debug... {} spp, {:.2f}%\r", sampler->ge_samples_per_pixel(), 100.f * (y - begin.y) / (end.y - begin.y - 1));
 
             for (int x = begin.x; x < end.x; x += 1)
             {
@@ -3864,7 +3861,7 @@ protected:
         color_t Ll = estimate_direct_lighting_by_position_mis(isect, light, random_light, random_bsdf, scene, sampler, skip_specular);
         color_t Ld = 0.5 * Lb + 0.5 * Ll;
 
-        LOG_DEBUG("{}, {}, {}\n", Ld.to_string(), Lb.to_string(), Ll.to_string());
+        //LOG_DEBUG("{}, {}, {}\n", Ld.to_string(), Lb.to_string(), Ll.to_string());
 
         return Ld;
     }
@@ -4474,7 +4471,7 @@ void render_single_scene(int argc, char* argv[])
 #ifndef KY_DEBUG
     integrator->render(&scene, sampler.get(), &film);
 #else
-    integrator->debug_area(&scene, sampler.get(), &film, { 85, 180 }, { 256, 256 });
+    integrator->debug_area(&scene, sampler.get(), &film, { 40, 280 }, { 465, 290 });
 #endif
 
     film.store_image("single");
