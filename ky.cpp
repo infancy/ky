@@ -586,6 +586,15 @@ class material_t;
 class area_light_t;
 class surface_t;
 
+// avoid self intersection
+point3_t offset_ray_origin(point3_t position, normal_t normal, unit_vec3_t direction)
+{
+    vec3_t offset = normal * 1e-3; // TODO: 1e-2
+    if (dot(normal, direction) < 0)
+        offset = -offset;
+    return position + offset;
+}
+
 /*
   prev   n   light
   ----   ^   -----
@@ -623,10 +632,7 @@ public:
 public:
     ray_t spawn_ray(unit_vec3_t direction) const
     {
-        vec3_t offset = normal * 1e-3; // TODO: 1e-2
-        return ray_t(
-            position + offset, // avoid self intersection
-            direction);
+        return ray_t{ offset_ray_origin(position, normal, direction), direction };
     }
 
     ray_t spawn_ray_to(point3_t target) const
@@ -3046,8 +3052,7 @@ public:
         vec3_t direction,
         float_t distance) const
     {
-        vec3_t offset = normal * 1e-3; // TODO: 1e-2
-        ray_t ray(position + offset, direction, distance - 2e-3);
+        ray_t ray{ offset_ray_origin(position, normal, direction), direction, distance - 2e-3f };
         isect_t unused;
         return intersect(ray, &unused);
     }
@@ -4176,7 +4181,7 @@ private:
                 return color_t{};
         }
 
-        ray_t wi_ray{ isect.position, bs.wi };
+        ray_t wi_ray{ offset_ray_origin(isect.position, isect.normal, bs.wi), bs.wi};
         return bs.f * Li(scene, sampler, wi_ray, depth) * abs_dot(bs.wi, isect.normal) / bs.pdf;
     }
 };
