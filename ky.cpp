@@ -1,4 +1,5 @@
 //#define KY_OUTPUT_HDR // default output .bmp image, whether need to output .hdr image
+//#define KY_LOG_VAST
 
 #include <cmath>
 #include <cstdlib>
@@ -98,6 +99,16 @@ inline void _LOG_ERROR(const std::source_location& location, const std::string& 
 
     #ifndef CHECK_DEBUG
         #define CHECK_DEBUG(...)
+    #endif
+#endif
+
+#ifdef KY_LOG_VAST
+    #ifndef LOG_VAST
+        #define LOG_VAST(...) LOG(__VA_ARGS__)
+    #endif
+#else
+    #ifndef LOG_VAST
+        #define LOG_VAST(...) 
     #endif
 #endif
 
@@ -228,7 +239,7 @@ struct color_t
 
     bool is_valid() const { return ::is_valid(r) && ::is_valid(g) && ::is_valid(b); }
 
-    std::string to_string() const { return std::format("[{}, {}, {}]", r, g, b); }
+    std::string to_string() const { return std::format("[{:.3f}, {:.3f}, {:.3f}]", r, g, b); }
     friend std::ostream& operator<<(std::ostream& console, const color_t& color)
     {
         console << color.to_string();
@@ -243,6 +254,9 @@ struct vec2_t
     float_t x{}, y{};
 
     float_t operator[](int i) const { CHECK_DEBUG(i >= 0 && i < 2); return (&x)[i]; }
+
+    vec2_t& operator+=(const vec2_t& v) { x += v.x; y += v.y; return *this; }
+    vec2_t& operator-=(const vec2_t& v) { x -= v.x; y -= v.y; return *this; }
 
     vec2_t operator+(const vec2_t& vec2) const { return vec2_t(x + vec2.x, y + vec2.y); }
     vec2_t operator-(const vec2_t& vec2) const { return vec2_t(x - vec2.x, y - vec2.y); }
@@ -326,7 +340,7 @@ public:
     bool has_negative() const { return (x < 0) || (y < 0) || (z < 0); }
     bool small_than(vec3_t vec3) const { return (x < vec3.x) || (y < vec3.y) || (z < vec3.z); }
 
-    std::string to_string() const { return std::format("[{}, {}, {}]", x, y, z);  }
+    std::string to_string() const { return std::format("[{:.6f}, {:.6f}, {:.6f}]", x, y, z);  }
     friend std::ostream& operator<<(std::ostream& console, const vec3_t& vec3)
     {
         console << vec3.to_string();
@@ -589,7 +603,7 @@ class surface_t;
 // avoid self intersection
 point3_t offset_ray_origin(point3_t position, normal_t normal, unit_vec3_t direction)
 {
-    vec3_t offset = normal * 1e-3; // TODO: 1e-2
+    vec3_t offset = normal * 1e-2; // TODO: 1e-2
     if (dot(normal, direction) < 0)
         offset = -offset;
     return position + offset;
@@ -884,6 +898,33 @@ protected:
 
     int samples_per_pixel_{};
     int current_sample_index_{};
+};
+
+class debug_sampler_t : public sampler_t
+{
+public:
+    using sampler_t::sampler_t;
+
+    std::unique_ptr<sampler_t> clone() override
+    {
+        return std::make_unique<debug_sampler_t>(samples_per_pixel_);
+    }
+
+public:
+    float_t get_float() override
+    {
+        return 0.5f;
+    }
+
+    vec2_t get_float2() override
+    {
+        return { 0.5f, 0.5f };
+    }
+
+    camera_sample_t get_camera_sample(point2_t p_film) override
+    {
+        return { p_film + vec2_t{0.5f, 0.5f} };
+    }
 };
 
 class random_sampler_t : public sampler_t
@@ -1218,7 +1259,8 @@ public:
             {
                 ray.set_distance(distance);
                 point3_t hit_point = ray(distance);
-                *out_isect = isect_t(hit_point, normal_, -ray.direction());
+                normal_t normal = dot(normal_, ray.direction()) <= 0 ? normal_ : -normal_;
+                *out_isect = isect_t(hit_point, normal, -ray.direction());
 
                 return true;
             }
@@ -1501,6 +1543,10 @@ public:
     void set_color(int x, int y, const color_t& color)
     {
         operator()(x, y) = color;
+    }
+    void clear_color(int x, int y)
+    {
+        set_color(x, y, color_t{});
     }
 
     void add_color(int x, int y, const color_t& delta)
@@ -2132,6 +2178,10 @@ public:
 
     color_t eval_(const vec3_t& wo, const vec3_t& wi) const override
     {
+        // TODO: confirm
+        if (!same_hemisphere(wo, wi))
+            return color_t{};
+
         // lambertion surface's albedo divided by $\pi$ is surface bidirectional reflectance
         return albedo_ * k_inv_pi;
     }
@@ -2377,6 +2427,10 @@ public:
 
     color_t eval_(const vec3_t& wo, const vec3_t& wi) const override
     {
+        // TODO: confirm
+        if (!same_hemisphere(wo, wi))
+            return color_t{};
+
         const vec3_t wr = reflect(wo, vec3_t(0, 0, 1));
         const float_t cos_alpha = dot(wr, wi);
 
@@ -2396,6 +2450,7 @@ public:
     {
         bsdf_sample_t sample;
 
+        // TODO
         sample.wi = cosine_hemisphere_sample_phong(random);
 
         const vec3_t wr = reflect(wo, vec3_t(0, 0, 1));
@@ -2942,7 +2997,7 @@ struct surface_t
         {
             isect->surface_ = this;
             isect->bsdf_ = material->scattering(*isect);
-            isect->emission_ = area_light ? area_light->Le(*isect, isect->wo) : color_t();
+            isect->emission_ = area_light ? area_light->Le(*isect, isect->wo) : color_t{};
         }
 
         return hit;
@@ -3103,6 +3158,28 @@ public:
     {
         // https://github.com/SmallVCM/SmallVCM/blob/master/src/scene.hxx#L132
 
+        /*
+           world coord:
+
+           z(0, 0, 1)
+                |
+                |
+                |
+                |
+                |_ _ _ _ _ _ _ x(1, 0, 0)
+               /
+              /
+             /
+            /
+            y(0, 1, 0)
+        */
+
+        const_camera_sptr_t camera = std::make_shared<camera_t>(
+            point3_t{ -0.0439815f, 4.12529f,  0.222539f },
+            vec3_t{ 0.00688625f, -0.998505f, -0.0542161f },
+            vec3_t{ 3.73896e-4f, -0.0542148f, 0.998529f },
+            80, film_resolution);
+
         using enum cornell_box_enum_t;
 
         if (enum_have(scene_enum, large_mirror_sphere) && enum_have(scene_enum, large_glass_sphere))
@@ -3122,12 +3199,6 @@ public:
         material_list_t material_list{ black, white, red, green, blue, glossy, mirror_mat, glass_mat };
 
         #pragma region shape
-
-        const_camera_sptr_t camera = std::make_shared<camera_t>(
-            vec3_t{ -0.0439815f, 4.12529f,  0.222539f },
-            vec3_t{ 0.00688625f, -0.998505f, -0.0542161f },
-            vec3_t{ 3.73896e-4f, -0.0542148f, 0.998529f },
-            80, film_resolution);
 
         /*
            cornell box
@@ -3277,16 +3348,30 @@ public:
         return scene_t{ camera, shape_list, material_list, light_list, surface_list, environment_light };
     }
 
-
-
-    // https://github.com/mitsuba-renderer/mitsuba-data/blob/master/docs/scenes/include/veach_mis.xml
     static scene_t create_mis_scene(point2_t film_resolution)
     {
-        // TODO: film, sampler
+        // https://github.com/mitsuba-renderer/mitsuba-data/blob/master/docs/scenes/include/veach_mis.xml
+        // TODO: specify film, sampler of this scene
+
+        /*
+           world coord:
+
+           y(0, 1, 0)
+                |
+                |
+                |
+        cam->   |
+                |_ _ _ _ _ _ _ z(0, 0, 1)
+               /
+              /
+             /
+            /
+            x(1, 0, 0)
+        */
 
         const_camera_sptr_t camera = std::make_unique<camera_t>(
-            vec3_t{ 0, 2, -15 },
-            vec3_t{ 0, -2, -2.5 } - vec3_t{ 0, 2, -15 }, vec3_t{ 0, 1, 0 },
+            point3_t{ 0, 2, -15 },
+            vec3_t{ 0, -4, 12.5 }, vec3_t{ 0, 1, 0 },
             50, film_resolution);
 
         material_sptr_t black = std::make_shared<matte_material_t>(color_t());
@@ -3311,8 +3396,8 @@ public:
             point3_t(4, -3.99615, -4.0667), point3_t(4, -3.82069, -3.08221), point3_t(-4, -3.82069, -3.08221), point3_t(-4, -3.99615, -4.0667), true);
 
         shape_sptr_t ball0 = std::make_shared<sphere_t>(point3_t(10, 10, -4), 0.5);
-        shape_sptr_t ball1 = std::make_shared<sphere_t>(point3_t(-1.25, 0, 0), 0.1);
         shape_sptr_t ball2 = std::make_shared<sphere_t>(point3_t(-3.75, 0, 0), 0.03333);
+        shape_sptr_t ball1 = std::make_shared<sphere_t>(point3_t(-1.25, 0, 0), 0.1);
         shape_sptr_t ball3 = std::make_shared<sphere_t>(point3_t(1.25, 0, 0), 0.3);
         shape_sptr_t ball4 = std::make_shared<sphere_t>(point3_t(3.75, 0, 0), 0.9);
 
@@ -3325,9 +3410,10 @@ public:
 
 #pragma endregion
 
+        // light0 used as envirment light
         auto light0 = std::make_shared<area_light_t>(point3_t(), 1, color_t(800, 800, 800), ball0.get());
-        auto light1 = std::make_shared<area_light_t>(point3_t(), 1, color_t(100, 100, 100), ball1.get());
         auto light2 = std::make_shared<area_light_t>(point3_t(), 1, color_t(901.803, 901.803, 901.803), ball2.get());
+        auto light1 = std::make_shared<area_light_t>(point3_t(), 1, color_t(100, 100, 100), ball1.get());
         auto light3 = std::make_shared<area_light_t>(point3_t(), 1, color_t(11.1111, 11.1111, 11.1111), ball3.get());
         auto light4 = std::make_shared<area_light_t>(point3_t(), 1, color_t(1.23457, 1.23457, 1.23457), ball4.get());
 
@@ -3335,6 +3421,12 @@ public:
         {
            light0, light1, light2, light3, light4
         };
+
+        /*
+        float_t I = 70000 * k_inv_4pi;
+        light_list.push_back(
+            std::make_shared<point_light_t>(point3_t(10.0, 10, -4), 1, color_t(I, I, I)));
+        */
 
         surface_list_t surface_list
         {
@@ -3552,8 +3644,21 @@ public:
     }
 
     // TODO rename: render_phase()
-    void debug_area(/*const*/ scene_t* scene, sampler_t* original_sampler, film_t* film, vec2_t begin, vec2_t end)
+    // ~~ATTENTION: debug_area() minus the horizontal and vertical coordinates of one pixel automatically~~
+    void debug_area(/*const*/ scene_t* scene, sampler_t* original_sampler, film_t* film, point2_t begin, point2_t end)
     {
+        //begin -= vec2_t{ 1, 1 };
+        //end   -= vec2_t{ 1, 1 };
+
+        // fill area with red color
+        for (int y = begin.y - 1; y <= end.y; y += 1)
+        {
+            for (int x = begin.x - 1; x <= end.x; x += 1)
+            {
+                film->add_color(x, y, color_t{ 1.f });
+            }
+        }
+
         auto camera = scene->get_camera();
 
         for (int y = begin.y; y < end.y; y += 1)
@@ -3563,6 +3668,7 @@ public:
 
             for (int x = begin.x; x < end.x; x += 1)
             {
+                film->clear_color(x, y);
                 color_t L{};
                 sampler->start_pixel();
 
@@ -3570,6 +3676,8 @@ public:
                 {
                     auto sample = sampler->get_camera_sample({ (float_t)x, (float_t)y });
                     ray_t ray = camera->generate_ray(sample);
+
+                    LOG_VAST("x: {}, y: {}\n", x, y);
 
                     color_t dL = Li(ray, scene, sampler.get()) * (1. / sampler->ge_samples_per_pixel());
                     //LOG("dL:{}\n", dL.to_string());
@@ -3580,7 +3688,12 @@ public:
                 //LOG("L:{}\n", L.to_string());
                 film->add_color(x, y, clamp01(L));
             }
-        }
+        } 
+    }
+
+    void debug_area(scene_t* scene, sampler_t* original_sampler, film_t* film, point2_t begin, float_t width, float_t height)
+    {
+        debug_area(scene, original_sampler, film, begin, begin + vec2_t{width, height});
     }
 
     void debug_pixel(scene_t* scene, sampler_t* original_sampler, film_t* film, point2_t pixel_position)
@@ -3588,6 +3701,7 @@ public:
         debug_area(scene, original_sampler, film, pixel_position, pixel_position + vec2_t(1, 1));
     }
 
+public:
     // estimate input radiance
     // TODO: virtual color_t Li(ray_t ray, const scene_t& scene, sampler_t& sampler) = 0;
     virtual color_t Li(ray_t ray, scene_t* scene, sampler_t* sampler) = 0;
@@ -4329,10 +4443,10 @@ public:
 
             // Le: emission
 
-            // Possibly add emitted light at intersection
+            // possibly add emitted light at intersection
             if (bounces == 0 || is_prev_specular)
             {
-                // Add emitted light at path vertex or from the environment
+                // add emitted light at path vertex or from the environment
                 if (hit)
                 {
                     Lo += beta * isect.Le();
@@ -4344,19 +4458,24 @@ public:
             }
 
 
-            // Terminate path if ray escaped or _maxDepth_ was reached
+            // terminate path if ray escaped or _maxDepth_ was reached
             if (!hit || bounces >= max_path_depth_)
                 break;
 
 
-            // Ld: direct lighting
+            // Ld: direct lighting / NEE(Next Event Estimation)
 
-            // Sample illumination from lights to find path contribution.
-            // (But skip this for perfectly specular BSDFs.)
+            // sample illumination from lights to find path contribution.
+            // (but skip this for perfectly specular BSDFs.)
             if (!isect.bsdf()->is_delta())
+                //&& bounces > 0 && bounces < 2) // for debug
+                //&& bounces == 1) // for debug
             {
                 color_t Ld = beta * sample_all_light(isect, scene, *sampler, true, direct_sample_enum_);
                 Lo += Ld;
+
+                LOG_VAST("isect.position: {}, .normal: {}, .wo: {} -> Ld: {}\n",
+                    isect.position.to_string(), isect.normal.to_string(), isect.wo.to_string(), Ld.to_string());
             }
 
 
@@ -4467,17 +4586,24 @@ void render_single_scene(int argc, char* argv[])
     scene_t scene = scene_t::create_mis_scene(film.get_resolution());
 #endif // !KY_MIS_SCENE
 
+#ifndef KY_DEBUG
     int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 100; // # samples per pixel
     std::unique_ptr<sampler_t> sampler =
         std::make_unique<random_sampler_t>(samples_per_pixel);
 
-    auto integrator = create_integrator(integrator_enum_t::path_tracing_recursion, 5, direct_sample_enum_t::both_mis);
-
-#ifndef KY_DEBUG
+    auto integrator = create_integrator(integrator_enum_t::path_tracing_iteration, 5, direct_sample_enum_t::both_mis);
     integrator->render(&scene, sampler.get(), &film);
 #else
-    integrator->debug_area(&scene, sampler.get(), &film, { 40, 280 }, { 465, 290 });
-#endif
+    int samples_per_pixel = 1;
+    std::unique_ptr<sampler_t> sampler =
+        std::make_unique<debug_sampler_t>(samples_per_pixel);
+
+    auto integrator = create_integrator(integrator_enum_t::path_tracing_iteration, 5, direct_sample_enum_t::both_mis);
+
+    //integrator->render(&scene, sampler.get(), &film);
+    integrator->debug_area(&scene, sampler.get(), &film, { 265, 239 }, 20, 1);
+    //integrator->debug_pixel(&scene, sampler.get(), &film, { 73, 239 });
+#endif // KY_DEBUG
 
     film.store_image("single");
 }
