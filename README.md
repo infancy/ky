@@ -2,7 +2,7 @@
 
 [中文讲解](https://infancy.github.io/smallpt2pbrt.html)
 
-single file ray tracing renderer, [100](./smallpt/nanopt.cpp)/[300](./smallpt/smallpt_comment.cpp)/[1000](./smallpt/smallpt_rewrite.cpp)/[4000](./ky.cpp) lines of C++20, PBRT-like architecture, step-by-step integrator.
+single file ray tracing renderer, [100](./smallpt2pbrt/nanopt.cpp)/[300](./smallpt2pbrt/smallpt_comment.cpp)/[1000](./smallpt2pbrt/smallpt_rewrite.cpp)/[4000](./ky.cpp) lines of C++20, PBRT-like architecture, step-by-step integrator.
 
 the name `ky` is meaningless, you can call this project `structured smallpt`, `smallpbrt` etc.
 
@@ -30,6 +30,45 @@ ky is based on smallpt at first, gradually rewritten into PBRT style...
 
 
 
+# course&renderer
+
+* Advanced Computer Graphics | RGL http://rgl.epfl.ch/courses/ACG20
+  * Nori https://wjakob.github.io/nori/
+
+* Realistic (& Advanced) Image Synthesis http://www.cim.mcgill.ca/~derek/ecse446.html
+  * ecsex46/fall-2019: ECSE 446/546 & COMP 598/599: Realistic/Advanced Image Synthesis https://github.com/ecsex46/fall-2019
+
+* COMPUTER GRAPHICS(CMU 15-462/662) http://15462.courses.cs.cmu.edu
+  * CMU-Graphics/Scotty3D: Base code for 15-462/662: Computer Graphics at Carnegie Mellon University https://github.com/CMU-Graphics/Scotty3D
+
+
+# resources
+
+- smallpt: Global Illumination in 99 lines of C++ http://www.kevinbeason.com/smallpt/
+    - C# vs C++ 全局照明渲染性能比试 https://www.cnblogs.com/miloyip/archive/2010/06/23/cpp_vs_cs_GI.html
+
+- Scratchapixel https://www.scratchapixel.com/index.php?redirect <br><br>
+
+
+- SmallVCM/SmallVCM: A (not too) small physically based renderer that implements the vertex connection and merging algortihm https://github.com/SmallVCM/SmallVCM
+
+- ouj/safegi: implementation of safegi: an rendering system with dimensional analysis. https://github.com/ouj/safegi
+
+- hi2p-perim/minpt: A path tracer in 300 lines of C++ https://github.com/hi2p-perim/minpt <br><br>
+
+
+- xelatihy/yocto-gl: Yocto/GL: Tiny C++ Libraries for Data-Driven Physically-based Graphics https://github.com/xelatihy/yocto-gl
+
+- mmp/pbrt-v3: Source code for pbrt, the renderer described in the third edition of "Physically Based Rendering: From Theory To Implementation", by Matt Pharr, Wenzel Jakob, and Greg Humphreys. https://github.com/mmp/pbrt-v3
+
+- mmp/pbrt-v4: Source code to pbrt, the ray tracer described in the forthcoming 4th edition of the "Physically Based Rendering: From Theory to Implementation" book. https://github.com/mmp/pbrt-v4
+
+- mitsuba-renderer/mitsuba3: Mitsuba 3: A Retargetable Forward and Inverse Renderer https://github.com/mitsuba-renderer/mitsuba3 <br><br>
+
+- Source/Render/Cycles - Blender Developer Wiki https://wiki.blender.org/wiki/Source/Render/Cycles
+
+
+
 # milestone
 
 - [x] run smallpt
@@ -49,13 +88,13 @@ ky is based on smallpt at first, gradually rewritten into PBRT style...
   - [ ] cmd
 
 - [ ] step-by-step integrator 
-  - [ ] render depth, normal
+  - [x] render depth, normal
   - [ ] render point light
   - [ ] render spuclar material
-  - [ ] render direct lighting(sampling brdf, sampling lighting)
+  - [x] render direct lighting(sampling brdf, sampling lighting)
   - [x] MIS
-  - [x] recursion style pathtracing
-  - [x] iterative style pathtracing
+  - [x] recursion style path tracing
+  - [x] iterative style path tracing
 
 - [x] bsdf/material
   - [x] Phong
@@ -83,27 +122,3 @@ ky is based on smallpt at first, gradually rewritten into PBRT style...
 - [ ] CUDA support
 
 -->
-
-
-# credits
-
-- smallpt: Global Illumination in 99 lines of C++ http://www.kevinbeason.com/smallpt/
-
-  - C# vs C++ 全局照明渲染性能比试 https://www.cnblogs.com/miloyip/archive/2010/06/23/cpp_vs_cs_GI.html <br><br>
-
-- Scratchapixel https://www.scratchapixel.com/index.php?redirect <br><br>
-
-- https://github.com/SmallVCM/SmallVCM
-
-- ouj/safegi: implementation of safegi: an rendering system with dimensional analysis. https://github.com/ouj/safegi
-
-- hi2p-perim/minpt: A path tracer in 300 lines of C++ https://github.com/hi2p-perim/minpt <br><br>
-
-- mmp/pbrt-v3: Source code for pbrt, the renderer described in the third edition of "Physically Based Rendering: From Theory To Implementation", by Matt Pharr, Wenzel Jakob, and Greg Humphreys. https://github.com/mmp/pbrt-v3
-
-- https://github.com/mmp/pbrt-v4
-
-- https://github.com/mitsuba-renderer/mitsuba2
-
-- xelatihy/yocto-gl: Yocto/GL: Tiny C++ Libraries for Data-Driven Physically-based Graphics https://github.com/xelatihy/yocto-gl
-
