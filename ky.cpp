@@ -263,10 +263,8 @@ struct vec2_t
 
     friend vec2_t operator*(float_t s, vec2_t v) { return vec2_t(v.x * s, v.y * s); }
 };
-
 using point2_t = vec2_t;
 using float2_t = vec2_t;
-
 
 
 struct vec3_t
@@ -347,13 +345,11 @@ public:
         return console;
     }
 };
-
 /*
 class unit_vector_t;
 using direction_t = unit_vector_t;
 using normal_t = unit_vector_t
 */
-
 using point3_t    = vec3_t; // object_point, world_point... we need a frame
 using normal_t    = vec3_t;
 using unit_vec3_t = vec3_t;
@@ -595,10 +591,10 @@ private:
 
 
 class bsdf_t;
-using bsdf_uptr_t = std::unique_ptr<bsdf_t>;
 class material_t;
 class area_light_t;
 class surface_t;
+using bsdf_uptr_t = std::unique_ptr<bsdf_t>;
 
 // avoid self intersection
 point3_t offset_ray_origin(point3_t position, normal_t normal, unit_vec3_t direction)
@@ -670,7 +666,6 @@ private:
 
     friend surface_t;
 };
-
 using light_isect_t = isect_t;
 
 #pragma endregion
@@ -3857,7 +3852,7 @@ protected:
         if (ls.Li.is_black() || ls.pdf == 0)
             return {};
 
-        // TODO
+        // below commented code only used for reflection, now it's already handled by bsdf.eval(...)
         //if (dot(ls.wi, isect.normal) < 0)
         //    return {};
 
