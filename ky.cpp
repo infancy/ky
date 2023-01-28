@@ -2676,7 +2676,7 @@ struct light_sample_t // : public position_sample_t
 {
     point3_t position{};
     vec3_t wi{}; // isect -> light, alone ray's direction
-    float_t pdf{}; // pdf of direction
+    float_t pdf{}; // pdf of direction(convert from pdf of position)
     color_t Li{}; // for light
 
     light_sample_t() = default;
@@ -3396,8 +3396,8 @@ public:
             point3_t(4, -3.99615, -4.0667), point3_t(4, -3.82069, -3.08221), point3_t(-4, -3.82069, -3.08221), point3_t(-4, -3.99615, -4.0667), true);
 
         shape_sptr_t ball0 = std::make_shared<sphere_t>(point3_t(10, 10, -4), 0.5);
-        shape_sptr_t ball2 = std::make_shared<sphere_t>(point3_t(-3.75, 0, 0), 0.03333);
-        shape_sptr_t ball1 = std::make_shared<sphere_t>(point3_t(-1.25, 0, 0), 0.1);
+        shape_sptr_t ball1 = std::make_shared<sphere_t>(point3_t(-3.75, 0, 0), 0.03333);
+        shape_sptr_t ball2 = std::make_shared<sphere_t>(point3_t(-1.25, 0, 0), 0.1);
         shape_sptr_t ball3 = std::make_shared<sphere_t>(point3_t(1.25, 0, 0), 0.3);
         shape_sptr_t ball4 = std::make_shared<sphere_t>(point3_t(3.75, 0, 0), 0.9);
 
@@ -3412,8 +3412,8 @@ public:
 
         // light0 used as envirment light
         auto light0 = std::make_shared<area_light_t>(point3_t(), 1, color_t(800, 800, 800), ball0.get());
-        auto light2 = std::make_shared<area_light_t>(point3_t(), 1, color_t(901.803, 901.803, 901.803), ball2.get());
-        auto light1 = std::make_shared<area_light_t>(point3_t(), 1, color_t(100, 100, 100), ball1.get());
+        auto light1 = std::make_shared<area_light_t>(point3_t(), 1, color_t(901.803, 901.803, 901.803), ball2.get());
+        auto light2 = std::make_shared<area_light_t>(point3_t(), 1, color_t(100, 100, 100), ball1.get());
         auto light3 = std::make_shared<area_light_t>(point3_t(), 1, color_t(11.1111, 11.1111, 11.1111), ball3.get());
         auto light4 = std::make_shared<area_light_t>(point3_t(), 1, color_t(1.23457, 1.23457, 1.23457), ball4.get());
 
@@ -3659,11 +3659,11 @@ public:
             }
         }
 
-        auto camera = scene->get_camera();
+        const camera_t* camera = scene->get_camera();
+        sampler_t* sampler = original_sampler;
 
         for (int y = begin.y; y < end.y; y += 1)
         {
-            auto sampler = original_sampler->clone(); // multi thread
             LOG("debug... {} spp, {:.2f}%\r", sampler->ge_samples_per_pixel(), 100.f * (y - begin.y) / (end.y - begin.y - 1));
 
             for (int x = begin.x; x < end.x; x += 1)
@@ -3679,7 +3679,7 @@ public:
 
                     LOG_VAST("x: {}, y: {}\n", x, y);
 
-                    color_t dL = Li(ray, scene, sampler.get()) * (1. / sampler->ge_samples_per_pixel());
+                    color_t dL = Li(ray, scene, sampler) * (1. / sampler->ge_samples_per_pixel());
                     //LOG("dL:{}\n", dL.to_string());
                     L = L + dL;
                 }
