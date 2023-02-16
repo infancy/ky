@@ -140,6 +140,15 @@ private:
     nocopyable_t& operator=(const nocopyable_t&);
 };
 
+float timing_seconds(std::invocable auto function)
+{
+    clock_t start = clock();
+
+    function();
+
+    return (float_t)(clock() - start) / CLOCKS_PER_SEC;
+}
+
 #pragma endregion
 
 
@@ -4587,7 +4596,11 @@ void render_single_scene(int argc, char* argv[])
         std::make_unique<random_sampler_t>(samples_per_pixel);
 
     auto integrator = create_integrator(integrator_enum_t::path_tracing_iteration, 5, direct_sample_enum_t::both_mis);
-    integrator->render(&scene, sampler.get(), &film);
+    float seconds = timing_seconds([&]()
+    { 
+        integrator->render(&scene, sampler.get(), &film);
+    });
+    LOG("\n{} seconds\n", seconds);
 #else
     int samples_per_pixel = 1;
     std::unique_ptr<sampler_t> sampler =
@@ -4829,8 +4842,6 @@ int main(int argc, char* argv[])
 {
     // TODO: parsing params: ky -h
 
-    clock_t start = clock(); // MILO
-
     render_single_scene(argc, argv);
     //render_debug(argc, argv);
     //render_multiple_integrator();
@@ -4838,7 +4849,6 @@ int main(int argc, char* argv[])
     //render_multiple_scene(argc, argv);
     //render_mis_scene(argc, argv);
 
-    LOG("\n{} sec\n", (float_t)(clock() - start) / CLOCKS_PER_SEC); // MILO
     return 0;
 }
 
