@@ -114,13 +114,13 @@ inline void _LOG_ERROR(const std::source_location& location, const std::string& 
 
 
 
-#define KY_ENUM_OPERATORS(enum_t)                                                                 \
-constexpr enum_t  operator~(const enum_t a)                 { return (enum_t)(~(int)a); }         \
-constexpr enum_t  operator|(const enum_t a, const enum_t b) { return (enum_t)((int)a | (int)b); } \
-constexpr enum_t  operator&(const enum_t a, const enum_t b) { return (enum_t)((int)a & (int)b); } \
-constexpr enum_t& operator|=(enum_t& a, const enum_t b) { a = a | b; return a; };                 \
-constexpr enum_t& operator&=(enum_t& a, const enum_t b) { a = a & b; return a; };                 \
-constexpr bool enum_have(const enum_t group, const enum_t value) { return (group & value) != (enum_t)0; }
+#define KY_ENUM_OPERATORS(enum_t)                                                           \
+constexpr enum_t  operator~(enum_t a)                 { return (enum_t)(~(int)a); }         \
+constexpr enum_t  operator|(enum_t a, const enum_t b) { return (enum_t)((int)a | (int)b); } \
+constexpr enum_t  operator&(enum_t a, const enum_t b) { return (enum_t)((int)a & (int)b); } \
+constexpr enum_t& operator|=(enum_t& a, const enum_t b) { a = a | b; return a; };           \
+constexpr enum_t& operator&=(enum_t& a, const enum_t b) { a = a & b; return a; };           \
+constexpr bool enum_have(enum_t group, enum_t value) { return (group & value) != (enum_t)0; }
 
 #pragma endregion
 
@@ -220,11 +220,11 @@ struct color_t
     color_t operator*=(float_t s) { r *= s, g *= s, b *= s; return *this; }
     color_t operator/=(float_t s) { r /= s, g /= s, b /= s; return *this; }
 
-    color_t operator+(const color_t& c) const { return { r + c.r, g + c.g, b + c.b }; }
-    color_t operator*(const color_t& c) const { return { r * c.r, g * c.g, b * c.b }; }
+    color_t operator+(color_t c) const { return { r + c.r, g + c.g, b + c.b }; }
+    color_t operator*(color_t c) const { return { r * c.r, g * c.g, b * c.b }; }
 
-    color_t operator+=(const color_t& c) { r += c.r, g += c.g, b += c.b; return *this; }
-    color_t operator*=(const color_t& c) { r *= c.r, g *= c.g, b *= c.b; return *this; }
+    color_t operator+=(color_t c) { r += c.r, g += c.g, b += c.b; return *this; }
+    color_t operator*=(color_t c) { r *= c.r, g *= c.g, b *= c.b; return *this; }
 
     friend color_t operator*(float_t s, color_t c) { return { s * c.r, s * c.g, s * c.b }; }
 
@@ -249,7 +249,7 @@ struct color_t
     bool is_valid() const { return ::is_valid(r) && ::is_valid(g) && ::is_valid(b); }
 
     std::string to_string() const { return std::format("[{:.3f}, {:.3f}, {:.3f}]", r, g, b); }
-    friend std::ostream& operator<<(std::ostream& console, const color_t& color)
+    friend std::ostream& operator<<(std::ostream& console, color_t color)
     {
         console << color.to_string();
         return console;
@@ -264,11 +264,11 @@ struct vec2_t
 
     float_t operator[](int i) const { CHECK_DEBUG(i >= 0 && i < 2); return (&x)[i]; }
 
-    vec2_t& operator+=(const vec2_t& v) { x += v.x; y += v.y; return *this; }
-    vec2_t& operator-=(const vec2_t& v) { x -= v.x; y -= v.y; return *this; }
+    vec2_t& operator+=(vec2_t v) { x += v.x; y += v.y; return *this; }
+    vec2_t& operator-=(vec2_t v) { x -= v.x; y -= v.y; return *this; }
 
-    vec2_t operator+(const vec2_t& vec2) const { return vec2_t(x + vec2.x, y + vec2.y); }
-    vec2_t operator-(const vec2_t& vec2) const { return vec2_t(x - vec2.x, y - vec2.y); }
+    vec2_t operator+(vec2_t vec2) const { return vec2_t(x + vec2.x, y + vec2.y); }
+    vec2_t operator-(vec2_t vec2) const { return vec2_t(x - vec2.x, y - vec2.y); }
 
     friend vec2_t operator*(float_t s, vec2_t v) { return vec2_t(v.x * s, v.y * s); }
 };
@@ -283,13 +283,13 @@ struct vec3_t
     float_t operator[](int i) const { CHECK_DEBUG(i >= 0 && i < 3); return (&x)[i]; }
     vec3_t operator-() const { return vec3_t(-x, -y, -z); }
 
-    vec3_t& operator+=(const vec3_t& v) { x += v.x; y += v.y; z += v.z; return *this; }
-    vec3_t& operator-=(const vec3_t& v) { x -= v.x; y -= v.y; z -= v.z; return *this; }
+    vec3_t& operator+=(vec3_t v) { x += v.x; y += v.y; z += v.z; return *this; }
+    vec3_t& operator-=(vec3_t v) { x -= v.x; y -= v.y; z -= v.z; return *this; }
     vec3_t& operator*=(float_t s) { x *= s; y *= s; z *= s; return *this; }
     vec3_t& operator/=(float_t s) { x /= s; y /= s; z /= s; return *this; }
 
-    vec3_t operator+(const vec3_t& v) const { return vec3_t(x + v.x, y + v.y, z + v.z); }
-    vec3_t operator-(const vec3_t& v) const { return vec3_t(x - v.x, y - v.y, z - v.z); }
+    vec3_t operator+(vec3_t v) const { return vec3_t(x + v.x, y + v.y, z + v.z); }
+    vec3_t operator-(vec3_t v) const { return vec3_t(x - v.x, y - v.y, z - v.z); }
     vec3_t operator*(float_t s)    const { return vec3_t(x * s, y * s, z * s); }
     vec3_t operator/(float_t s)    const { return vec3_t(x / s, y / s, z / s); }
 
@@ -301,8 +301,8 @@ struct vec3_t
     vec3_t normalize() const { return *this * (1 / sqrt(x * x + y * y + z * z)); }
     bool is_unit() const { return is_equal(magnitude(), (float_t)1); }
 
-    float_t dot(const vec3_t& v) const { return x * v.x + y * v.y + z * v.z; }
-    vec3_t cross(const vec3_t& v) const
+    float_t dot(vec3_t v) const { return x * v.x + y * v.y + z * v.z; }
+    vec3_t cross(vec3_t v) const
     {
         /*
             |  i  j  k |
@@ -320,22 +320,22 @@ struct vec3_t
 public:
     friend vec3_t operator*(float_t s, vec3_t v) { return vec3_t(v.x * s, v.y * s, v.z * s); }
 
-    friend float_t     dot(const vec3_t& u, const vec3_t& v) { return u.dot(v); }
-    friend float_t abs_dot(const vec3_t& u, const vec3_t& v) { return std::abs(u.dot(v)); }
-    friend vec3_t  cross(const vec3_t& u, const vec3_t& v) { return u.cross(v); }
-    friend vec3_t normalize(const vec3_t& v) { return v.normalize(); }
+    friend float_t     dot(vec3_t u, vec3_t v) { return u.dot(v); }
+    friend float_t abs_dot(vec3_t u, vec3_t v) { return std::abs(u.dot(v)); }
+    friend vec3_t  cross(vec3_t u, vec3_t v) { return u.cross(v); }
+    friend vec3_t normalize(vec3_t v) { return v.normalize(); }
 
-    friend float_t     cos(const vec3_t& u, const vec3_t& v) { return u.dot(v); }
-    friend float_t abs_cos(const vec3_t& u, const vec3_t& v) { return std::abs(u.dot(v)); }
-    friend vec3_t   lerp(const vec3_t& u, const vec3_t& v, float_t t) { return u + t * (v - u); }
+    friend float_t     cos(vec3_t u, vec3_t v) { return u.dot(v); }
+    friend float_t abs_cos(vec3_t u, vec3_t v) { return std::abs(u.dot(v)); }
+    friend vec3_t   lerp(vec3_t u, vec3_t v, float_t t) { return u + t * (v - u); }
 
     // per-component
-    friend vec3_t min(const vec3_t& a, const vec3_t& b)
+    friend vec3_t min(vec3_t a, vec3_t b)
     {
         return vec3_t(std::min(a.x, b.x), std::min(a.y, b.y), std::min(a.z, b.z));
     }
     // per-component
-    friend vec3_t max(const vec3_t& a, const vec3_t& b)
+    friend vec3_t max(vec3_t a, vec3_t b)
     {
         return vec3_t(std::max(a.x, b.x), std::max(a.y, b.y), std::max(a.z, b.z));
     }
@@ -348,7 +348,7 @@ public:
     bool small_than(vec3_t vec3) const { return (x < vec3.x) || (y < vec3.y) || (z < vec3.z); }
 
     std::string to_string() const { return std::format("[{:.6f}, {:.6f}, {:.6f}]", x, y, z);  }
-    friend std::ostream& operator<<(std::ostream& console, const vec3_t& vec3)
+    friend std::ostream& operator<<(std::ostream& console, vec3_t vec3)
     {
         console << vec3.to_string();
         return console;
@@ -365,11 +365,11 @@ using unit_vec3_t = vec3_t;
 using float3_t    = vec3_t;
 
 
-inline float_t distance(const point3_t& p1, const point3_t& p2)
+inline float_t distance(point3_t p1, point3_t p2)
 {
     return (p1 - p2).magnitude();
 }
-inline float_t distance_squared(const point3_t& p1, const point3_t& p2)
+inline float_t distance_squared(point3_t p1, point3_t p2)
 {
     return (p1 - p2).magnitude_squared();
 }
@@ -394,11 +394,11 @@ inline float_t distance_squared(const point3_t& p1, const point3_t& p2)
 */
 
 // unit direction vector -> spherical coordinate
-inline radian_t spherical_theta(const unit_vec3_t& v)
+inline radian_t spherical_theta(unit_vec3_t v)
 {
     return std::acos(std::clamp(v.z, (float_t)-1, (float_t)1));
 }
-inline radian_t spherical_phi(const unit_vec3_t& v)
+inline radian_t spherical_phi(unit_vec3_t v)
 {
     float_t phi = std::atan2(v.y, v.x);
     return (phi < 0) ? (phi + k_2pi) : phi;
@@ -417,7 +417,7 @@ inline vec3_t spherical_to_direction(float_t sin_theta, float_t cos_theta, float
 // returns the appropriate direction vector with respect to the coordinate frame defined by them
 inline vec3_t spherical_to_direction(
     float_t sin_theta, float_t cos_theta, float_t phi,
-    const vec3_t& x, const vec3_t& y, const vec3_t& z)
+    vec3_t x, vec3_t y, vec3_t z)
 {
     return
         sin_theta * std::cos(phi) * x + 
@@ -457,11 +457,11 @@ public:
         max_ = point3_t(min, min, min);
     }
 
-    explicit bounds3_t(const point3_t& p) : min_(p), max_(p)
+    explicit bounds3_t(point3_t p) : min_(p), max_(p)
     {
     }
 
-    bounds3_t(const point3_t& p1, const point3_t& p2): 
+    bounds3_t(point3_t p1, point3_t p2): 
         min_(std::min(p1.x, p2.x), std::min(p1.y, p2.y), std::min(p1.z, p2.z)),
         max_(std::max(p1.x, p2.x), std::max(p1.y, p2.y), std::max(p1.z, p2.z))
     {
@@ -469,7 +469,7 @@ public:
 
 public:
     // union, merge
-    bounds3_t join(const point3_t& p) const
+    bounds3_t join(point3_t p) const
     {
         return bounds3_t(min(min_, p), max(max_, p));
     }
@@ -478,11 +478,11 @@ public:
         return bounds3_t(min(min_, b.min_), max(max_, b.max_));
     }
 
-    friend bounds3_t join(const bounds3_t& b, const point3_t& p) { return b.join(p); }
+    friend bounds3_t join(const bounds3_t& b, point3_t p) { return b.join(p); }
     friend bounds3_t join(const bounds3_t& b1, const bounds3_t& b2) { return b1.join(b2); }
 
 public:
-    bool contain(const point3_t& p) const
+    bool contain(point3_t p) const
     {
         return
             p.x >= min_.x && p.x <= max_.x &&
@@ -514,14 +514,14 @@ class frame_t
 {
 public:
     frame_t() = default;
-    frame_t(const vec3_t& s, const vec3_t& t, const normal_t& n) :
+    frame_t(vec3_t s, vec3_t t, normal_t n) :
         s_{ s.normalize() },
         t_{ t.normalize() },
         n_{ n.normalize() }
     {
     }
 
-    frame_t(const normal_t& n) :
+    frame_t(normal_t n) :
         n_{ n.normalize()}
     {
         set_from_z();
@@ -529,7 +529,7 @@ public:
 
 public:
     // think if {s, t, n} is (1, 0, 0), (0, 1, 0), (0, 0, 1)
-    vec3_t to_local(const vec3_t& world_vec3) const
+    vec3_t to_local(vec3_t world_vec3) const
     {
         return vec3_t(
             dot(s_, world_vec3),
@@ -537,7 +537,7 @@ public:
             dot(n_, world_vec3));
     }
 
-    vec3_t to_world(const vec3_t& local_vec3) const
+    vec3_t to_world(vec3_t local_vec3) const
     {
         return 
             s_ * local_vec3.x + 
@@ -545,9 +545,9 @@ public:
             n_ * local_vec3.z;
     }
 
-    const vec3_t& binormal() const { return s_; }
-    const vec3_t& tangent() const { return t_; }
-    const vec3_t& normal() const { return n_; }
+    vec3_t binormal() const { return s_; }
+    vec3_t tangent() const { return t_; }
+    vec3_t normal() const { return n_; }
 
 private:
     void set_from_z()
@@ -569,7 +569,7 @@ private:
 class ray_t
 {
 public:
-    ray_t(const point3_t& origin, const unit_vec3_t& direction, const float_t distance = k_infinity) :
+    ray_t(point3_t origin, unit_vec3_t direction, const float_t distance = k_infinity) :
         origin_{ origin },
         direction_{ direction },
         distance_{ distance }
@@ -631,7 +631,7 @@ class isect_t : public nocopyable_t
 {
 public:
     isect_t() = default;
-    isect_t(const point3_t& position, const normal_t& normal, unit_vec3_t wo) :
+    isect_t(point3_t position, normal_t normal, unit_vec3_t wo) :
         position{ position },
         normal{ normal },
         wo{ wo }
@@ -686,7 +686,7 @@ using light_isect_t = isect_t;
 // https://www.pbr-book.org/3ed-2018/Monte_Carlo_Integration/2D_Sampling_with_Multidimensional_Transformations
 // https://github.com/mmp/pbrt-v3/blob/master/src/core/sampling.cpp
 
-inline point2_t uniform_disk_sample(const float2_t& random)
+inline point2_t uniform_disk_sample(float2_t random)
 {
     float_t radius = std::sqrt(random[0]);
     float_t theta = 2 * k_pi * random[1];
@@ -720,7 +720,7 @@ inline point2_t concentric_disk_sample(float2_t random)
 
 
 // cosine-weighted hemisphere sampling
-inline vec3_t cosine_hemisphere_sample(const float2_t& random)
+inline vec3_t cosine_hemisphere_sample(float2_t random)
 {
     point2_t p = concentric_disk_sample(random);
     float_t z = std::sqrt(std::max((float_t)0, 1 - p.x * p.x - p.y * p.y));
@@ -731,7 +731,7 @@ inline vec3_t cosine_hemisphere_sample(const float2_t& random)
 inline float_t cosine_hemisphere_pdf(float_t cos_theta) { return cos_theta * k_inv_pi; }
 
 
-inline vec3_t uniform_hemisphere_sample(const float2_t& random)
+inline vec3_t uniform_hemisphere_sample(float2_t random)
 {
     float_t z = random[0]; // [0, 1)
     float_t radius = std::sqrt(std::max((float_t)0, (float_t)1. - z * z));
@@ -744,7 +744,7 @@ inline vec3_t uniform_hemisphere_sample(const float2_t& random)
 inline float_t uniform_hemisphere_pdf() { return k_inv_2pi; }
 
 
-inline vec3_t uniform_sphere_sample(const float2_t& random)
+inline vec3_t uniform_sphere_sample(float2_t random)
 {
     float_t z = 1 - 2 * random[0]; // (-1, 1)
     float_t radius = std::sqrt(std::max((float_t)0, (float_t)1 - z * z));
@@ -768,7 +768,7 @@ inline float_t uniform_sphere_pdf() { return k_inv_4pi; }
   . _ _ _ _ _ _ _ _
 
 */
-vec3_t uniform_cone_sample(const float2_t& random, float_t cos_theta_max)
+vec3_t uniform_cone_sample(float2_t random, float_t cos_theta_max)
 {
     float_t cos_theta = (1 - random[0]) + random[0] * cos_theta_max;
     float_t sin_theta = std::sqrt((float_t)1 - cos_theta * cos_theta);
@@ -787,7 +787,7 @@ float_t uniform_cone_pdf(float_t cos_theta_max)
 }
 
 
-point2_t uniform_triangle_sample(const float2_t& random)
+point2_t uniform_triangle_sample(float2_t random)
 {
     float_t su0 = std::sqrt(random[0]);
     return point2_t(1 - su0, random[1] * su0);
@@ -1005,12 +1005,12 @@ public:
     // these methods below only used for `area_light_t`
 
     // TODO: return position_sample_t
-    virtual light_isect_t sample_position(const float2_t& random, float_t* out_pdf_position) const = 0;
+    virtual light_isect_t sample_position(float2_t random, float_t* out_pdf_position) const = 0;
 
 
     // TODO: return direction_sample_t
     // default compute `*_direction` by `*_position` 
-    virtual light_isect_t sample_direction(const isect_t& isect, const float2_t& random, float_t* out_pdf_direction) const
+    virtual light_isect_t sample_direction(const isect_t& isect, float2_t random, float_t* out_pdf_direction) const
     {
         isect_t light_isect = sample_position(random, out_pdf_direction);
         vec3_t wi = light_isect.position - isect.position;
@@ -1031,7 +1031,7 @@ public:
 
         return light_isect;
     }
-    virtual float_t pdf_direction(const isect_t& isect, const unit_vec3_t& world_wi) const
+    virtual float_t pdf_direction(const isect_t& isect, unit_vec3_t world_wi) const
     {
         ray_t ray = isect.spawn_ray(world_wi);
         isect_t light_isect;
@@ -1079,7 +1079,7 @@ using shape_list_t = std::vector<shape_sptr_t>;
 class disk_t : public shape_t
 {
 public:
-    disk_t(const point3_t& position, const normal_t& normal, float_t radius):
+    disk_t(point3_t position, normal_t normal, float_t radius):
         position_{ position },
         normal_{ normalize(normal) },
         radius_{ radius }
@@ -1120,7 +1120,7 @@ public:
     float_t area() const override { return k_pi * radius_ * radius_; }
 
 public:
-    light_isect_t sample_position(const float2_t& random, float_t* pdf) const override
+    light_isect_t sample_position(float2_t random, float_t* pdf) const override
     {
         isect_t light_isect;
 
@@ -1143,7 +1143,7 @@ public:
 class triangle_t : public shape_t
 {
 public:
-    triangle_t(const point3_t& p0, const point3_t& p1, const point3_t& p2, bool flip_normal = false)
+    triangle_t(point3_t p0, point3_t p1, point3_t p2, bool flip_normal = false)
     {
         p0_ = p0;
         p1_ = p1;
@@ -1200,7 +1200,7 @@ public:
     float_t area() const override { return 0.5 * cross(p1_ - p0_, p2_ - p0_).magnitude(); }
 
 public:
-    light_isect_t sample_position(const float2_t& random, float_t* pdf) const override
+    light_isect_t sample_position(float2_t random, float_t* pdf) const override
     {
         point2_t b = uniform_triangle_sample(random);
 
@@ -1222,7 +1222,7 @@ public:
 class rectangle_t : public shape_t
 {
 public:
-    rectangle_t(const point3_t& p0, const point3_t& p1, const point3_t& p2, const point3_t& p3, bool flip_normal = false)
+    rectangle_t(point3_t p0, point3_t p1, point3_t p2, point3_t p3, bool flip_normal = false)
     {
         p0_ = p0;
         p1_ = p1;
@@ -1281,7 +1281,7 @@ public:
     float_t area() const override { return cross(p0_ - p1_, p2_ - p1_).magnitude(); }
 
 public:
-    light_isect_t sample_position(const float2_t& random, float_t* pdf) const override
+    light_isect_t sample_position(float2_t random, float_t* pdf) const override
     {
         isect_t light_isect;
         light_isect.position = p1_ + (p0_ - p1_) * random[0] + (p2_ - p1_) * random[1];
@@ -1377,7 +1377,7 @@ public:
     float_t area() const override { return 4 * k_pi * radius_sq_; }
 
 public:
-    light_isect_t sample_position(const float2_t& random, float_t* pdf) const override
+    light_isect_t sample_position(float2_t random, float_t* pdf) const override
     {
         unit_vec3_t direction = uniform_sphere_sample(random);
         point3_t position = center_ + radius_ * direction;
@@ -1392,7 +1392,7 @@ public:
     }
 
     // TODO: confirm
-    light_isect_t sample_direction(const isect_t& isect, const float2_t& random, float_t* pdf) const override
+    light_isect_t sample_direction(const isect_t& isect, float2_t random, float_t* pdf) const override
     {
         if (distance_squared(isect.position, center_) <= radius_ * radius_)
         {
@@ -1472,7 +1472,7 @@ public:
         return light_isect;
     }
 
-    float_t pdf_direction(const isect_t& isect, const vec3_t& world_wi) const override
+    float_t pdf_direction(const isect_t& isect, vec3_t world_wi) const override
     {
         // return uniform PDF if point is inside sphere
         if (distance_squared(isect.position, center_) <= radius_ * radius_)
@@ -1544,7 +1544,7 @@ public:
         return *(pixels_.get() + get_width() * y + x);
     }
 
-    void set_color(int x, int y, const color_t& color)
+    void set_color(int x, int y, color_t color)
     {
         operator()(x, y) = color;
     }
@@ -1553,7 +1553,7 @@ public:
         set_color(x, y, color_t{});
     }
 
-    void add_color(int x, int y, const color_t& delta)
+    void add_color(int x, int y, color_t delta)
     {
         color_t& color = operator()(x, y);
         color = color + delta;
@@ -1723,7 +1723,7 @@ public:
         {
             uint8_t rgbe[4]{};
 
-            const color_t& color = pixels[index];
+            color_t color = pixels[index];
             float v = std::max({ color.r, color.g, color.b });
 
             if (v >= 1e-32f)
@@ -1832,7 +1832,7 @@ public:
     virtual ~camera_t() {}
 
     camera_t(
-        const vec3_t& position, const vec3_t& front, const vec3_t& up,
+        vec3_t position, vec3_t front, vec3_t up,
         degree_t fov, vec2_t resolution):
         position_{ position },
         front_{ front.normalize() },
@@ -1885,12 +1885,12 @@ using const_camera_sptr_t = std::shared_ptr<const camera_t>;
 
 // the functions below are based on local shading coordinate
 
-inline float_t cos_theta(const vec3_t& w) { return w.z; }
-inline float_t abs_cos_theta(const vec3_t& w) { return std::abs(w.z); }
+inline float_t cos_theta(vec3_t w) { return w.z; }
+inline float_t abs_cos_theta(vec3_t w) { return std::abs(w.z); }
 
-inline bool same_hemisphere(const vec3_t& w, const vec3_t& wp) { return w.z * wp.z > 0; }
+inline bool same_hemisphere(vec3_t w, vec3_t wp) { return w.z * wp.z > 0; }
 
-inline vec3_t reflect(const vec3_t& wo, const normal_t& normal)
+inline vec3_t reflect(vec3_t wo, normal_t normal)
 {
     // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#SpecularReflection
 
@@ -1898,7 +1898,7 @@ inline vec3_t reflect(const vec3_t& wo, const normal_t& normal)
 }
 
 // eta = eta_i/eta_t
-inline bool refract(const vec3_t& wi, const normal_t& normal, float_t eta, vec3_t* out_wt)
+inline bool refract(vec3_t wi, normal_t normal, float_t eta, vec3_t* out_wt)
 {
     // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#SpecularTransmission
     // https://github.com/mmp/pbrt-v3/blob/master/src/core/reflection.h#L97-L109
@@ -2118,18 +2118,18 @@ public:
     virtual bool is_delta() const = 0;
 
     // or called `f()`, `evaluate()`
-    color_t eval(const vec3_t& world_wo, const vec3_t& world_wi) const
+    color_t eval(vec3_t world_wo, vec3_t world_wi) const
     {
         return eval_(to_local(world_wo), to_local(world_wi));
     }
 
-    float_t pdf(const vec3_t& world_wo, const vec3_t& world_wi) const
+    float_t pdf(vec3_t world_wo, vec3_t world_wi) const
     {
         return pdf_(to_local(world_wo), to_local(world_wi));
     }
 
     // or called `sample_f()`, `sample_direction()`, `sample_solid_angle()`
-    bsdf_sample_t sample(const vec3_t& world_wo, const float2_t& random) const
+    bsdf_sample_t sample(vec3_t world_wo, float2_t random) const
     {
         bsdf_sample_t sample = sample_(to_local(world_wo), random);
         sample.wi = to_world(sample.wi); // <--- ATTENTION!!!
@@ -2137,7 +2137,7 @@ public:
         return sample;
     }
 
-    std::tuple<color_t, float_t> eval_and_pdf(const vec3_t& world_wo, const vec3_t& world_wi) const
+    std::tuple<color_t, float_t> eval_and_pdf(vec3_t world_wo, vec3_t world_wi) const
     {
         vec3_t wo = to_local(world_wo), wi = to_local(world_wi);
 
@@ -2145,18 +2145,18 @@ public:
     }
 
 protected: 
-    virtual color_t eval_(const vec3_t& wo, const vec3_t& wi) const = 0;
-    virtual float_t pdf_(const vec3_t& wo, const vec3_t& wi) const = 0;
+    virtual color_t eval_(vec3_t wo, vec3_t wi) const = 0;
+    virtual float_t pdf_(vec3_t wo, vec3_t wi) const = 0;
 
-    virtual bsdf_sample_t sample_(const vec3_t& wo, const float2_t& random) const = 0;
+    virtual bsdf_sample_t sample_(vec3_t wo, float2_t random) const = 0;
 
 private:
-    vec3_t to_local(const vec3_t& world_vec3) const
+    vec3_t to_local(vec3_t world_vec3) const
     {
         return shading_frame_.to_local(world_vec3);
     }
 
-    vec3_t to_world(const vec3_t& local_vec3) const
+    vec3_t to_world(vec3_t local_vec3) const
     {
         return shading_frame_.to_world(local_vec3);
     }
@@ -2173,14 +2173,14 @@ private:
 class lambertion_reflection_t : public bsdf_t
 {
 public:
-    lambertion_reflection_t(const frame_t& shading_frame, const color_t& albedo) :
+    lambertion_reflection_t(const frame_t& shading_frame, color_t albedo) :
         bsdf_t(shading_frame), albedo_{ albedo }
     {
     }
 
     bool is_delta() const override { return false; }
 
-    color_t eval_(const vec3_t& wo, const vec3_t& wi) const override
+    color_t eval_(vec3_t wo, vec3_t wi) const override
     {
         // TODO: confirm
         if (!same_hemisphere(wo, wi))
@@ -2190,12 +2190,12 @@ public:
         return albedo_ * k_inv_pi;
     }
 
-    float_t pdf_(const vec3_t& wo, const vec3_t& wi) const override
+    float_t pdf_(vec3_t wo, vec3_t wi) const override
     {
         return same_hemisphere(wo, wi) ? cosine_hemisphere_pdf(abs_cos_theta(wi)) : 0;
     }
 
-    bsdf_sample_t sample_(const vec3_t& wo, const float2_t& random) const override
+    bsdf_sample_t sample_(vec3_t wo, float2_t random) const override
     {
         bsdf_sample_t sample;
 
@@ -2232,17 +2232,17 @@ private:
 class perfect_specular_reflection_t : public bsdf_t
 {
 public:
-    perfect_specular_reflection_t(const frame_t& shading_frame, const color_t& reflectance) :
+    perfect_specular_reflection_t(const frame_t& shading_frame, color_t reflectance) :
         bsdf_t(shading_frame), reflectance_{ reflectance }
     {
     }
 
     bool is_delta() const override { return true; }
 
-    color_t eval_(const vec3_t& wo, const vec3_t& wi) const override { return color_t(); }
-    float_t pdf_(const vec3_t& wo, const vec3_t& wi) const override { return 0; }
+    color_t eval_(vec3_t wo, vec3_t wi) const override { return color_t(); }
+    float_t pdf_(vec3_t wo, vec3_t wi) const override { return 0; }
 
-    bsdf_sample_t sample_(const vec3_t& wo, const float2_t& random) const override
+    bsdf_sample_t sample_(vec3_t wo, float2_t random) const override
     {
         // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#SpecularReflection
         // https://github.com/infancy/pbrt-v3/blob/master/src/materials/mirror.cpp#L45-L57  mirror material use `FresnelNoOp`
@@ -2287,7 +2287,7 @@ class fresnel_specular_t : public bsdf_t
 {
 public:
     fresnel_specular_t(
-    const frame_t& shading_frame, float_t eta_i, float_t eta_t, const color_t& reflectance, const color_t& transmittance) :
+    const frame_t& shading_frame, float_t eta_i, float_t eta_t, color_t reflectance, color_t transmittance) :
         bsdf_t(shading_frame),
         eta_i_{ eta_i },
         eta_t_{ eta_t },
@@ -2298,10 +2298,10 @@ public:
 
     bool is_delta() const override { return true; }
 
-    color_t eval_(const vec3_t& wo, const vec3_t& wi) const override { return color_t(); }
-    float_t pdf_(const vec3_t& wo, const vec3_t& wi) const override { return 0; }
+    color_t eval_(vec3_t wo, vec3_t wi) const override { return color_t(); }
+    float_t pdf_(vec3_t wo, vec3_t wi) const override { return 0; }
 
-    bsdf_sample_t sample_(const vec3_t& wo, const float2_t& random) const override
+    bsdf_sample_t sample_(vec3_t wo, float2_t random) const override
     {
         // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#FresnelReflectance
         // 
@@ -2361,7 +2361,7 @@ public:
 
     /*
     // smallpt version
-    color_t sample_(const vec3_t& wo, const float2_t& random,
+    color_t sample_(vec3_t wo, float2_t random,
         vec3_t* out_wi, float_t* out_pdf_direction, bsdf_enum_t* out_bsdf_type) const override
     {
         normal_t normal(0, 0, 1);
@@ -2420,7 +2420,7 @@ private:
 class phong_specular_reflection_t : public bsdf_t
 {
 public:
-    phong_specular_reflection_t(const frame_t& shading_frame, /*const color_t& Kd,*/ const color_t& Ks, float_t exponent) :
+    phong_specular_reflection_t(const frame_t& shading_frame, /*color_t Kd,*/ color_t Ks, float_t exponent) :
         bsdf_t(shading_frame),
         Ks_{ Ks },
         exponent_{ exponent }
@@ -2429,7 +2429,7 @@ public:
 
     bool is_delta() const override { return false; }
 
-    color_t eval_(const vec3_t& wo, const vec3_t& wi) const override
+    color_t eval_(vec3_t wo, vec3_t wi) const override
     {
         // TODO: confirm
         if (!same_hemisphere(wo, wi))
@@ -2442,7 +2442,7 @@ public:
         return rho * std::pow(cos_alpha, exponent_);
     }
 
-    float_t pdf_(const vec3_t& wo, const vec3_t& wi) const override
+    float_t pdf_(vec3_t wo, vec3_t wi) const override
     {
         const vec3_t wr = reflect(wo, vec3_t(0, 0, 1));
         //const float_t cos_alpha = dot(wr, wi);
@@ -2450,7 +2450,7 @@ public:
         return cosine_hemisphere_pdf_phong(wr, wi);
     }
 
-    bsdf_sample_t sample_(const vec3_t& wo, const float2_t& random) const override
+    bsdf_sample_t sample_(vec3_t wo, float2_t random) const override
     {
         bsdf_sample_t sample;
 
@@ -2473,7 +2473,7 @@ public:
 
 private:
     // cosine lobe hemisphere sampling
-    vec3_t cosine_hemisphere_sample_phong(const vec2_t& random) const
+    vec3_t cosine_hemisphere_sample_phong(vec2_t random) const
     {
         const float_t phi = 2.f * k_pi * random[0];
         const float_t cos_theta = std::pow(random[1], 1.f / (exponent_ + 1.f));
@@ -2486,7 +2486,7 @@ private:
     }
 
     float_t cosine_hemisphere_pdf_phong(
-        const vec3_t& aNormal, const vec3_t& aDirection) const
+        vec3_t aNormal, vec3_t aDirection) const
     {
         const float_t cosTheta = std::max(0.f, dot(aNormal, aDirection));
         return (exponent_ + 1.f) * std::pow(cosTheta, exponent_) * k_inv_2pi;
@@ -2522,7 +2522,7 @@ using material_list_t = std::vector<material_sptr_t>;
 class matte_material_t : public material_t
 {
 public:
-    matte_material_t(const color_t diffuse_color) :
+    matte_material_t(color_t diffuse_color) :
         diffuse_color_{ diffuse_color }
     {
     }
@@ -2539,7 +2539,7 @@ private:
 class mirror_material_t : public material_t
 {
 public:
-    mirror_material_t(const color_t specular_color) :
+    mirror_material_t(color_t specular_color) :
         specular_color_{ specular_color }
     {
     }
@@ -2557,7 +2557,7 @@ class glass_material_t : public material_t
 {
 public:
     glass_material_t(
-    float_t eta, const color_t& reflection_color = color_t{ 1, 1, 1 }, const color_t& transmission_color = color_t{ 1, 1, 1 }) :
+    float_t eta, color_t reflection_color = color_t{ 1, 1, 1 }, color_t transmission_color = color_t{ 1, 1, 1 }) :
         eta_{ eta },
         reflection_color_{ reflection_color },
         transmission_color_{ transmission_color }
@@ -2578,7 +2578,7 @@ private:
 class plastic_material_t : public material_t
 {
 public:
-    plastic_material_t(const color_t& diffuse_color, const color_t& specular_color, float_t shininess) :
+    plastic_material_t(color_t diffuse_color, color_t specular_color, float_t shininess) :
         diffuse_color_{ diffuse_color },
         specular_color_{ specular_color },
         exponent_{ shininess } // TODO
@@ -2656,9 +2656,9 @@ struct position_sample_t
 
     position_sample_t() = default;
     position_sample_t(
-    const point3_t& position, const normal_t& normal, const ray_t& ray,
+    point3_t position, normal_t normal, const ray_t& ray,
     float_t pdf_position, float_t pdf_direction,
-    const color_t& emission) :
+    color_t emission) :
         position{ position },
         normal{ normal },
         ray(ray),
@@ -2684,7 +2684,7 @@ struct light_sample_t // : public position_sample_t
     color_t Li{}; // for light
 
     light_sample_t() = default;
-    light_sample_t(const isect_t& isect, const vec3_t& wi, float_t pdf, const color_t& Li) :
+    light_sample_t(const isect_t& isect, vec3_t wi, float_t pdf, color_t Li) :
         position{ isect.position },
         wi{ wi },
         pdf{ pdf },
@@ -2699,7 +2699,7 @@ class light_t
 {
 public:
     virtual ~light_t() = default;
-    light_t(/*light_flag_t flags,*/ const point3_t& world_position, int samples_num = 1):
+    light_t(/*light_flag_t flags,*/ point3_t world_position, int samples_num = 1):
         world_position_{ world_position },
         samples_num_{ samples_num }
     {
@@ -2723,9 +2723,9 @@ public:
     // Li means : camera <-wo- isect -wi-> light
 
     // sample_light/samle_direction
-    virtual light_sample_t sample_Li(const isect_t& isect, const float2_t& random) const = 0;
+    virtual light_sample_t sample_Li(const isect_t& isect, float2_t random) const = 0;
 
-    virtual float_t pdf_Li(const isect_t& isect, const vec3_t& world_wi) const = 0;
+    virtual float_t pdf_Li(const isect_t& isect, vec3_t world_wi) const = 0;
 
 protected:
     point3_t world_position_;
@@ -2738,7 +2738,7 @@ using light_list_t = std::vector<light_sptr_t>;
 class point_light_t : public light_t
 {
 public:
-    point_light_t(const point3_t& world_position, int samples_num, color_t intensity) :
+    point_light_t(point3_t world_position, int samples_num, color_t intensity) :
         light_t(world_position, samples_num),
         intensity_{ intensity }
     {
@@ -2750,7 +2750,7 @@ public:
     color_t power() const override { return 4 * k_pi * intensity_; }
 
 public:
-    light_sample_t sample_Li(const isect_t& isect, const float2_t& random) const override
+    light_sample_t sample_Li(const isect_t& isect, float2_t random) const override
     {
         light_sample_t sample;
         sample.position = world_position_;
@@ -2781,7 +2781,7 @@ public:
     }
 
     float_t pdf_Li(
-        const isect_t& isect, const vec3_t& world_wi) const override
+        const isect_t& isect, vec3_t world_wi) const override
     {
         return 0;
     }
@@ -2794,7 +2794,7 @@ private:
 class direction_light_t : public light_t
 {
 public:
-    direction_light_t(const point3_t& world_position, int samples_num, color_t irradiance, const vec3_t world_direction) :
+    direction_light_t(point3_t world_position, int samples_num, color_t irradiance, const vec3_t world_direction) :
         light_t(world_position, samples_num),
         irradiance_{ irradiance },
         world_direction_{ normalize(world_direction) },
@@ -2814,7 +2814,7 @@ public:
     }
 
 public:
-    light_sample_t sample_Li(const isect_t& isect, const float2_t& random) const override
+    light_sample_t sample_Li(const isect_t& isect, float2_t random) const override
     {
         light_sample_t sample;
         sample.wi = -world_direction_;
@@ -2827,7 +2827,7 @@ public:
     }
 
     float_t pdf_Li(
-        const isect_t& isect, const vec3_t& world_wi) const override
+        const isect_t& isect, vec3_t world_wi) const override
     {
         return 0;
     }
@@ -2847,7 +2847,7 @@ private:
 class area_light_t : public light_t
 {
 public:
-    area_light_t(const point3_t& world_position, int samples_num, color_t radiance, const shape_t* shape):
+    area_light_t(point3_t world_position, int samples_num, color_t radiance, const shape_t* shape):
         light_t(world_position, samples_num),
         radiance_{ radiance },
         shape_{ shape },
@@ -2877,14 +2877,14 @@ public:
          light_isect
     */
     // TODO
-    color_t Le(const isect_t& light_isect, const vec3_t& wo) const
+    color_t Le(const isect_t& light_isect, vec3_t wo) const
     {
         return (dot(light_isect.normal, wo) > 0) ? radiance_ : color_t();
     }
 
 public:
     // sample direction by sample potision on shape
-    light_sample_t sample_Li(const isect_t& isect, const float2_t& random) const override
+    light_sample_t sample_Li(const isect_t& isect, float2_t random) const override
     {
         light_sample_t sample;
         isect_t light_isect = shape_->sample_direction(isect, random, &sample.pdf);
@@ -2904,7 +2904,7 @@ public:
     }
 
     float_t pdf_Li(
-        const isect_t& isect, const vec3_t& world_wi) const override
+        const isect_t& isect, vec3_t world_wi) const override
     {
         return shape_->pdf_direction(isect, world_wi);
     }
@@ -2920,7 +2920,7 @@ private:
 class environment_light_t : public light_t
 {
 public:
-    environment_light_t(const point3_t& world_position, int samples_num, color_t radiance) :
+    environment_light_t(point3_t world_position, int samples_num, color_t radiance) :
         light_t(world_position, samples_num),
         radiance_{ radiance }
     {
@@ -2944,7 +2944,7 @@ public:
     }
 
 public:
-    light_sample_t sample_Li(const isect_t& isect, const float2_t& random) const override
+    light_sample_t sample_Li(const isect_t& isect, float2_t random) const override
     {
         light_sample_t sample;
         sample.wi = uniform_sphere_sample(random);
@@ -2962,7 +2962,7 @@ public:
     }
 
     float_t pdf_Li(
-        const isect_t& isect, const vec3_t& world_wi) const override
+        const isect_t& isect, vec3_t world_wi) const override
     {
         float_t theta = spherical_theta(world_wi);
         float_t sin_theta = std::sin(theta);
@@ -3798,7 +3798,7 @@ protected:
 
     static color_t estimate_direct_lighting_idle(
         const isect_t& isect, const light_t& light,
-        const float2_t& random_light, const float2_t& random_bsdf,
+        float2_t random_light, float2_t random_bsdf,
         scene_t* scene, sampler_t& sampler, bool skip_specular)
     {
         return {};
@@ -3807,7 +3807,7 @@ protected:
     // estimate single light source's direct contirbution by sampling bsdf's direction
     static color_t estimate_direct_lighting_by_direction(
         const isect_t& isect, const light_t& light,
-        const float2_t& random_light, const float2_t& random_bsdf,
+        float2_t random_light, float2_t random_bsdf,
         scene_t* scene, sampler_t& sampler, bool skip_specular)
     {
         if (light.is_delta())
@@ -3851,7 +3851,7 @@ protected:
     // estimate single light source's direct contirbution by sampling light's position
     static color_t estimate_direct_lighting_by_position(
         const isect_t& isect, const light_t& light,
-        const float2_t& random_light, const float2_t& random_bsdf,
+        float2_t random_light, float2_t random_bsdf,
         scene_t* scene, sampler_t& sampler, bool skip_specular)
     {
         if (skip_specular && isect.bsdf()->is_delta())
@@ -3887,7 +3887,7 @@ protected:
 
     static color_t estimate_direct_lighting_by_direction_mis(
         const isect_t& isect, const light_t& light,
-        const float2_t& random_light, const float2_t& random_bsdf,
+        float2_t random_light, float2_t random_bsdf,
         scene_t* scene, sampler_t& sampler, bool skip_specular)
     {
         bool is_specular = isect.bsdf()->is_delta();
@@ -3943,7 +3943,7 @@ protected:
 
     static color_t estimate_direct_lighting_by_position_mis(
         const isect_t& isect, const light_t& light,
-        const float2_t& random_light, const float2_t& random_bsdf,
+        float2_t random_light, float2_t random_bsdf,
         scene_t* scene, sampler_t& sampler, bool skip_specular)
     {
         if (skip_specular && isect.bsdf()->is_delta())
@@ -3977,7 +3977,7 @@ protected:
 
     static color_t estimate_direct_lighting_both_mis(
         const isect_t& isect, const light_t& light,
-        const float2_t& random_light, const float2_t& random_bsdf,
+        float2_t random_light, float2_t random_bsdf,
         scene_t* scene, sampler_t& sampler, bool skip_specular)
     {
         color_t Lb = estimate_direct_lighting_by_direction_mis(isect, light, random_light, random_bsdf, scene, sampler, skip_specular);
