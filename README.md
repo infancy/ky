@@ -32,6 +32,10 @@ ky is based on smallpt at first, gradually rewritten into PBRT style...
 
 # course&renderer
 
+* Ray Tracing in One Weekend https://raytracing.github.io/books/RayTracingInOneWeekend.html
+
+* Scratchapixel https://www.scratchapixel.com
+
 * Advanced Computer Graphics | RGL http://rgl.epfl.ch/courses/ACG20
   * Nori https://wjakob.github.io/nori/
 
@@ -45,9 +49,7 @@ ky is based on smallpt at first, gradually rewritten into PBRT style...
 # resources
 
 - smallpt: Global Illumination in 99 lines of C++ http://www.kevinbeason.com/smallpt/
-    - C# vs C++ 全局照明渲染性能比试 https://www.cnblogs.com/miloyip/archive/2010/06/23/cpp_vs_cs_GI.html
-
-- Scratchapixel https://www.scratchapixel.com/index.php?redirect <br><br>
+    - C# vs C++ 全局照明渲染性能比试 https://www.cnblogs.com/miloyip/archive/2010/06/23/cpp_vs_cs_GI.html <br><br>
 
 
 - SmallVCM/SmallVCM: A (not too) small physically based renderer that implements the vertex connection and merging algortihm https://github.com/SmallVCM/SmallVCM
@@ -63,7 +65,10 @@ ky is based on smallpt at first, gradually rewritten into PBRT style...
 
 - mmp/pbrt-v4: Source code to pbrt, the ray tracer described in the forthcoming 4th edition of the "Physically Based Rendering: From Theory to Implementation" book. https://github.com/mmp/pbrt-v4
 
-- mitsuba-renderer/mitsuba3: Mitsuba 3: A Retargetable Forward and Inverse Renderer https://github.com/mitsuba-renderer/mitsuba3 <br><br>
+- mitsuba-renderer/mitsuba3: Mitsuba 3: A Retargetable Forward and Inverse Renderer https://github.com/mitsuba-renderer/mitsuba3
+
+- LuisaGroup/LuisaRender: High-Performance Cross-Platform Monte Carlo Renderer Based on LuisaCompute https://github.com/LuisaGroup/LuisaRender <br><br>
+
 
 - Source/Render/Cycles - Blender Developer Wiki https://wiki.blender.org/wiki/Source/Render/Cycles
 
