@@ -32,6 +32,8 @@ using namespace std::literals::string_literals;
 
 #if defined(_DEBUG)
     #define KY_DEBUG
+#else
+    #define KY_RELEASE
 #endif
 
 #if defined(_WIN32) || defined(_WIN64)
@@ -3614,9 +3616,9 @@ public:
         int width = (int)resolution.x;
         int height = (int)resolution.y;
 
-    #ifndef KY_DEBUG
+    #ifdef KY_RELEASE
         #pragma omp parallel for schedule(dynamic, 1) // OpenMP
-    #endif // !KY_DEBUG
+    #endif // !KY_RELEASE
         for (int y = 0; y < height; y += 1)
         {
             auto sampler = original_sampler->clone(); // multi thread
@@ -4578,8 +4580,8 @@ class build_t_
 // TODO: remove params
 void render_single_scene(int argc, char* argv[])
 {
-#define KY_MIS_SCENE
-#ifndef KY_MIS_SCENE
+#define KY_BOX_SCENE
+#ifdef KY_BOX_SCENE
     int width = 256, height = 256;
     film_t film(width, height); //film.clear(color_t(1., 0., 0.));
     scene_t scene = scene_t::create_cornell_box_scene(
@@ -4590,7 +4592,7 @@ void render_single_scene(int argc, char* argv[])
     scene_t scene = scene_t::create_mis_scene(film.get_resolution());
 #endif // !KY_MIS_SCENE
 
-#ifndef KY_DEBUG
+#ifdef KY_RELEASE
     int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 100; // # samples per pixel
     std::unique_ptr<sampler_t> sampler =
         std::make_unique<random_sampler_t>(samples_per_pixel);
@@ -4611,7 +4613,7 @@ void render_single_scene(int argc, char* argv[])
     //integrator->render(&scene, sampler.get(), &film);
     integrator->debug_area(&scene, sampler.get(), &film, { 265, 239 }, 20, 1);
     //integrator->debug_pixel(&scene, sampler.get(), &film, { 73, 239 });
-#endif // KY_DEBUG
+#endif // KY_RELEASE
 
     film.store_image("single");
 }
