@@ -3082,8 +3082,7 @@ public:
         surface_list_{ surface_list },
         accel_{ surface_list_ }
     {
-        // TODO
-        for (auto& light : light_list_)
+        for (light_sptr_t& light : light_list_)
         {
             light->preprocess(*this);
         }
@@ -3632,8 +3631,8 @@ public:
 
                 do
                 {
-                    auto sample = sampler->get_camera_sample({ (float_t)x, (float_t)y });
-                    ray_t ray = camera->generate_ray(sample);
+                    auto camera_sample = sampler->get_camera_sample({ (float_t)x, (float_t)y });
+                    ray_t ray = camera->generate_ray(camera_sample);
 
                     color_t dL = Li(ray, scene, sampler.get()) * (1. / sampler->ge_samples_per_pixel());
                     //LOG_DEBUG("dL: {}", dL.to_string());
@@ -3680,8 +3679,8 @@ public:
 
                 do
                 {
-                    auto sample = sampler->get_camera_sample({ (float_t)x, (float_t)y });
-                    ray_t ray = camera->generate_ray(sample);
+                    auto camera_sample = sampler->get_camera_sample({ (float_t)x, (float_t)y });
+                    ray_t ray = camera->generate_ray(camera_sample);
 
                     LOG_VAST("x: {}, y: {}\n", x, y);
 
@@ -3782,7 +3781,7 @@ protected:
             break;
         }
 
-        for (const auto& light : scene->light_list())
+        for (const light_sptr_t& light : scene->light_list())
         {
             Ld += estimate_direct_lighting(
                 isect, *light, sampler.get_float2(), sampler.get_float2(),
@@ -4131,7 +4130,7 @@ public:
         }
 
         /*
-          auto beta = f * abs_dot(wi, isect.normal) / pdf;
+          color_t beta = f * abs_dot(wi, isect.normal) / pdf;
           return beta * Li(wi_ray, scene, sampler, depth));
         */
         ray_t wi(isect.position, bs.wi);
