@@ -2172,6 +2172,9 @@ private:
 
 
 
+/*
+   ideal diffuse reflection
+*/
 class lambertion_reflection_t : public bsdf_t
 {
 public:
@@ -2215,21 +2218,24 @@ public:
     }
 
 private:
-    // https://wiki.luxcorerender.org/LuxCoreRender_Materials_Matte
-    // https://mitsuba.readthedocs.io/en/latest/src/generated/plugins_bsdfs.html#smooth-diffuse-material-diffuse
-    // surface directional-hemispherical reflectance, usually called `albedo`
-    // symbol: $\rho_{\mathrm{hd}}$
+    /*
+       https://wiki.luxcorerender.org/LuxCoreRender_Materials_Matte
+       https://mitsuba.readthedocs.io/en/latest/src/generated/plugins_bsdfs.html#smooth-diffuse-material-diffuse
+
+       surface directional-hemispherical reflectance, usually called `albedo`
+       symbol: $\rho_{\mathrm{hd}}$
+    */
     color_t albedo_{};
 };
 
 
 
 /*
-  ideal specular reflection, ignore fresnel effect,
-  only suitable for some metal materials
-
-  as a delta bsdf, it's `eval(...), pdf(...) sample(...)` functions requires special processing,
-  same to `fresnel_specular_t`
+   ideal specular reflection, ignore fresnel effect,
+   only suitable for some metal materials
+    
+   as a delta bsdf, it's `eval(...), pdf(...) sample(...)` functions requires special processing,
+   same to `fresnel_specular_scattering_t`
 */
 class perfect_specular_reflection_t : public bsdf_t
 {
@@ -2262,7 +2268,11 @@ public:
     }
 
 private:
-    // https://wiki.luxcorerender.org/LuxCoreRender_Materials_Mirror
+    /*
+       https://wiki.luxcorerender.org/LuxCoreRender_Materials_Mirror
+
+       optional factor that can be used to modulate the specular reflection component. 
+    */
     color_t reflectance_{};
 };
 
@@ -2285,10 +2295,10 @@ private:
                   |    *
                   | θ_t *
 */
-class fresnel_specular_t : public bsdf_t
+class fresnel_specular_scattering_t : public bsdf_t
 {
 public:
-    fresnel_specular_t(
+    fresnel_specular_scattering_t(
     const frame_t& shading_frame, float_t eta_i, float_t eta_t, color_t reflectance, color_t transmittance) :
         bsdf_t(shading_frame),
         eta_i_{ eta_i },
@@ -2408,23 +2418,28 @@ private:
     float_t eta_i_{}; // ior_i_
     float_t eta_t_{}; // ior_t_
 
-    // https://wiki.luxcorerender.org/LuxCoreRender_Materials_Glass
-    // https://mitsuba.readthedocs.io/en/latest/src/generated/plugins_bsdfs.html#smooth-dielectric-material-dielectric
-    // optional factor that can be used to modulate the specular reflection/transmission component. 
+    /*
+       https://wiki.luxcorerender.org/LuxCoreRender_Materials_Glass
+       https://mitsuba.readthedocs.io/en/latest/src/generated/plugins_bsdfs.html#smooth-dielectric-material-dielectric
+
+       optional factor that can be used to modulate the specular reflection/transmission component. 
+    */
     color_t reflectance_{};
     color_t transmittance_{};
 };
 
 
 
-// physically based(energy conservation) Phong specular reflection model
-// Lafortune and Willems, “Using the modified Phong reflectance model for physically based rendering”, Technical Report http://graphics.cs.kuleuven.be/publications/Phong/
+/*
+   physically based(energy conservation) Phong specular reflection model
+   Lafortune and Willems, “Using the modified Phong reflectance model for physically based rendering”, Technical Report http://graphics.cs.kuleuven.be/publications/Phong/
+*/
 class phong_specular_reflection_t : public bsdf_t
 {
 public:
-    phong_specular_reflection_t(const frame_t& shading_frame, /*color_t Kd,*/ color_t Ks, float_t exponent) :
+    phong_specular_reflection_t(const frame_t& shading_frame, /*color_t Kd,*/ color_t specular_reflectance, float_t exponent) :
         bsdf_t(shading_frame),
-        Ks_{ Ks },
+        specular_reflectance_{ specular_reflectance },
         exponent_{ exponent }
     {
     }
@@ -2440,7 +2455,7 @@ public:
         const vec3_t wr = reflect(wo, vec3_t(0, 0, 1));
         const float_t cos_alpha = dot(wr, wi);
 
-        const color_t rho = Ks_ * (exponent_ + 2.f) * k_inv_2pi;
+        const color_t rho = specular_reflectance_ * (exponent_ + 2.f) * k_inv_2pi;
         return rho * std::pow(cos_alpha, exponent_);
     }
 
@@ -2495,7 +2510,7 @@ private:
     }
 
 private:
-    color_t Ks_{};
+    color_t specular_reflectance_{};
     float_t exponent_{};
 };
 
@@ -2558,6 +2573,10 @@ private:
 class glass_material_t : public material_t
 {
 public:
+    /*
+       reflection_color: specular reflection color
+       transmission_color: specular transmission color
+    */
     glass_material_t(
     float_t eta, color_t reflection_color = color_t{ 1, 1, 1 }, color_t transmission_color = color_t{ 1, 1, 1 }) :
         eta_{ eta },
@@ -2568,7 +2587,7 @@ public:
 
     bsdf_uptr_t scattering(const isect_t& isect) const override
     {
-        return std::make_unique<fresnel_specular_t>(frame_t(isect.normal), 1, eta_, reflection_color_, transmission_color_);
+        return std::make_unique<fresnel_specular_scattering_t>(frame_t(isect.normal), 1, eta_, reflection_color_, transmission_color_);
     }
 
 private:
@@ -2580,6 +2599,10 @@ private:
 class plastic_material_t : public material_t
 {
 public:
+    /*
+       diffuse_color: diffuse reflection color
+       color_t specular_color: specular reflection color
+    */
     plastic_material_t(color_t diffuse_color, color_t specular_color, float_t shininess) :
         diffuse_color_{ diffuse_color },
         specular_color_{ specular_color },
@@ -4581,18 +4604,18 @@ void render_single_scene(int argc, char* argv[])
 {
 #define KY_BOX_SCENE
 #ifdef KY_BOX_SCENE
-    int width = 256, height = 256;
+    int width = 1024, height = 1024;
     film_t film(width, height); //film.clear(color_t(1., 0., 0.));
     scene_t scene = scene_t::create_cornell_box_scene(
         cornell_box_enum_t::both_small_spheres | cornell_box_enum_t::light_environment, film.get_resolution());
 #else
-    int width = 512, height = 308;
+    int width = 1024, height = 618;
     film_t film(width, height); //film.clear(color_t(1., 0., 0.));
     scene_t scene = scene_t::create_mis_scene(film.get_resolution());
 #endif // !KY_MIS_SCENE
 
 #ifdef KY_RELEASE
-    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 100; // # samples per pixel
+    int samples_per_pixel = argc == 2 ? atoi(argv[1]) / 4 : 16; // # samples per pixel
     std::unique_ptr<sampler_t> sampler =
         std::make_unique<random_sampler_t>(samples_per_pixel);
 
