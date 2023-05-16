@@ -817,7 +817,7 @@ class rng_t
 {
 public:
     // TODO
-    rng_t(int seed = 1234) : rng_engine_(seed)
+    rng_t(int seed = 1234) : rng_engine_{ seed }
     {
     }
 
@@ -1521,7 +1521,9 @@ inline color_t clamp01(color_t c) { return color_t(clamp01(c.r), clamp01(c.g), c
 
 inline uint8_t gamma_encoding(float_t x) { return pow(clamp01(x), 1 / 2.2) * 255 + .5; }
 
-// warpper of `color_t pixels[]`
+/*
+   warpper of `color_t pixels[]`
+*/
 class film_t : public nocopyable_t
 {
 public:
@@ -1899,24 +1901,32 @@ inline vec3_t reflect(vec3_t wo, normal_t normal)
     return -wo + 2 * dot(wo, normal) * normal;
 }
 
-// eta = eta_i/eta_t
-inline bool refract(vec3_t wi, normal_t normal, float_t eta, vec3_t* out_wt)
+// eta_ratio = eta_i/eta_t
+inline bool refract(vec3_t wi, normal_t normal, float_t eta_ratio, vec3_t* out_wt)
 {
-    // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#SpecularTransmission
-    // https://github.com/mmp/pbrt-v3/blob/master/src/core/reflection.h#L97-L109
+    /*
+       https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#SpecularTransmission
+       https://github.com/mmp/pbrt-v3/blob/master/src/core/reflection.height#L97-L109
+    */
 
-    // compute $\cos \theta_\mathrm{t}$ using Snell's law
+    // compute $\cos \theta_ \mathrm{t}$ using Snell's law
     float_t cos_theta_i = dot(normal, wi);
     float_t sin_theta_i_sq = std::max(float_t(0), float_t(1 - cos_theta_i * cos_theta_i));
-    float_t sin_theta_t_sq = eta * eta * sin_theta_i_sq;
+    float_t sin_theta_t_sq = eta_ratio * eta_ratio * sin_theta_i_sq;
 
     if (sin_theta_t_sq >= 1)
         return false; // handle total internal reflection for transmission
 
     float_t cos_theta_t = std::sqrt(1 - sin_theta_t_sq);
-    *out_wt = eta * -wi + (eta * cos_theta_i - cos_theta_t) * vec3_t(normal);
 
-    CHECK_DEBUG(out_wt->is_valid() && !out_wt->is_zero());
+
+    *out_wt = eta_ratio * -wi + (eta_ratio * cos_theta_i - cos_theta_t) * vec3_t(normal);
+    // TODO
+    //*out_wt = eta_ratio * (cos_theta_i * normal - wi) - cos_theta_t * normal;
+
+    //TODO
+    //CHECK_DEBUG(out_wt->is_valid() && !out_wt->is_zero());
+
     return true;
 }
 
@@ -2315,12 +2325,13 @@ public:
 
     bsdf_sample_t sample_(vec3_t wo, float2_t random) const override
     {
-        // https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#FresnelReflectance
-        // 
-        // https://github.com/infancy/pbrt-v3/blob/master/src/materials/glass.cpp#L64-L69   full smooth glass
-        // https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.h#L440-L463   class FresnelSpecular;
-        // https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.cpp#L627-L667 FresnelSpecular::Sample_f(...)
+        /*
+           https://www.pbr-book.org/3ed-2018/Reflection_Models/Specular_Reflection_and_Transmission#FresnelReflectance
 
+           https://github.com/infancy/pbrt-v3/blob/master/src/materials/glass.cpp#L64-L69   full smooth glass
+           https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.h#L440-L463   class FresnelSpecular;
+           https://github.com/infancy/pbrt-v3/blob/master/src/core/reflection.cpp#L627-L667 FresnelSpecular::Sample_f(...)
+        */
 
         bsdf_sample_t sample;
 
@@ -2437,7 +2448,7 @@ private:
 class phong_specular_reflection_t : public bsdf_t
 {
 public:
-    phong_specular_reflection_t(const frame_t& shading_frame, /*color_t Kd,*/ color_t specular_reflectance, float_t exponent) :
+    phong_specular_reflection_t(const frame_t& shading_frame, color_t specular_reflectance, float_t exponent) :
         bsdf_t(shading_frame),
         specular_reflectance_{ specular_reflectance },
         exponent_{ exponent }
@@ -2601,7 +2612,7 @@ class plastic_material_t : public material_t
 public:
     /*
        diffuse_color: diffuse reflection color
-       color_t specular_color: specular reflection color
+       specular_color: specular reflection color
     */
     plastic_material_t(color_t diffuse_color, color_t specular_color, float_t shininess) :
         diffuse_color_{ diffuse_color },
