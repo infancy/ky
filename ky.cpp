@@ -3851,11 +3851,11 @@ protected:
         if (skip_specular && isect.bsdf()->is_delta())
             return {};
 
-        bsdf_sample_t bs = isect.bsdf()->sample(isect.wo, sampler.get_float2());
-        if (bs.f.is_black() || bs.pdf == 0)
+        bsdf_sample_t bsdf_sample = isect.bsdf()->sample(isect.wo, sampler.get_float2());
+        if (bsdf_sample.f.is_black() || bsdf_sample.pdf == 0)
             return {};
 
-        ray_t ray = isect.spawn_ray(bs.wi);
+        ray_t ray = isect.spawn_ray(bsdf_sample.wi);
         isect_t light_isect;
         bool is_hit_light = scene->intersect(ray, &light_isect);
 
@@ -3874,11 +3874,11 @@ protected:
         if (Li.is_black())
             return {};
 
-        float_t cos_theta = abs_dot(bs.wi, isect.normal);
-        color_t Ld = bs.f * Li * cos_theta / bs.pdf;
+        float_t cos_theta = abs_dot(bsdf_sample.wi, isect.normal);
+        color_t Ld = bsdf_sample.f * Li * cos_theta / bsdf_sample.pdf;
 
-        //LOG_DEBUG("{}, {}\n", bs.wi.to_string(), isect.normal.to_string());
-        //LOG_DEBUG("{}, {}, {}, {}\n", bs.f.to_string(), Li.to_string(), cos_theta, bs.pdf);
+        //LOG_DEBUG("{}, {}\n", bsdf_sample.wi.to_string(), isect.normal.to_string());
+        //LOG_DEBUG("{}, {}, {}, {}\n", bsdf_sample.f.to_string(), Li.to_string(), cos_theta, bsdf_sample.pdf);
 
         return Ld;
     }
@@ -4539,8 +4539,8 @@ public:
             // possibly terminate the path with Russian roulette.
             if (bounces > 3)
             {
-                float_t beta_max_comp = beta.max_component_value();
-                float_t q = std::max((float_t).05, 1 - beta_max_comp);
+                float_t beta_max_component = beta.max_component_value();
+                float_t q = std::max((float_t)0.05, 1 - beta_max_component);
 
                 if (sampler->get_float() < q)
                     break;
