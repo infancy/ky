@@ -51,6 +51,9 @@ using namespace std::literals::string_literals;
 #endif
 
 
+#define ky_out
+#define ky_inout
+
 
 template<typename T>
 const T& unmove(T&& x) { return x; }
@@ -1010,64 +1013,69 @@ public:
     virtual float_t area() const = 0;
 
 public:
-    // these methods below only used for `area_light_t`
+    // below methods only used for `area_light_t`
+    // https://www.pbr-book.org/3ed-2018/Light_Transport_I_Surface_Reflection/Sampling_Light_Sources#SamplingShapes
 
-    // TODO: return position_sample_t
-    virtual light_isect_t sample_position(float2_t random, float_t* out_pdf_position) const = 0;
+    // random sample a position on area_light
+    virtual light_isect_t sample_position(float2_t random, ky_out float_t& area_pdf) const = 0;
 
-
-    // TODO: return direction_sample_t
-    // default compute `*_direction` by `*_position` 
-    virtual light_isect_t sample_direction(const isect_t& isect, float2_t random, float_t* out_pdf_direction) const
+    // random sample a direciton from shade_point `isect` to area_light
+    virtual light_isect_t sample_direction(const isect_t& isect, float2_t random, ky_out float_t& solid_angle_pdf) const
     {
-        isect_t light_isect = sample_position(random, out_pdf_direction);
-        vec3_t wi = light_isect.position - isect.position;
+        float_t area_pdf{};
+        isect_t light_isect = sample_position(random, ky_out area_pdf);
 
+        vec3_t wi = light_isect.position - isect.position;
         if (wi.magnitude_squared() == 0)
         {
-            *out_pdf_direction = 0;
+            solid_angle_pdf = 0;
         }
         else
         {
             wi = normalize(wi);
-            // look comments in `pdf_direction()` below
-            *out_pdf_direction *= distance_squared(light_isect.position, isect.position) / abs_dot(light_isect.normal, -wi);
 
-            if (std::isinf(*out_pdf_direction))
-                *out_pdf_direction = 0.f;
+            // convert position's area_pdf to direction's solid_angle_pdf
+            // look comments in `pdf_direction()` below
+            solid_angle_pdf = area_pdf * distance_squared(light_isect.position, isect.position) / abs_dot(light_isect.normal, -wi);
+
+            if (std::isinf(solid_angle_pdf))
+                solid_angle_pdf = 0.f;
         }
 
         return light_isect;
     }
+
+    // return solid_angle_pdf from shade point `isect` to area_light along direciotn `world_wi`
     virtual float_t pdf_direction(const isect_t& isect, unit_vec3_t world_wi) const
     {
         ray_t ray = isect.spawn_ray(world_wi);
         isect_t light_isect;
 
         if (!intersect(ray, &light_isect))
-            return 0;
+            return 0.f;
 
         /*
-          convert light sample point to solid angle:
+          convert light sample point's area to projected solid angle:
 
-              $$\mathrm{d} \omega = \fact{\mathrm{d} A^{\perp} }{l^{2}} $$
+              solid_angle   = area / distance_squared
+
+              projected_light_area = abs_dot(...) * area()
+
+              projected_solid_angle = projected_light_area / distance_squared
+                                    = (abs_dot(...) * area()) / distance_squared(...)
 
           because:
-              unit_solid_angle = 1 / distance_squared(...)
-              projected_light_area = abs_dot(...) * area()
-              projected_solid_angle = projected_light_area / distance_squared
-
-              pdf = distance_squared(...) / (abs_dot(...) * area()) = inverse_projected_solid_angle
-              1 / pdf 
-                      = (abs_dot(...) * area()) / distance_squared(...) = projected_solid_angle
-                      = (1 / distance_squared(...)) * (abs_dot(...) * area()) = unit_solid_angle * projected_light_area
+              solid_angle_pdf = 1 / projected_solid_angle
+                              = distance_squared / projected_light_area
+                              = distance_squared(...) / (abs_dot(...) * area())
 
           so:
-              (f * Li * cos_theta) / pdf = f * (Li * cos_theta * projected_solid_angle)
-
-          or:
-              (f * Li * cos_theta) / pdf = f * (Li * cos_theta * unit_solid_angle * projected_light_area)
+              Lo = (f * Li * cos_theta) / solid_angle_pdf
+                 = (f * Li * cos_theta) / inverse_projected_solid_angle
+                 = (f * Li * cos_theta) * projected_solid_angle
+                 = (f * Li * cos_theta) * projected_light_area / distance_squared
         */
+
         float_t pdf = distance_squared(isect.position, light_isect.position) / (abs_dot(light_isect.normal, -world_wi) * area());
         if (std::isinf(pdf))
             pdf = 0.f;
@@ -1081,7 +1089,6 @@ public:
 
 using shape_sptr_t = std::shared_ptr<shape_t>; 
 using shape_list_t = std::vector<shape_sptr_t>;
-
 
 
 class disk_t : public shape_t
@@ -1128,7 +1135,7 @@ public:
     float_t area() const override { return k_pi * radius_ * radius_; }
 
 public:
-    light_isect_t sample_position(float2_t random, float_t* pdf) const override
+    light_isect_t sample_position(float2_t random, ky_out float_t& area_pdf) const override
     {
         isect_t light_isect;
 
@@ -1138,7 +1145,7 @@ public:
 
         light_isect.normal = normalize(normal_);
 
-        *pdf = 1 / area();
+        area_pdf = 1 / area();
         return light_isect;
     }
 
@@ -1147,6 +1154,7 @@ public:
     normal_t normal_;
     float_t radius_;
 };
+
 
 class triangle_t : public shape_t
 {
@@ -1208,7 +1216,7 @@ public:
     float_t area() const override { return 0.5 * cross(p1_ - p0_, p2_ - p0_).magnitude(); }
 
 public:
-    light_isect_t sample_position(float2_t random, float_t* pdf) const override
+    light_isect_t sample_position(float2_t random, ky_out float_t& area_pdf) const override
     {
         point2_t b = uniform_triangle_sample(random);
 
@@ -1216,7 +1224,7 @@ public:
         light_isect.position = b.x * p0_ + b.y * p1_ + (1 - b.x - b.y) * p2_;
         light_isect.normal = normal_;
 
-        *pdf = 1 / area();
+        area_pdf = 1 / area();
         return light_isect;
     }
 
@@ -1226,6 +1234,7 @@ public:
     point3_t p2_;
     normal_t normal_;
 };
+
 
 class rectangle_t : public shape_t
 {
@@ -1289,13 +1298,13 @@ public:
     float_t area() const override { return cross(p0_ - p1_, p2_ - p1_).magnitude(); }
 
 public:
-    light_isect_t sample_position(float2_t random, float_t* pdf) const override
+    light_isect_t sample_position(float2_t random, ky_out float_t& area_pdf) const override
     {
         isect_t light_isect;
         light_isect.position = p1_ + (p0_ - p1_) * random[0] + (p2_ - p1_) * random[1];
         light_isect.normal = normalize(normal_);
 
-        *pdf = 1 / area();
+        area_pdf = 1 / area();
         return light_isect;
     }
 
@@ -1306,6 +1315,7 @@ public:
     point3_t p3_;
     normal_t normal_;
 };
+
 
 class sphere_t : public shape_t
 {
@@ -1385,7 +1395,7 @@ public:
     float_t area() const override { return 4 * k_pi * radius_sq_; }
 
 public:
-    light_isect_t sample_position(float2_t random, float_t* pdf) const override
+    light_isect_t sample_position(float2_t random, ky_out float_t& area_pdf) const override
     {
         unit_vec3_t direction = uniform_sphere_sample(random);
         point3_t position = center_ + radius_ * direction;
@@ -1394,35 +1404,39 @@ public:
         light_isect.position = position;
         light_isect.normal = normalize(direction);
 
-        *pdf = 1 / area();
+        area_pdf = 1 / area();
 
         return light_isect;
     }
 
     // TODO: confirm
-    light_isect_t sample_direction(const isect_t& isect, float2_t random, float_t* pdf) const override
+    light_isect_t sample_direction(const isect_t& isect, float2_t random, ky_out float_t& solid_angle_pdf) const override
     {
+        // if shade point is inside the sphere
         if (distance_squared(isect.position, center_) <= radius_ * radius_)
         {
-            isect_t light_isect = sample_position(random, pdf);
+            float_t area_pdf{};
+            isect_t light_isect = sample_position(random, ky_out area_pdf);
             vec3_t wi = light_isect.position - isect.position;
 
             if (wi.magnitude_squared() == 0)
-                *pdf = 0;
+            {
+                solid_angle_pdf = 0;
+            }
             else
             {
                 // convert from area measure returned by Sample() call above to solid angle measure.
                 wi = normalize(wi);
-                *pdf *= distance_squared(light_isect.position, isect.position) / abs_dot(isect.normal, -wi);
+                solid_angle_pdf = area_pdf * distance_squared(light_isect.position, isect.position) / abs_dot(isect.normal, -wi);
             }
 
-            if (std::isinf(*pdf))
-                *pdf = 0.f;
+            if (std::isinf(solid_angle_pdf))
+                solid_angle_pdf = 0.f;
 
             return light_isect;
         }
 
-        // sample sphere uniformly inside subtended cone
+        // else sample sphere uniformly inside subtended cone
 
         /*
                 /         _
@@ -1475,7 +1489,7 @@ public:
         light_isect.normal = world_normal;
 
         // uniform cone PDF.
-        *pdf = 1 / (2 * k_pi * (1 - cos_theta_max));
+        solid_angle_pdf = 1 / (2 * k_pi * (1 - cos_theta_max));
 
         return light_isect;
     }
@@ -2391,7 +2405,7 @@ public:
     /*
     // smallpt version
     color_t sample_(vec3_t wo, float2_t random,
-        vec3_t* out_wi, float_t* out_pdf_direction, bsdf_enum_t* out_bsdf_type) const override
+        vec3_t* out_wi, float_t* solid_angle_pdf, bsdf_enum_t* out_bsdf_type) const override
     {
         normal_t normal(0, 0, 1);
         bool into = normal.dot(wo) > 0; // ray from outside going in?
@@ -2416,7 +2430,7 @@ public:
             // Compute specular reflection for _FresnelSpecular_
 
             *out_wi = vec3_t(-wo.x, -wo.y, wo.z);
-            *out_pdf_direction = Re; // Russian roulette???
+            *solid_angle_pdf = Re; // Russian roulette???
 
             return (Re * R_) / abs_cos_theta(*out_wi);
         }
@@ -2424,7 +2438,7 @@ public:
         {
             // Compute specular transmission for _FresnelSpecular_
 
-            *out_pdf_direction = Tr;
+            *solid_angle_pdf = Tr;
             return (T_ * Tr) / abs_cos_theta(*out_wi);
         }
     }
@@ -2698,9 +2712,9 @@ struct position_sample_t
 
     position_sample_t() = default;
     position_sample_t(
-    point3_t position, normal_t normal, const ray_t& ray,
-    float_t pdf_position, float_t pdf_direction,
-    color_t emission) :
+      point3_t position, normal_t normal, const ray_t& ray,
+      float_t pdf_position, float_t pdf_direction,
+      color_t emission) :
         position{ position },
         normal{ normal },
         ray(ray),
@@ -2718,12 +2732,12 @@ struct position_sample_t
    called `LightLiSample` in pbrt-v4, `DirectionSample` in mitsuba3
    mainly used for light.sample_Li()
 */
-struct light_sample_t // : public position_sample_t
+struct light_sample_t
 {
     point3_t position{};
-    vec3_t wi{}; // isect -> light, alone ray's direction
-    float_t pdf{}; // pdf of direction(convert from pdf of position)
-    color_t Li{}; // for light
+    vec3_t wi{};   // isect -> light, alone ray's direction
+    float_t pdf{}; // solid_angle_pdf, convert from area_pdf
+    color_t Li{};  // light's radiance
 
     light_sample_t() = default;
     light_sample_t(const isect_t& isect, vec3_t wi, float_t pdf, color_t Li) :
@@ -2734,6 +2748,7 @@ struct light_sample_t // : public position_sample_t
     {
     }
 };
+
 
 class scene_t;
 
@@ -2758,15 +2773,19 @@ public:
 
     virtual color_t power() const = 0;
 
+public:
     // only work for environment light
     virtual color_t Le(const ray_t& r) const { return color_t{}; }
 
 public:
     // Li means : camera <-wo- isect -wi-> light
 
-    // sample_light/samle_direction
+    // random sample a direciton from shade_point `isect` to light
+    // or called `samle_direction()`, `samle_solid_angle()`
     virtual light_sample_t sample_Li(const isect_t& isect, float2_t random) const = 0;
 
+    // return solid_angle_pdf from shade point `isect` to light along direciotn `world_wi`
+    // or called `direction_pdf()`, `solid_angle_pdf()`
     virtual float_t pdf_Li(const isect_t& isect, vec3_t world_wi) const = 0;
 
 protected:
@@ -2776,6 +2795,7 @@ protected:
 
 using light_sptr_t = std::shared_ptr<light_t>;
 using light_list_t = std::vector<light_sptr_t>;
+
 
 class point_light_t : public light_t
 {
@@ -2925,11 +2945,11 @@ public:
     }
 
 public:
-    // sample direction by sample potision on shape
+    // random sample a direciton from shade_point `isect` to area_light
     light_sample_t sample_Li(const isect_t& isect, float2_t random) const override
     {
         light_sample_t sample;
-        isect_t light_isect = shape_->sample_direction(isect, random, &sample.pdf);
+        isect_t light_isect = shape_->sample_direction(isect, random, ky_out sample.pdf);
         sample.position = light_isect.position;
 
         if (sample.pdf == 0 || (light_isect.position - isect.position).magnitude_squared() == 0)
@@ -2945,6 +2965,7 @@ public:
         return sample;
     }
 
+    // return solid_angle_pdf from shade point `isect` to area_light along direciotn `world_wi` 
     float_t pdf_Li(
         const isect_t& isect, vec3_t world_wi) const override
     {
