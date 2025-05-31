@@ -3878,11 +3878,12 @@ protected:
         if (skip_specular && isect.bsdf()->is_delta())
             return {};
 
-        bsdf_sample_t bsdf_sample = isect.bsdf()->sample(isect.wo, sampler.get_float2());
-        if (bsdf_sample.f.is_black() || bsdf_sample.pdf == 0)
+        bsdf_sample_t bs = isect.bsdf()->sample(isect.wo, sampler.get_float2());
+        color_t f_cos = bs.f * abs_dot(bs.wi, isect.normal);
+        if (f_cos.is_black() || bs.pdf == 0)
             return {};
 
-        ray_t ray = isect.spawn_ray(bsdf_sample.wi);
+        ray_t ray = isect.spawn_ray(bs.wi);
         isect_t light_isect;
         bool is_hit_light = scene->intersect(ray, &light_isect);
 
@@ -3901,11 +3902,10 @@ protected:
         if (Li.is_black())
             return {};
 
-        float_t cos_theta = abs_dot(bsdf_sample.wi, isect.normal);
-        color_t Ld = bsdf_sample.f * Li * cos_theta / bsdf_sample.pdf;
+        color_t Ld = f_cos * Li / bs.pdf;
 
-        //LOG_DEBUG("{}, {}\n", bsdf_sample.wi.to_string(), isect.normal.to_string());
-        //LOG_DEBUG("{}, {}, {}, {}\n", bsdf_sample.f.to_string(), Li.to_string(), cos_theta, bsdf_sample.pdf);
+        //LOG_DEBUG("{}, {}\n", bs.wi.to_string(), isect.normal.to_string());
+        //LOG_DEBUG("{}, {}, {}, {}\n", bs.f.to_string(), Li.to_string(), cos_theta, bs.pdf);
 
         return Ld;
     }
@@ -3930,12 +3930,11 @@ protected:
         if (scene->occluded(isect, ls.position))
             return {};
 
-        color_t f = isect.bsdf()->eval(isect.wo, ls.wi);
-        if (f.is_black())
+        color_t f_cos = isect.bsdf()->eval(isect.wo, ls.wi) * abs_dot(ls.wi, isect.normal);
+        if (f_cos.is_black())
             return {};
 
-        float_t cos_theta = abs_dot(ls.wi, isect.normal);
-        color_t Ld = f * ls.Li * cos_theta / ls.pdf;
+        color_t Ld = f_cos * ls.Li / ls.pdf;
 
         //LOG_DEBUG("{}, {}\n", ls.wi.to_string(), isect.normal.to_string());
         LOG_DEBUG("{}, {}, {}, {}, {}\n", Ld.to_string(), f.to_string(), ls.Li.to_string(), cos_theta, ls.pdf);
@@ -3961,8 +3960,8 @@ protected:
 
         // sample scattered direction for surface isect_t
         bsdf_sample_t bs = isect.bsdf()->sample(isect.wo, random_bsdf);
-        bs.f *= abs_dot(bs.wi, isect.normal);
-        if (bs.f.is_black() || bs.pdf <= 0)
+        color_t f_cos = bs.f * abs_dot(bs.wi, isect.normal);
+        if (f_cos.is_black() || bs.pdf <= 0)
             return {};
 
         // TODO: move to scene_t
@@ -3988,7 +3987,7 @@ protected:
         color_t Ld{};
         if (is_specular)
         {
-            Ld = bs.f * Li / bs.pdf; // don't need MIS
+            Ld = f_cos * Li / bs.pdf; // don't need MIS
         }
         else
         {
@@ -4003,11 +4002,11 @@ protected:
                 float_t bsdf_weight  = balance_heuristic(1, bs.pdf, 1, light_pdf);
                 float_t light_weight = balance_heuristic(1, light_pdf, 1, bs.pdf);
 
-                Ld = bsdf_weight * (bs.f * Li) / bs.pdf + light_weight * (bs.f * Li) / light_pdf
-                   = 2.f * (bs.f * Li) / (bs.pdf + light_pdf)
+                Ld = bsdf_weight * (f_cos * Li) / bs.pdf + light_weight * (f_cos * Li) / light_pdf
+                   = 2.f * (f_cos * Li) / (bs.pdf + light_pdf)
               */
 
-                Ld = 2.f * (bs.f * Li) / (bs.pdf + light_pdf);
+                Ld = 2.f * (f_cos * Li) / (bs.pdf + light_pdf);
             }
         }
 
@@ -4029,14 +4028,14 @@ protected:
         if (scene->occluded(isect, ls.position))
             return {};
 
-        color_t f = isect.bsdf()->eval(isect.wo, ls.wi) * abs_dot(ls.wi, isect.normal);
-        if (f.is_black())
+        color_t f_cos = isect.bsdf()->eval(isect.wo, ls.wi) * abs_dot(ls.wi, isect.normal);
+        if (f_cos.is_black())
             return {};
 
         color_t Ld{};
         if (light.is_delta())
         {
-            Ld = f * ls.Li / ls.pdf; // don't need MIS
+            Ld = f_cos * ls.Li / ls.pdf; // don't need MIS
         }
         else
         {
@@ -4044,12 +4043,12 @@ protected:
             float_t light_weight = balance_heuristic(1, ls.pdf, 1, bsdf_pdf);
             float_t bsdf_weight  = balance_heuristic(1, bsdf_pdf, 1, ls.pdf);
 
-            Ld = light_weight * (f * ls.Li) / ls.pdf + bsdf_weight * (f * ls.Li) / bsdf_pdf
-               = 2 * (f * ls.Li) / (ls.pdf + bsdf_pdf)
+            Ld = light_weight * (f_cos * ls.Li) / ls.pdf + bsdf_weight * (f_cos * ls.Li) / bsdf_pdf
+               = 2 * (f_cos * ls.Li) / (ls.pdf + bsdf_pdf)
           */
 
             float_t bsdf_pdf = isect.bsdf()->pdf(isect.wo, ls.wi);
-            Ld = 2 * (f * ls.Li) / (ls.pdf + bsdf_pdf);
+            Ld = 2 * (f_cos * ls.Li) / (ls.pdf + bsdf_pdf);
         }
 
         return Ld;
