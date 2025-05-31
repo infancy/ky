@@ -17,6 +17,7 @@
 #include <memory>
 #include <numbers>
 #include <optional>
+#include <print>
 #include <random>
 #include <source_location>
 #include <string>
@@ -65,7 +66,7 @@ inline void _LOG(const std::source_location& location, const std::string& fmt, T
 
     std::string msg = std::vformat("{}(...) line{}: " + fmt,
         std::make_format_args(unmove(location.function_name()), unmove(location.line()), args...));
-    std::printf("%s", msg.c_str());
+    std::print("{}", msg);
 }
 
 template <typename... Ts>
@@ -73,7 +74,7 @@ inline void _LOG_ERROR(const std::source_location& location, const std::string& 
 {
     std::string msg = std::vformat("{}(...) line{}: " + fmt,
         std::make_format_args(unmove(location.function_name()), unmove(location.line()), args...));
-    std::printf("%s", msg.c_str());
+    std::print("{}", msg);
 
     throw std::exception(msg.c_str());
 }
@@ -1020,6 +1021,7 @@ public:
     virtual light_isect_t sample_position(float2_t random, ky_out float_t& area_pdf) const = 0;
 
     // random sample a direciton from shade_point `isect` to area_light
+    // or called `sample_solid_angle()`
     virtual light_isect_t sample_direction(const isect_t& isect, float2_t random, ky_out float_t& solid_angle_pdf) const
     {
         float_t area_pdf{};
@@ -1046,6 +1048,7 @@ public:
     }
 
     // return solid_angle_pdf from shade point `isect` to area_light along direciotn `world_wi`
+    // or called `solid_angle_pdf()`
     virtual float_t pdf_direction(const isect_t& isect, unit_vec3_t world_wi) const
     {
         ray_t ray = isect.spawn_ray(world_wi);
@@ -1863,7 +1866,7 @@ public:
         up_{ up.normalize()},
         resolution_{ resolution }
     {
-        // TODO
+        // https://github.com/infancy/ky/issues/1
         // https://github.com/infancy/pbrt-v3/blob/master/src/core/transform.cpp#L394-L397
  
         float_t tan_fov = std::tan(radians(fov) / 2);
@@ -3678,11 +3681,13 @@ public:
 
     #ifdef KY_RELEASE
         #pragma omp parallel for schedule(dynamic, 1) // OpenMP
-    #endif // !KY_RELEASE
+    #endif
         for (int y = 0; y < height; y += 1)
         {
             auto sampler = original_sampler->clone(); // multi thread
-            LOG("rendering... {} spp, {:.2f}%\r", sampler->ge_samples_per_pixel(), 100. * y / (height - 1));
+
+            std::printf("%s", std::format("rendering... {} spp, {:.2f}%\r", sampler->ge_samples_per_pixel(), 100. * y / (height - 1)).c_str());
+            //LOG("rendering... {} spp, {:.2f}%\r", sampler->ge_samples_per_pixel(), 100. * y / (height - 1));
 
             for (int x = 0; x < width; x += 1)
             {
