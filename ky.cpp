@@ -3966,16 +3966,27 @@ protected:
 
         color_t Ld{};
         if (is_specular)
+        {
             Ld = bs.f * Li / bs.pdf; // don't need MIS
+        }
         else
         {
             float_t light_pdf = light.pdf_Li(isect, bs.wi);
             if (light_pdf > 0) // visible
             {
-                float_t weight = balance_heuristic(1, bs.pdf, 1, light_pdf);
+              /*
+                https://cgg.mff.cuni.cz/~jirka/teaching/npgr010-2020/slides/06%20-%20npgr010-2020%20-%20MIS.pdf#21
 
-                // sample BSDF with one-sample MIS
-                Ld = (bs.f * Li * weight) / (0.5 * bs.pdf);
+                sample BSDF with one-sample MIS:
+
+                float_t bsdf_weight  = balance_heuristic(1, bs.pdf, 1, light_pdf);
+                float_t light_weight = balance_heuristic(1, light_pdf, 1, bs.pdf);
+
+                Ld = bsdf_weight * (bs.f * Li) / bs.pdf + light_weight * (bs.f * Li) / light_pdf
+                   = 2.f * (bs.f * Li) / (bs.pdf + light_pdf)
+              */
+
+                Ld = 2.f * (bs.f * Li) / (bs.pdf + light_pdf);
             }
         }
 
@@ -4003,14 +4014,21 @@ protected:
 
         color_t Ld{};
         if (light.is_delta())
+        {
             Ld = f * ls.Li / ls.pdf; // don't need MIS
+        }
         else
         {
-            float_t bsdf_pdf = isect.bsdf()->pdf(isect.wo, ls.wi);
-            float_t weight = balance_heuristic(1, ls.pdf, 1, bsdf_pdf);
+          /*
+            float_t light_weight = balance_heuristic(1, ls.pdf, 1, bsdf_pdf);
+            float_t bsdf_weight  = balance_heuristic(1, bsdf_pdf, 1, ls.pdf);
 
-            // sample light source with one-sample MIS
-            Ld = (f * ls.Li * weight) / (0.5 * ls.pdf);
+            Ld = light_weight * (f * ls.Li) / ls.pdf + bsdf_weight * (f * ls.Li) / bsdf_pdf
+               = 2 * (f * ls.Li) / (ls.pdf + bsdf_pdf)
+          */
+
+            float_t bsdf_pdf = isect.bsdf()->pdf(isect.wo, ls.wi);
+            Ld = 2 * (f * ls.Li) / (ls.pdf + bsdf_pdf);
         }
 
         return Ld;
