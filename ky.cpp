@@ -52,11 +52,16 @@ using namespace std::literals::string_literals;
 
 
 
+template<typename T>
+const T& unmove(T&& x) { return x; }
+
 template <typename... Ts>
 inline void _LOG(const std::source_location& location, const std::string& fmt, Ts&&... args)
 {
+    // https://en.cppreference.com/w/cpp/utility/format/make_format_args
+
     std::string msg = std::vformat("{}(...) line{}: " + fmt,
-        std::make_format_args(location.function_name(), location.line(), std::forward<Ts>(args)...));
+        std::make_format_args(unmove(location.function_name()), unmove(location.line()), args...));
     std::printf("%s", msg.c_str());
 }
 
@@ -64,7 +69,7 @@ template <typename... Ts>
 inline void _LOG_ERROR(const std::source_location& location, const std::string& fmt, Ts&&... args)
 {
     std::string msg = std::vformat("{}(...) line{}: " + fmt,
-        std::make_format_args(location.function_name(), location.line(), std::forward<Ts>(args)...));
+        std::make_format_args(unmove(location.function_name()), unmove(location.line()), args...));
     std::printf("%s", msg.c_str());
 
     throw std::exception(msg.c_str());
@@ -813,11 +818,12 @@ inline float_t power_heuristic(int f_num, float_t f_pdf, int g_num, float_t g_pd
 
 // random number generator
 // https://github.com/SmallVCM/SmallVCM/blob/master/src/rng.hxx
+
 class rng_t
 {
 public:
     // TODO
-    rng_t(int seed = 1234) : rng_engine_{ seed }
+    rng_t(uint64_t seed = 1234) : rng_engine_{ seed }
     {
     }
 
@@ -3797,16 +3803,16 @@ protected:
             estimate_direct_lighting = estimate_direct_lighting_idle;
             break;
         case direct_sample_enum_t::bsdf:
-            estimate_direct_lighting = estimate_direct_lighting_by_direction;
+            estimate_direct_lighting = estimate_direct_lighting_by_bsdf;
             break;
         case direct_sample_enum_t::light:
-            estimate_direct_lighting = estimate_direct_lighting_by_position;
+            estimate_direct_lighting = estimate_direct_lighting_by_emitter;
             break;
         case direct_sample_enum_t::bsdf_mis:
-            estimate_direct_lighting = estimate_direct_lighting_by_direction_mis;
+            estimate_direct_lighting = estimate_direct_lighting_by_bsdf_mis;
             break;
         case direct_sample_enum_t::light_mis:
-            estimate_direct_lighting = estimate_direct_lighting_by_position_mis;
+            estimate_direct_lighting = estimate_direct_lighting_by_emitter_mis;
             break;
         case direct_sample_enum_t::both_mis:
             estimate_direct_lighting = estimate_direct_lighting_both_mis;
@@ -3840,7 +3846,7 @@ protected:
     }
 
     // estimate single light source's direct contirbution by sampling bsdf's direction
-    static color_t estimate_direct_lighting_by_direction(
+    static color_t estimate_direct_lighting_by_bsdf(
         const isect_t& isect, const light_t& light,
         float2_t random_light, float2_t random_bsdf,
         scene_t* scene, sampler_t& sampler, bool skip_specular)
@@ -3884,7 +3890,7 @@ protected:
     }
 
     // estimate single light source's direct contirbution by sampling light's position
-    static color_t estimate_direct_lighting_by_position(
+    static color_t estimate_direct_lighting_by_emitter(
         const isect_t& isect, const light_t& light,
         float2_t random_light, float2_t random_bsdf,
         scene_t* scene, sampler_t& sampler, bool skip_specular)
@@ -3920,7 +3926,7 @@ protected:
 
 #pragma region estimate_direct_lighting_with_MIS
 
-    static color_t estimate_direct_lighting_by_direction_mis(
+    static color_t estimate_direct_lighting_by_bsdf_mis(
         const isect_t& isect, const light_t& light,
         float2_t random_light, float2_t random_bsdf,
         scene_t* scene, sampler_t& sampler, bool skip_specular)
@@ -3976,7 +3982,7 @@ protected:
         return Ld;
     }
 
-    static color_t estimate_direct_lighting_by_position_mis(
+    static color_t estimate_direct_lighting_by_emitter_mis(
         const isect_t& isect, const light_t& light,
         float2_t random_light, float2_t random_bsdf,
         scene_t* scene, sampler_t& sampler, bool skip_specular)
@@ -4015,8 +4021,8 @@ protected:
         float2_t random_light, float2_t random_bsdf,
         scene_t* scene, sampler_t& sampler, bool skip_specular)
     {
-        color_t Lb = estimate_direct_lighting_by_direction_mis(isect, light, random_light, random_bsdf, scene, sampler, skip_specular);
-        color_t Ll = estimate_direct_lighting_by_position_mis(isect, light, random_light, random_bsdf, scene, sampler, skip_specular);
+        color_t Lb = estimate_direct_lighting_by_bsdf_mis(isect, light, random_light, random_bsdf, scene, sampler, skip_specular);
+        color_t Ll = estimate_direct_lighting_by_emitter_mis(isect, light, random_light, random_bsdf, scene, sampler, skip_specular);
         color_t Ld = 0.5 * Lb + 0.5 * Ll;
 
         //LOG_DEBUG("{}, {}, {}\n", Ld.to_string(), Lb.to_string(), Ll.to_string());
