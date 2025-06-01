@@ -25,6 +25,8 @@
 #include <thread>
 #include <vector>
 
+//import std;
+
 using namespace std::literals::string_literals;
 
 
@@ -608,14 +610,6 @@ private:
     mutable float_t distance_; // distance from ray to intersection
 };
 
-
-
-class bsdf_t;
-class material_t;
-class area_light_t;
-class surface_t;
-using bsdf_uptr_t = std::unique_ptr<bsdf_t>;
-
 // avoid self intersection
 point3_t offset_ray_origin(point3_t position, normal_t normal, unit_vec3_t direction)
 {
@@ -625,7 +619,11 @@ point3_t offset_ray_origin(point3_t position, normal_t normal, unit_vec3_t direc
     return position + offset;
 }
 
+
+
 /*
+  isect: ray-shape intersection, called `SurfaceInteraction` on pbrt-v3
+
   prev   n   light
   ----   ^   -----
     ^    |    ^
@@ -637,7 +635,10 @@ point3_t offset_ray_origin(point3_t position, normal_t normal, unit_vec3_t direc
        isect
 */
 
-// surface intersection
+class bsdf_t;
+class surface_t;
+using bsdf_uptr_t = std::unique_ptr<bsdf_t>;
+
 class isect_t : public nocopyable_t
 {
 public:
@@ -657,7 +658,8 @@ public:
     const bsdf_t* bsdf() const { return bsdf_.get(); }
 
     // prev <- isect, against ray's direction
-    color_t Le() const { return emission_; }
+    // called `Le()` on pbrt-v3
+    color_t emission() const { return emission_; }
 
 public:
     ray_t spawn_ray(unit_vec3_t direction) const
@@ -686,6 +688,7 @@ private:
 
     friend surface_t;
 };
+
 using light_isect_t = isect_t;
 
 #pragma endregion
@@ -2778,10 +2781,11 @@ public:
 
 public:
     // only work for environment light
-    virtual color_t Le(const ray_t& r) const { return color_t{}; }
+    // called `Le()` on pbrt-v3
+    virtual color_t environmental_radiance(const ray_t& ray) const { return color_t{}; }
 
 public:
-    // Li means : camera <-wo- isect -wi-> light
+    // below methods only used for estimate direct lighting(NEE)
 
     // random sample a direciton from shade_point `isect` to light
     // or called `samle_direction()`, `samle_solid_angle()`
@@ -2855,7 +2859,9 @@ private:
     color_t intensity_{};
 };
 
+
 // use a disk to simulate
+// DistantLight
 class direction_light_t : public light_t
 {
 public:
@@ -2909,6 +2915,8 @@ private:
     frame_t frame_{};
 };
 
+
+// DiffuseAreaLight
 class area_light_t : public light_t
 {
 public:
@@ -2941,8 +2949,9 @@ public:
            -------
          light_isect
     */
-    // TODO
-    color_t Le(const isect_t& light_isect, vec3_t wo) const
+
+    // called `L()` on pbrt-v3's `DiffuseAreaLight`
+    color_t areal_radiance(const isect_t& light_isect, vec3_t wo) const
     {
         return (dot(light_isect.normal, wo) > 0) ? radiance_ : color_t();
     }
@@ -2961,8 +2970,8 @@ public:
         }
         else
         {
-            sample.wi = normalize(light_isect.position - isect.position);
-            sample.Li = Le(light_isect, -sample.wi);
+            sample.wi = normalize(light_isect.position - isect.position); // TODO: reverse?
+            sample.Li = areal_radiance(light_isect, -sample.wi);
         }
 
         return sample;
@@ -2981,8 +2990,9 @@ private:
     const shape_t* shape_{};
 };
 
-// constant_environment_light_t
-// use a sphere hold all the scene to simulate
+
+// constant environment light, use a sphere hold all the scene to simulate
+// InfiniteAreaLight
 class environment_light_t : public light_t
 {
 public:
@@ -3004,7 +3014,7 @@ public:
     }
 
 public:
-    color_t Le(const ray_t& ray) const
+    color_t environmental_radiance(const ray_t& ray) const
     {
         return radiance_;
     }
@@ -3054,6 +3064,7 @@ private:
 
 #pragma region surface(primitive)
 
+// GeometricPrimitive
 struct surface_t
 {
     const shape_t* shape{};
@@ -3067,7 +3078,7 @@ struct surface_t
         {
             isect->surface_ = this;
             isect->bsdf_ = material->scattering(*isect);
-            isect->emission_ = area_light ? area_light->Le(*isect, isect->wo) : color_t{};
+            isect->emission_ = area_light ? area_light->areal_radiance(*isect, isect->wo) : color_t{};
         }
 
         return hit;
@@ -3217,7 +3228,7 @@ public:
     color_t environment_lighting(ray_t ray) const
     {
         if (environment_light_ != nullptr)
-            return environment_light_->Le(ray);
+            return environment_light_->environmental_radiance(ray);
 
         return color_t{};
     }
@@ -3896,12 +3907,12 @@ protected:
         if (is_hit_light)
         {
             if (light_isect.surface()->area_light == &light)
-                Li = light_isect.Le();
+                Li = light_isect.emission();
         }
         else
         {
             // only work for environment light
-            Li = light.Le(ray);
+            Li = light.environmental_radiance(ray);
         }
 
         if (Li.is_black())
@@ -3942,7 +3953,7 @@ protected:
         color_t Ld = f_cos * ls.Li / ls.pdf;
 
         //LOG_DEBUG("{}, {}\n", ls.wi.to_string(), isect.normal.to_string());
-        LOG_DEBUG("{}, {}, {}, {}, {}\n", Ld.to_string(), f.to_string(), ls.Li.to_string(), cos_theta, ls.pdf);
+        LOG_DEBUG("{}, {}, {}, {}, {}\n", Ld.to_string(), f_cos.to_string(), ls.Li.to_string(), cos_theta, ls.pdf);
 
         return Ld;
     }
@@ -3978,12 +3989,12 @@ protected:
         if (is_hit_light)
         {
             if (light_isect.surface()->area_light == &light)
-                Li = light_isect.Le();
+                Li = light_isect.emission();
         }
         else
         {
             // only work for environment light
-            Li = light.Le(ray);
+            Li = light.environmental_radiance(ray);
         }
 
         if (Li.is_black())
@@ -4128,7 +4139,7 @@ public:
             return scene->environment_lighting(ray);
 
         // emission lighting
-        color_t Lo = isect.Le();
+        color_t Lo = isect.emission();
 
         // TODO
         if (!isect.bsdf()->is_delta())
@@ -4194,13 +4205,13 @@ public:
         }
 
         if (depth >= max_path_depth_)
-            return isect.Le();
+            return isect.emission();
 
 
         bsdf_sample_t bs = isect.bsdf()->sample(isect.wo, sampler->get_float2());
 
         if (bs.f.is_black() || bs.pdf == 0.f) // pdf == 0 => NaN
-            return isect.Le();
+            return isect.emission();
 
         //russian roulette
         if (++depth > 3)
@@ -4209,7 +4220,7 @@ public:
             if (sampler->get_float() < bsdf_max_comp) // continue
                 bs.f *= (1 / bsdf_max_comp);
             else
-                return isect.Le();
+                return isect.emission();
         }
 
         /*
@@ -4220,7 +4231,7 @@ public:
         color_t Ls = bs.f * Li(wi, scene, sampler, depth) * abs_dot(bs.wi, isect.normal) / bs.pdf;
 
         // TODO: CHECK_DEBUG
-        return isect.Le() + Ls;
+        return isect.emission() + Ls;
     }
 };
 
@@ -4348,7 +4359,7 @@ private:
 
         if (hit)
         {
-            Le = isect.Le();
+            Le = isect.emission();
         }
         else
         {
@@ -4458,7 +4469,7 @@ private:
 
         if (hit)
         {
-            Le = isect.Le();
+            Le = isect.emission();
         }
         else
         {
@@ -4537,7 +4548,7 @@ public:
                 // add emitted light at path vertex or from the environment
                 if (hit)
                 {
-                    Lo += beta * isect.Le();
+                    Lo += beta * isect.emission();
                 }
                 else
                 {
@@ -4768,22 +4779,22 @@ void render_direct_sample_enum(int argc, char* argv[])
 {
     auto scene_params = std::vector<std::pair<cornell_box_enum_t, int>>
     {
-        //{ cornell_box_enum_t::light_point, 1 },
+        { cornell_box_enum_t::light_point, 1 },
         { cornell_box_enum_t::light_direction, 10 },
-        //{ cornell_box_enum_t::light_area, 1 },
-        //{ cornell_box_enum_t::light_environment, 10 },
+        { cornell_box_enum_t::light_area, 1 },
+        { cornell_box_enum_t::light_environment, 10 },
     };
 
     auto sample_enums = std::vector<direct_sample_enum_t>
     {
-        //direct_sample_enum_t::bsdf,
-        //direct_sample_enum_t::light,
-        //direct_sample_enum_t::bsdf_mis,
-        //direct_sample_enum_t::light_mis,
+        direct_sample_enum_t::bsdf,
+        direct_sample_enum_t::light,
+        direct_sample_enum_t::bsdf_mis,
+        direct_sample_enum_t::light_mis,
         direct_sample_enum_t::both_mis,
     };
 
-    film_grid_t film(3, 2, 256, 256); //film.clear(color_t(1., 0., 0.));
+    film_grid_t film(5, 5, 256, 256); //film.clear(color_t(1., 0., 0.));
     for (auto [scene_enum, spp] : scene_params)
     {
         std::unique_ptr<sampler_t> sampler =
