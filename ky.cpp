@@ -2136,10 +2136,12 @@ inline bool is_delta_bsdf(bsdf_enum_t bsdf_type)
 
 struct bsdf_sample_t
 {
-    color_t f{}; // scattering rate 
-    vec3_t wi{}; // world wi
-    float_t pdf{};
+    color_t f{};   // scattering rate 
+    vec3_t wi{};   // world wi
+    float_t pdf{}; // solid angle pdf
     bsdf_enum_t bsdf_type{}; // flags
+
+    bool is_delta_bsdf() { return ::is_delta_bsdf(bsdf_type); }
 };
 
 class bsdf_t
@@ -2154,6 +2156,7 @@ public:
 
 public:
     virtual bool is_delta() const = 0;
+    bool not_delta() const { return !is_delta(); }
 
     // or called `f()`, `evaluate()`
     color_t eval(vec3_t world_wo, vec3_t world_wi) const
@@ -4141,8 +4144,7 @@ public:
         // emission lighting
         color_t Lo = isect.emission();
 
-        // TODO
-        if (!isect.bsdf()->is_delta())
+        if (isect.bsdf()->not_delta())
         {
             // direct lighting
             Lo += sample_all_light(isect, scene, *sampler, true, direct_sample_enum_);
@@ -4330,7 +4332,7 @@ private:
 
         if (hit && depth < max_path_depth_)
         {
-            if (!isect.bsdf()->is_delta())
+            if (isect.bsdf()->not_delta())
             {
                 Lo += direct_lighting(scene, sampler, isect);
             }
@@ -4451,7 +4453,7 @@ private:
 
         if (hit && depth < max_path_depth_)
         {
-            if (!isect.bsdf()->is_delta())
+            if (isect.bsdf()->not_delta())
             {
                 Lo += direct_lighting(scene, sampler, isect);
             }
@@ -4566,7 +4568,7 @@ public:
 
             // sample illumination from lights to find path contribution.
             // (but skip this for perfectly specular BSDFs.)
-            if (!isect.bsdf()->is_delta())
+            if (isect.bsdf()->not_delta())
                 //&& bounces > 0 && bounces < 2) // for debug
                 //&& bounces == 1) // for debug
             {
@@ -4591,8 +4593,7 @@ public:
             CHECK_DEBUG(beta.luminance() > 0.f, "{}", beta.to_string());
             CHECK_DEBUG(!std::isinf(beta.luminance()));
 
-            // TODO
-            is_prev_specular = is_delta_bsdf(bs.bsdf_type);
+            is_prev_specular = bs.is_delta_bsdf();
             ray = isect.spawn_ray(bs.wi); 
 
 
@@ -4794,7 +4795,7 @@ void render_direct_sample_enum(int argc, char* argv[])
         direct_sample_enum_t::both_mis,
     };
 
-    film_grid_t film(5, 5, 256, 256); //film.clear(color_t(1., 0., 0.));
+    film_grid_t film(4, 5, 256, 256); //film.clear(color_t(1., 0., 0.));
     for (auto [scene_enum, spp] : scene_params)
     {
         std::unique_ptr<sampler_t> sampler =
